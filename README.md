@@ -35,6 +35,26 @@ This framework solves the real-time classical field equations on a 2D or 3D latt
 
 The `analysis/` folder contains scripts that interface with [CosmoTransitions](https://github.com/clwainwright/CosmoTransitions) to compute the bounce action S_3/T, critical temperatures (T_c, T_sp), and nucleation rates. Results are stored in `data/tunneling/`.
 
+## Sample Results
+
+### Real scalar field -- bubble nucleation (1024x1024 lattice)
+
+<p align="center">
+  <img src="assets/real_scalar_1024x1024.gif" width="480" alt="Real scalar field bubble nucleation">
+</p>
+
+### Complex scalar field -- bubble collisions and cosmic strings (512x512 lattice)
+
+<p align="center">
+  <img src="assets/complex_scalar_512x512.gif" width="480" alt="Complex scalar field with cosmic strings">
+</p>
+
+### 3D bubble nucleation (256x256x256 lattice)
+
+<p align="center">
+  <img src="assets/bubble_3d_256x256x256.gif" width="480" alt="3D bubble nucleation">
+</p>
+
 ## Quick Start
 
 ```bash
