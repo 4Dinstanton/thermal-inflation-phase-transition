@@ -1,0 +1,53 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-30 13:02:41
+Log file: logs/simulation_20260130_130241.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+Field precision: float32
+VEV (true vacuum): ±1.0000e+11
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 20.0 lattice units
+VEV magnitude: 1.0000e+11
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=40, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=7.5094e+04, max=9.8201e+10
+============================================================
+
+Field states will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/field_states
+Figures will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=40, +VEV
+Thermal noise: DISABLED (deterministic evolution)
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7375.0 | 284.6 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7375.0 | 563.7 steps/s | 1.77 ms/step | ETA: 2953.6 min
+Step 200000/100000000 | t=2.00e-03 | T=7375.0 | 568.5 steps/s | 1.76 ms/step | ETA: 2926.0 min
+Step 300000/100000000 | t=3.00e-03 | T=7375.0 | 572.0 steps/s | 1.75 ms/step | ETA: 2904.9 min

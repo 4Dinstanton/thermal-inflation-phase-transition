@@ -1,0 +1,111 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-03-06 16:15:33
+Log file: logs/simulation_20260306_161533.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+
+Potential type: V_correct  (coeffs: boson=1.0, fermion=1.0)
+----------------------------------------------------------------------
+[Counterterm] Helpers defined; splines will be corrected after dx_phys is set.
+
+Time step: dt_phys = 2.50e-04, dt (rescaled) = 2.5000e-01
+  CFL limit: dt_CFL = 0.5774 (rescaled)
+  dt/dt_CFL = 4.3301e-01 (SAFE)
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=4930.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 1000 GeV  →  3H/η = 7.22e-08
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+Couplings: boson=1.09, fermion=1.09
+
+[Counterterm] Applying lattice counterterm:
+  dx_phys = 0.001, T0 = 4930
+  UV cutoff: k_max = pi/dx = 3141.6 GeV
+  Dimensionless cutoff: x_cut = k_max/T = 0.6372
+  Soft-mode fraction: boson=0.0019 (0.19%), fermion=0.0011 (0.11%)
+  Spline coefficients replaced in 0.00s
+  [No runtime overhead: kernel code unchanged, only spline values differ]
+
+Finding thermal VEV at T = 4930.0...
+  V'(0) = 2.2515e-06
+  V'(VEV) = 4.3127e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 2.2515e-06
+  V'(1e0)   = 2.2515e+04
+  V'(1e5)   = -1.0000e+11
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 1.4160e+03 and 1.4897e+03
+  Barrier top at: 1.4291e+03
+  Escape point: 1.5720e+03
+  V'(escape) = -7.0903e+06 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/256x256x256_T0_4930_dx_0.001_dtphys_0.00025_interval_4000_3D_hubble_eta_1000_gb_1.09_gf_1.09_rk2_nonfused_inline_CT_V_correct/field_states
+Figures will be saved to: data/set6/256x256x256_T0_4930_dx_0.001_dtphys_0.00025_interval_4000_3D_hubble_eta_1000_gb_1.09_gf_1.09_rk2_nonfused_inline_CT_V_correct/figs/latticeSnapshot
+
+--resume specified but no checkpoints found. Starting from scratch.
+
+============================================================
+Starting time evolution...
+Grid: 256×256×256, Steps: 1500000, dt: 2.50e-01
+Integrator: rk2_nonfused_inline
+Using Vprime lookup table: False (size=16384)
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 1.5700e+03)
+Overdamped mode: DISABLED (η = 1000)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 7.22e-08
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Dense snapshots: enabled (threshold=50000.0, interval=20)
+Step 0/1500000 | t=0.00e+00 | T=4930.0 | a=1.000000 | H=2.41e-05 | 5.3 steps/s | 188.63 ms/step | ETA: 4715.9 min
+
+*** phi threshold exceeded: max|phi|=52217.6 > 50000.0
+*** Switching to dense snapshots: every 20 steps
+
+Step 400/1500000 | t=1.00e-01 | T=4930.0 | a=1.000002 | H=2.41e-05 | 8.0 steps/s | 125.07 ms/step | ETA: 3126.0 min
+Step 420/1500000 | t=1.05e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 7.7 steps/s | 130.14 ms/step | ETA: 3252.5 min
+Step 440/1500000 | t=1.10e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 7.5 steps/s | 134.00 ms/step | ETA: 3348.9 min
+Step 460/1500000 | t=1.15e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 7.3 steps/s | 137.57 ms/step | ETA: 3438.1 min
+Step 480/1500000 | t=1.20e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 7.1 steps/s | 140.98 ms/step | ETA: 3523.4 min
+Step 500/1500000 | t=1.25e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 6.9 steps/s | 145.28 ms/step | ETA: 3630.9 min
+Step 520/1500000 | t=1.30e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 6.8 steps/s | 147.94 ms/step | ETA: 3697.1 min
+Step 540/1500000 | t=1.35e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 6.6 steps/s | 152.32 ms/step | ETA: 3806.7 min
+Step 560/1500000 | t=1.40e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 6.4 steps/s | 155.12 ms/step | ETA: 3876.5 min
+Step 580/1500000 | t=1.45e-01 | T=4930.0 | a=1.000003 | H=2.41e-05 | 6.4 steps/s | 157.29 ms/step | ETA: 3930.7 min
+Step 600/1500000 | t=1.50e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 6.2 steps/s | 162.56 ms/step | ETA: 4062.5 min
+Step 620/1500000 | t=1.55e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 6.1 steps/s | 164.47 ms/step | ETA: 4110.2 min
+Step 640/1500000 | t=1.60e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 6.0 steps/s | 165.71 ms/step | ETA: 4141.0 min
+Step 660/1500000 | t=1.65e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 6.0 steps/s | 166.45 ms/step | ETA: 4159.4 min
+Step 680/1500000 | t=1.70e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 6.0 steps/s | 167.35 ms/step | ETA: 4181.9 min
+Step 700/1500000 | t=1.75e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 5.9 steps/s | 170.23 ms/step | ETA: 4253.8 min
+Step 720/1500000 | t=1.80e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 5.8 steps/s | 171.77 ms/step | ETA: 4292.1 min
+Step 740/1500000 | t=1.85e-01 | T=4930.0 | a=1.000004 | H=2.41e-05 | 5.7 steps/s | 173.95 ms/step | ETA: 4346.7 min
+Step 760/1500000 | t=1.90e-01 | T=4930.0 | a=1.000005 | H=2.41e-05 | 5.7 steps/s | 175.47 ms/step | ETA: 4384.6 min
+Step 780/1500000 | t=1.95e-01 | T=4930.0 | a=1.000005 | H=2.41e-05 | 5.7 steps/s | 176.71 ms/step | ETA: 4415.5 min

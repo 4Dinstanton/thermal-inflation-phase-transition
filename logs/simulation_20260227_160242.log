@@ -1,0 +1,12 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-27 16:02:42
+Log file: logs/simulation_20260227_160242.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------

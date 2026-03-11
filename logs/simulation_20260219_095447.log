@@ -1,0 +1,67 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-19 09:54:47
+Log file: logs/simulation_20260219_095447.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=7341.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 0.3 GeV  →  3H/η = 2.41e-04
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7341.0...
+  V'(0) = -3.3898e-08
+  V'(VEV) = 7.1194e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = -3.3898e-08
+  V'(1e0)   = -3.3899e+02
+  V'(1e5)   = -9.9983e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  No barrier: V' < 0 everywhere (spinodal regime)
+  Using thermal VEV: 1.0000e+11
+  V'(escape) = 7.1194e-31
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/256x256_T0_7341_dt_1e-05_interval_50000_hubble/field_states
+Figures will be saved to: data/set6/256x256_T0_7341_dt_1e-05_interval_50000_hubble/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 1000000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 8.5680e-05)
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 2.41e-04
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/1000000000 | t=0.00e+00 | T=7341.0 | a=1.000000 | H=2.41e-05 | 154.6 steps/s | 0.00 ms/step | ETA: 0.0 min

@@ -1,0 +1,71 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-30 09:30:56
+Log file: logs/simulation_20260130_093056.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+Field precision: float32
+VEV (true vacuum): ±1.0000e+11
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 3.0 lattice units
+VEV magnitude: 1.0000e+11
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=5, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=-4.5263e-02, max=9.6555e+10
+============================================================
+
+Field states will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/field_states
+Figures will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=5, +VEV
+Thermal noise: DISABLED (deterministic evolution)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+
+Running settling (10000 steps, η=5.0)...
+  Settling step 2000/10000, φ range: [-4.52e-02, 9.66e+10]
+  Settling step 4000/10000, φ range: [-4.51e-02, 9.66e+10]
+  Settling step 6000/10000, φ range: [-4.50e-02, 9.66e+10]
+  Settling step 8000/10000, φ range: [-4.47e-02, 9.66e+10]
+  Settling step 10000/10000, φ range: [-4.44e-02, 9.66e+10]
+Settling complete. φ: [-4.44e-02, 9.66e+10]
+Momentum reset to zero.
+
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7375.0 | 701.3 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7375.0 | 520.2 steps/s | 1.92 ms/step | ETA: 3200.9 min
+Step 200000/100000000 | t=2.00e-03 | T=7375.0 | 542.8 steps/s | 1.84 ms/step | ETA: 3064.4 min
+Step 300000/100000000 | t=3.00e-03 | T=7375.0 | 549.4 steps/s | 1.82 ms/step | ETA: 3024.7 min
+Step 400000/100000000 | t=4.00e-03 | T=7375.0 | 552.6 steps/s | 1.81 ms/step | ETA: 3004.1 min
+Step 500000/100000000 | t=5.00e-03 | T=7375.0 | 552.8 steps/s | 1.81 ms/step | ETA: 2999.9 min
+Step 600000/100000000 | t=6.00e-03 | T=7375.0 | 555.0 steps/s | 1.80 ms/step | ETA: 2984.9 min
+Step 700000/100000000 | t=7.00e-03 | T=7375.0 | 556.4 steps/s | 1.80 ms/step | ETA: 2974.5 min
+Step 800000/100000000 | t=8.00e-03 | T=7375.0 | 554.0 steps/s | 1.81 ms/step | ETA: 2984.5 min
+Step 900000/100000000 | t=9.00e-03 | T=7375.0 | 551.2 steps/s | 1.81 ms/step | ETA: 2996.4 min
+Step 1000000/100000000 | t=1.00e-02 | T=7375.0 | 548.4 steps/s | 1.82 ms/step | ETA: 3008.6 min
+Step 1100000/100000000 | t=1.10e-02 | T=7375.0 | 545.9 steps/s | 1.83 ms/step | ETA: 3019.5 min
+Step 1200000/100000000 | t=1.20e-02 | T=7375.0 | 544.5 steps/s | 1.84 ms/step | ETA: 3024.3 min
+Step 1300000/100000000 | t=1.30e-02 | T=7375.0 | 543.4 steps/s | 1.84 ms/step | ETA: 3027.1 min

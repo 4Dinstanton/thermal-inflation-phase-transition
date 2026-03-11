@@ -1,0 +1,109 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-30 10:14:15
+Log file: logs/simulation_20260130_101415.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 5.0 (rescaled: 5.00e-03)
+Field precision: float32
+VEV (true vacuum): ±1.0000e+11
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 3.0 lattice units
+VEV magnitude: 1.0000e+11
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=5, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=-4.4971e-02, max=9.6555e+10
+============================================================
+
+Field states will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/field_states
+Figures will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=5, +VEV
+Thermal noise: DISABLED (deterministic evolution)
+Overdamped mode: ENABLED (η = 5.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+
+Running settling (10000 steps, η=5.0)...
+  Settling step 2000/10000, φ range: [-4.56e-02, 9.66e+10]
+  Settling step 4000/10000, φ range: [-4.62e-02, 9.66e+10]
+  Settling step 6000/10000, φ range: [-4.67e-02, 9.66e+10]
+  Settling step 8000/10000, φ range: [-4.71e-02, 9.66e+10]
+  Settling step 10000/10000, φ range: [-4.76e-02, 9.66e+10]
+Settling complete. φ: [-4.76e-02, 9.66e+10]
+Momentum reset to zero.
+
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7375.0 | 521.9 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7375.0 | 490.8 steps/s | 2.04 ms/step | ETA: 3392.1 min
+Step 200000/100000000 | t=2.00e-03 | T=7375.0 | 491.8 steps/s | 2.03 ms/step | ETA: 3382.1 min
+Step 300000/100000000 | t=3.00e-03 | T=7375.0 | 492.6 steps/s | 2.03 ms/step | ETA: 3373.5 min
+Step 400000/100000000 | t=4.00e-03 | T=7375.0 | 495.9 steps/s | 2.02 ms/step | ETA: 3347.7 min
+Step 500000/100000000 | t=5.00e-03 | T=7375.0 | 495.2 steps/s | 2.02 ms/step | ETA: 3348.8 min
+Step 600000/100000000 | t=6.00e-03 | T=7375.0 | 494.2 steps/s | 2.02 ms/step | ETA: 3352.3 min
+Step 700000/100000000 | t=7.00e-03 | T=7375.0 | 494.3 steps/s | 2.02 ms/step | ETA: 3348.3 min
+Step 800000/100000000 | t=8.00e-03 | T=7375.0 | 496.1 steps/s | 2.02 ms/step | ETA: 3332.7 min
+Step 900000/100000000 | t=9.00e-03 | T=7375.0 | 497.6 steps/s | 2.01 ms/step | ETA: 3319.2 min
+Step 1000000/100000000 | t=1.00e-02 | T=7375.0 | 499.2 steps/s | 2.00 ms/step | ETA: 3305.0 min
+Step 1100000/100000000 | t=1.10e-02 | T=7375.0 | 500.8 steps/s | 2.00 ms/step | ETA: 3291.3 min
+Step 1200000/100000000 | t=1.20e-02 | T=7375.0 | 501.9 steps/s | 1.99 ms/step | ETA: 3281.1 min
+Step 1300000/100000000 | t=1.30e-02 | T=7375.0 | 502.0 steps/s | 1.99 ms/step | ETA: 3277.1 min
+Step 1400000/100000000 | t=1.40e-02 | T=7375.0 | 502.0 steps/s | 1.99 ms/step | ETA: 3273.3 min
+Step 1500000/100000000 | t=1.50e-02 | T=7375.0 | 502.1 steps/s | 1.99 ms/step | ETA: 3269.5 min
+Step 1600000/100000000 | t=1.60e-02 | T=7375.0 | 502.3 steps/s | 1.99 ms/step | ETA: 3264.8 min
+Step 1700000/100000000 | t=1.70e-02 | T=7375.0 | 502.5 steps/s | 1.99 ms/step | ETA: 3260.2 min
+Step 1800000/100000000 | t=1.80e-02 | T=7375.0 | 503.0 steps/s | 1.99 ms/step | ETA: 3253.8 min
+Step 1900000/100000000 | t=1.90e-02 | T=7375.0 | 503.6 steps/s | 1.99 ms/step | ETA: 3246.6 min
+Step 2000000/100000000 | t=2.00e-02 | T=7375.0 | 504.6 steps/s | 1.98 ms/step | ETA: 3236.6 min
+Step 2100000/100000000 | t=2.10e-02 | T=7375.0 | 505.3 steps/s | 1.98 ms/step | ETA: 3228.9 min
+Step 2200000/100000000 | t=2.20e-02 | T=7375.0 | 505.9 steps/s | 1.98 ms/step | ETA: 3221.7 min
+Step 2300000/100000000 | t=2.30e-02 | T=7375.0 | 507.4 steps/s | 1.97 ms/step | ETA: 3209.0 min
+Step 2400000/100000000 | t=2.40e-02 | T=7375.0 | 508.4 steps/s | 1.97 ms/step | ETA: 3199.4 min
+Step 2500000/100000000 | t=2.50e-02 | T=7375.0 | 508.9 steps/s | 1.97 ms/step | ETA: 3193.3 min
+Step 2600000/100000000 | t=2.60e-02 | T=7375.0 | 509.6 steps/s | 1.96 ms/step | ETA: 3185.2 min
+Step 2700000/100000000 | t=2.70e-02 | T=7375.0 | 510.2 steps/s | 1.96 ms/step | ETA: 3178.5 min
+Step 2800000/100000000 | t=2.80e-02 | T=7375.0 | 510.6 steps/s | 1.96 ms/step | ETA: 3172.6 min
+Step 2900000/100000000 | t=2.90e-02 | T=7375.0 | 511.1 steps/s | 1.96 ms/step | ETA: 3166.5 min
+Step 3000000/100000000 | t=3.00e-02 | T=7375.0 | 511.6 steps/s | 1.95 ms/step | ETA: 3160.3 min
+Step 3100000/100000000 | t=3.10e-02 | T=7375.0 | 512.2 steps/s | 1.95 ms/step | ETA: 3153.3 min
+Step 3200000/100000000 | t=3.20e-02 | T=7375.0 | 512.1 steps/s | 1.95 ms/step | ETA: 3150.4 min
+Step 3300000/100000000 | t=3.30e-02 | T=7375.0 | 512.4 steps/s | 1.95 ms/step | ETA: 3145.3 min
+Step 3400000/100000000 | t=3.40e-02 | T=7375.0 | 512.6 steps/s | 1.95 ms/step | ETA: 3141.0 min
+Step 3500000/100000000 | t=3.50e-02 | T=7375.0 | 513.3 steps/s | 1.95 ms/step | ETA: 3133.5 min
+Step 3600000/100000000 | t=3.60e-02 | T=7375.0 | 514.1 steps/s | 1.95 ms/step | ETA: 3125.0 min
+Step 3700000/100000000 | t=3.70e-02 | T=7375.0 | 514.9 steps/s | 1.94 ms/step | ETA: 3117.4 min
+Step 3800000/100000000 | t=3.80e-02 | T=7375.0 | 515.4 steps/s | 1.94 ms/step | ETA: 3110.6 min
+Step 3900000/100000000 | t=3.90e-02 | T=7375.0 | 516.0 steps/s | 1.94 ms/step | ETA: 3103.9 min
+Step 4000000/100000000 | t=4.00e-02 | T=7375.0 | 516.6 steps/s | 1.94 ms/step | ETA: 3097.2 min
+Step 4100000/100000000 | t=4.10e-02 | T=7375.0 | 517.1 steps/s | 1.93 ms/step | ETA: 3091.1 min
+Step 4200000/100000000 | t=4.20e-02 | T=7375.0 | 517.6 steps/s | 1.93 ms/step | ETA: 3084.9 min
+Step 4300000/100000000 | t=4.30e-02 | T=7375.0 | 518.1 steps/s | 1.93 ms/step | ETA: 3078.7 min
+Step 4400000/100000000 | t=4.40e-02 | T=7375.0 | 518.5 steps/s | 1.93 ms/step | ETA: 3072.7 min
+Step 4500000/100000000 | t=4.50e-02 | T=7375.0 | 518.9 steps/s | 1.93 ms/step | ETA: 3067.6 min
+Step 4600000/100000000 | t=4.60e-02 | T=7375.0 | 519.1 steps/s | 1.93 ms/step | ETA: 3062.9 min
+Step 4700000/100000000 | t=4.70e-02 | T=7375.0 | 519.4 steps/s | 1.93 ms/step | ETA: 3058.0 min
+Step 4800000/100000000 | t=4.80e-02 | T=7375.0 | 519.8 steps/s | 1.92 ms/step | ETA: 3052.7 min
+Step 4900000/100000000 | t=4.90e-02 | T=7375.0 | 520.2 steps/s | 1.92 ms/step | ETA: 3047.0 min

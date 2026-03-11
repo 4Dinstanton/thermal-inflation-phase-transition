@@ -1,0 +1,78 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-24 16:29:37
+Log file: logs/simulation_20260224_162937.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+
+Time step: dt_phys = 1.00e-04, dt (rescaled) = 1.0000e-01
+  CFL limit: dt_CFL = 0.5774 (rescaled)
+  dt/dt_CFL = 1.7321e-01 (SAFE)
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=7370.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 0.3 GeV  →  3H/η = 2.41e-04
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7370.0...
+  V'(0) = 7.7081e-07
+  V'(VEV) = 7.2041e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 7.7081e-07
+  V'(1e0)   = 7.7081e+03
+  V'(1e5)   = -9.9982e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 1.4897e+03 and 1.5672e+03
+  Barrier top at: 1.5078e+03
+  Escape point: 1.6586e+03
+  V'(escape) = -2.7585e+06 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/256x256x256_T0_7370_dx_0.001_dtphys_0.0001_interval_1000_3D_hubble_eta_0.3_rk2_fused_table/field_states
+Figures will be saved to: data/set6/256x256x256_T0_7370_dx_0.001_dtphys_0.0001_interval_1000_3D_hubble_eta_0.3_rk2_fused_table/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256×256, Steps: 10000000000, dt: 1.00e-01
+Integrator: rk2_fused_table
+Using Vprime lookup table: True (size=16384)
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 2.1029e+01)
+Overdamped mode: DISABLED (η = 0.3)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 2.41e-04
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Dense snapshots: enabled (threshold=10000.0, interval=5)
+Step 0/10000000000 | t=0.00e+00 | T=7370.0 | a=1.000000 | H=2.41e-05 | 3.9 steps/s | 258.27 ms/step | ETA: 43045679.7 min
+Step 1000/10000000000 | t=1.00e-01 | T=7370.0 | a=1.000002 | H=2.41e-05 | 9.3 steps/s | 107.12 ms/step | ETA: 17854101.8 min
+Step 2000/10000000000 | t=2.00e-01 | T=7370.0 | a=1.000005 | H=2.41e-05 | 9.2 steps/s | 109.16 ms/step | ETA: 18192549.3 min
+Step 3000/10000000000 | t=3.00e-01 | T=7369.9 | a=1.000007 | H=2.41e-05 | 9.5 steps/s | 104.88 ms/step | ETA: 17480759.9 min
+Step 4000/10000000000 | t=4.00e-01 | T=7369.9 | a=1.000010 | H=2.41e-05 | 10.0 steps/s | 99.80 ms/step | ETA: 16632998.2 min
+Step 5000/10000000000 | t=5.00e-01 | T=7369.9 | a=1.000012 | H=2.41e-05 | 10.3 steps/s | 96.73 ms/step | ETA: 16121609.5 min

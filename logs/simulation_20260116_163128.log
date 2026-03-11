@@ -1,0 +1,42 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-16 16:31:28
+Log file: logs/simulation_20260116_163128.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+Field precision: float32
+Field states will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_500000/field_states
+Figures will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_500000/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 128×128, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete. Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7350.0 | 653.5 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 500000/100000000 | t=5.00e-03 | T=7350.0 | 1139.5 steps/s | 0.88 ms/step | ETA: 1455.3 min
+Step 1000000/100000000 | t=1.00e-02 | T=7350.0 | 1184.3 steps/s | 0.84 ms/step | ETA: 1393.2 min
+Step 1500000/100000000 | t=1.50e-02 | T=7350.0 | 1157.6 steps/s | 0.86 ms/step | ETA: 1418.1 min
+Step 2000000/100000000 | t=2.00e-02 | T=7350.0 | 1157.4 steps/s | 0.86 ms/step | ETA: 1411.2 min
+Step 2500000/100000000 | t=2.50e-02 | T=7350.0 | 1155.1 steps/s | 0.87 ms/step | ETA: 1406.8 min
+Step 3000000/100000000 | t=3.00e-02 | T=7350.0 | 1156.6 steps/s | 0.86 ms/step | ETA: 1397.8 min
+Step 3500000/100000000 | t=3.50e-02 | T=7350.0 | 1159.3 steps/s | 0.86 ms/step | ETA: 1387.3 min
+Step 4000000/100000000 | t=4.00e-02 | T=7350.0 | 1163.5 steps/s | 0.86 ms/step | ETA: 1375.2 min
+Step 4500000/100000000 | t=4.50e-02 | T=7350.0 | 1163.8 steps/s | 0.86 ms/step | ETA: 1367.7 min
+Step 5000000/100000000 | t=5.00e-02 | T=7349.9 | 1181.6 steps/s | 0.85 ms/step | ETA: 1339.9 min
+Step 5500000/100000000 | t=5.50e-02 | T=7349.9 | 1198.7 steps/s | 0.83 ms/step | ETA: 1314.0 min
+Step 6000000/100000000 | t=6.00e-02 | T=7349.9 | 1214.0 steps/s | 0.82 ms/step | ETA: 1290.5 min
+Step 6500000/100000000 | t=6.50e-02 | T=7349.9 | 1057.6 steps/s | 0.95 ms/step | ETA: 1473.5 min

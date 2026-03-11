@@ -1,0 +1,62 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-15 14:30:00
+Log file: logs/simulation_20260115_143000.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.58.1
+  Threading layer: tbb
+  Configured threads: 8
+  Active threads: 8
+----------------------------------------------------------------------
+Comparison: Vprime and dJ evaluation
+Saving comparison figure: figs/latticeSim_rescaled_numba/comparison_Vprime_dJ.png
+
+RK2 integrator mode: FUSED (optimized)
+Using IN-KERNEL Numba random number generation
+Field data type: float32 (memory-optimized)
+
+Initial Temperature = 50000 (cooling)
+dx_phys = 100000000.0, dt_phys = 0.005, a = 0.001
+Grid: 128 x 128, Total steps: 100000, save every 50000 steps
+Save path: figs/latticeSim_rescaled_numba/set6/T0_50000_dt_1e-05_a_0.001_interval_50000
+
+============================================================
+Starting time evolution...
+============================================================
+Step 0/100000 | t=0.00e+00 | T=50000.0 | 0.0 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 50000/100000 | t=5.00e-01 | T=7330.0 | 827.3 steps/s | 1.21 ms/step | ETA: 1.0 min
+Step 100000/100000 | t=1.00e+00 | T=1075.5 | 854.7 steps/s | 1.17 ms/step | ETA: 0.0 min
+
+============================================================
+SIMULATION FINISHED!
+============================================================
+
+Timing:
+  Total time: 1.95 minutes (117.0 seconds)
+  Average: 854.7 steps/second
+  Time per step: 1.170 ms
+
+Simulation Parameters:
+  Grid: 128×128
+  Total steps: 100,000
+  Initial temperature: 50000
+  Cooling rate: 0.0001
+  dx_phys: 100000000.0
+  dt_phys: 0.005
+
+Optimizations Used:
+  Fused RK2: True
+  In-kernel RNG: True
+  Field precision: float32
+  Spline resolution (N_Y): 256
+  Numba threads: 8
+
+Output:
+  Snapshots saved: figs/latticeSim_rescaled_numba/set6/T0_50000_dt_1e-05_a_0.001_interval_50000
+  Snapshot interval: every 50000 steps
+  Total snapshots: 2
+
+Completed: 2026-01-15 14:31:57
+

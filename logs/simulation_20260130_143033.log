@@ -1,0 +1,68 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-30 14:30:33
+Log file: logs/simulation_20260130_143033.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7375.0...
+  V'(0) = 9.0987e-07
+  V'(VEV) = 7.2188e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  No barrier found - V' < 0 from origin
+  Using 3.0000e+10 as starting point
+  V'(escape) = -2.7300e+16
+
+Using ESCAPE POINT for seeding: 3.0000e+10
+The field will dynamically roll toward the true vacuum!
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 20.0 lattice units
+VEV magnitude: 3.0000e+10
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=40, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=2.2528e+04, max=2.9460e+10
+============================================================
+
+Field states will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/field_states
+Figures will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=40, +VEV
+Thermal noise: DISABLED (deterministic evolution)
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7375.0 | 470.2 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7375.0 | 565.5 steps/s | 1.77 ms/step | ETA: 2944.2 min
+Step 200000/100000000 | t=2.00e-03 | T=7375.0 | 585.4 steps/s | 1.71 ms/step | ETA: 2841.5 min
+Step 300000/100000000 | t=3.00e-03 | T=7375.0 | 592.9 steps/s | 1.69 ms/step | ETA: 2802.6 min
+Step 400000/100000000 | t=4.00e-03 | T=7375.0 | 585.7 steps/s | 1.71 ms/step | ETA: 2834.2 min

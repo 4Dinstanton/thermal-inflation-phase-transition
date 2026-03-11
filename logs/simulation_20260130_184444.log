@@ -1,0 +1,129 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-30 18:44:44
+Log file: logs/simulation_20260130_184444.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7370.0...
+  V'(0) = 7.7081e-07
+  V'(VEV) = 7.2041e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 7.7081e-07
+  V'(1e0)   = 7.7081e+03
+  V'(1e5)   = -9.9982e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 1.4897e+03 and 1.5672e+03
+  Barrier top at: 1.5078e+03
+  Escape point: 1.6586e+03
+  V'(escape) = -2.7585e+06 (should be < 0)
+
+Using ESCAPE POINT for seeding: 1.6586e+03
+The field will dynamically roll toward the true vacuum!
+
+============================================================
+Computing CosmoTransitions bounce profile...
+============================================================
+  Searching for thermal minimum in range [1e3, 1e6]...
+  Found thermal minimum at: phi = 1.0000e+06
+  V(thermal min) = -5.0000e+17
+
+  V at different scales:
+    V(1e+03) = -7.7574e+14
+    V(1e+04) = -5.4512e+14
+    V(3e+04) = -4.5061e+14
+    V(5e+04) = -1.2500e+15
+    V(1e+05) = -5.0000e+15
+    V(1e+06) = -5.0000e+17
+
+  False vacuum: phi = 0.0000e+00
+  True vacuum:  phi = 1.0000e+06
+  V(false) = -7.7775e+14
+  V(true)  = -5.0000e+17
+
+  Bounce profile computed!
+  Number of profile points: 501
+  R range: [0.0000e+00, 4.8688e-03]
+  Phi range: [8.2207e+01, 1.0714e+05]
+  Phi at r=0 (center): 1.0714e+05
+  Phi at r=max (edge): 8.2207e+01
+  (Could not compute action: only length-1 arrays can be converted to Python scalars)
+
+  Bounce radius in physical units: ~4.8688e-03
+  Lattice spacing dx = 1.0000e+00
+  Natural bounce radius in lattice units: ~0.0049
+
+  Scaling bounce to 40 lattice units
+  Scale factor: 1.2172e-04
+  (r_physical = r_lattice * 1.2172e-04)
+
+  Bounce profile ready for seeding!
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: bounce
+Using CosmoTransitions bounce solution
+Scaled to radius: 40 lattice units
+VEV magnitude: 1.6586e+03
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), sign=+, profile=BOUNCE
+------------------------------------------------------------
+Field after seeding: min=0.0000e+00, max=1.0714e+05
+============================================================
+
+Field states will be saved to: data/set6/T0_7370_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/field_states
+Figures will be saved to: data/set6/T0_7370_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=40, +VEV
+Thermal noise: DISABLED (deterministic evolution)
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7370.0 | 363.2 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7370.0 | 567.8 steps/s | 1.76 ms/step | ETA: 2932.5 min
+Step 200000/100000000 | t=2.00e-03 | T=7370.0 | 581.3 steps/s | 1.72 ms/step | ETA: 2861.5 min
+Step 300000/100000000 | t=3.00e-03 | T=7370.0 | 584.0 steps/s | 1.71 ms/step | ETA: 2845.3 min
+Step 400000/100000000 | t=4.00e-03 | T=7370.0 | 585.4 steps/s | 1.71 ms/step | ETA: 2835.7 min
+Step 500000/100000000 | t=5.00e-03 | T=7370.0 | 586.0 steps/s | 1.71 ms/step | ETA: 2829.9 min
+Step 600000/100000000 | t=6.00e-03 | T=7370.0 | 587.3 steps/s | 1.70 ms/step | ETA: 2821.0 min
+Step 700000/100000000 | t=7.00e-03 | T=7370.0 | 583.4 steps/s | 1.71 ms/step | ETA: 2836.8 min
+Step 800000/100000000 | t=8.00e-03 | T=7370.0 | 574.3 steps/s | 1.74 ms/step | ETA: 2879.0 min
+Step 900000/100000000 | t=9.00e-03 | T=7370.0 | 566.2 steps/s | 1.77 ms/step | ETA: 2917.4 min
+Step 1000000/100000000 | t=1.00e-02 | T=7370.0 | 560.1 steps/s | 1.79 ms/step | ETA: 2945.9 min
+Step 1100000/100000000 | t=1.10e-02 | T=7370.0 | 554.2 steps/s | 1.80 ms/step | ETA: 2974.2 min
+Step 1200000/100000000 | t=1.20e-02 | T=7370.0 | 550.8 steps/s | 1.82 ms/step | ETA: 2989.8 min
+Step 1300000/100000000 | t=1.30e-02 | T=7370.0 | 548.9 steps/s | 1.82 ms/step | ETA: 2997.0 min
+Step 1400000/100000000 | t=1.40e-02 | T=7370.0 | 547.8 steps/s | 1.83 ms/step | ETA: 3000.0 min
+Step 1500000/100000000 | t=1.50e-02 | T=7370.0 | 546.7 steps/s | 1.83 ms/step | ETA: 3003.0 min
+Step 1600000/100000000 | t=1.60e-02 | T=7370.0 | 545.8 steps/s | 1.83 ms/step | ETA: 3004.5 min
+Step 1700000/100000000 | t=1.70e-02 | T=7370.0 | 545.2 steps/s | 1.83 ms/step | ETA: 3004.8 min
+Step 1800000/100000000 | t=1.80e-02 | T=7370.0 | 544.7 steps/s | 1.84 ms/step | ETA: 3005.0 min
+Step 1900000/100000000 | t=1.90e-02 | T=7370.0 | 544.2 steps/s | 1.84 ms/step | ETA: 3004.6 min
+Step 2000000/100000000 | t=2.00e-02 | T=7370.0 | 539.6 steps/s | 1.85 ms/step | ETA: 3026.9 min

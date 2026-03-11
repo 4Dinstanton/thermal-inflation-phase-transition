@@ -1,0 +1,175 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-22 14:26:09
+Log file: logs/simulation_20260222_142609.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+
+Time step: dt_phys = 4.00e-05, dt (rescaled) = 4.0000e-02
+  CFL limit: dt_CFL = 0.1155 (rescaled)
+  dt/dt_CFL = 3.4641e-01 (SAFE)
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=7370.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 0.3 GeV  →  3H/η = 2.41e-04
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7370.0...
+  V'(0) = 7.7081e-07
+  V'(VEV) = 7.2041e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 7.7081e-07
+  V'(1e0)   = 7.7081e+03
+  V'(1e5)   = -9.9982e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 1.4897e+03 and 1.5672e+03
+  Barrier top at: 1.5078e+03
+  Escape point: 1.6586e+03
+  V'(escape) = -2.7585e+06 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/64x64x64_T0_7370_dx_0.0002_dtphys_4e-05_interval_10000_3D_hubble_eta_0.3/field_states
+Figures will be saved to: data/set6/64x64x64_T0_7370_dx_0.0002_dtphys_4e-05_interval_10000_3D_hubble_eta_0.3/figs/latticeSnapshot
+
+--resume specified but no checkpoints found. Starting from scratch.
+
+============================================================
+Starting time evolution...
+Grid: 64×64×64, Steps: 1000000000, dt: 4.00e-02
+Integrator: RK2 (4 passes/step)
+  Single-pass fused: True
+  Fused RK2: True
+Using Vprime lookup table: True (size=16384)
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 4.7021e-03)
+Overdamped mode: DISABLED (η = 0.3)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 2.41e-04
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/1000000000 | t=0.00e+00 | T=7370.0 | a=1.000000 | H=2.41e-05 | 9.0 steps/s | 110.97 ms/step | ETA: 1849432.8 min
+Step 10000/1000000000 | t=4.00e-01 | T=7369.9 | a=1.000010 | H=2.41e-05 | 535.3 steps/s | 1.87 ms/step | ETA: 31136.6 min
+Step 20000/1000000000 | t=8.00e-01 | T=7369.9 | a=1.000019 | H=2.41e-05 | 555.6 steps/s | 1.80 ms/step | ETA: 29996.5 min
+Step 30000/1000000000 | t=1.20e+00 | T=7369.8 | a=1.000029 | H=2.41e-05 | 562.9 steps/s | 1.78 ms/step | ETA: 29609.2 min
+Step 40000/1000000000 | t=1.60e+00 | T=7369.7 | a=1.000038 | H=2.41e-05 | 566.6 steps/s | 1.76 ms/step | ETA: 29415.1 min
+Step 50000/1000000000 | t=2.00e+00 | T=7369.6 | a=1.000048 | H=2.41e-05 | 569.1 steps/s | 1.76 ms/step | ETA: 29283.4 min
+Step 60000/1000000000 | t=2.40e+00 | T=7369.6 | a=1.000058 | H=2.41e-05 | 570.8 steps/s | 1.75 ms/step | ETA: 29197.3 min
+Step 70000/1000000000 | t=2.80e+00 | T=7369.5 | a=1.000067 | H=2.41e-05 | 571.3 steps/s | 1.75 ms/step | ETA: 29171.2 min
+Step 80000/1000000000 | t=3.20e+00 | T=7369.4 | a=1.000077 | H=2.41e-05 | 572.4 steps/s | 1.75 ms/step | ETA: 29114.6 min
+Step 90000/1000000000 | t=3.60e+00 | T=7369.4 | a=1.000087 | H=2.41e-05 | 573.1 steps/s | 1.74 ms/step | ETA: 29080.7 min
+Step 100000/1000000000 | t=4.00e+00 | T=7369.3 | a=1.000096 | H=2.41e-05 | 573.4 steps/s | 1.74 ms/step | ETA: 29064.4 min
+Step 110000/1000000000 | t=4.40e+00 | T=7369.2 | a=1.000106 | H=2.41e-05 | 573.6 steps/s | 1.74 ms/step | ETA: 29054.2 min
+Step 120000/1000000000 | t=4.80e+00 | T=7369.1 | a=1.000115 | H=2.41e-05 | 574.4 steps/s | 1.74 ms/step | ETA: 29010.8 min
+Step 130000/1000000000 | t=5.20e+00 | T=7369.1 | a=1.000125 | H=2.41e-05 | 574.0 steps/s | 1.74 ms/step | ETA: 29033.0 min
+Step 140000/1000000000 | t=5.60e+00 | T=7369.0 | a=1.000135 | H=2.41e-05 | 574.7 steps/s | 1.74 ms/step | ETA: 28997.3 min
+Step 150000/1000000000 | t=6.00e+00 | T=7368.9 | a=1.000144 | H=2.41e-05 | 575.2 steps/s | 1.74 ms/step | ETA: 28972.8 min
+Step 160000/1000000000 | t=6.40e+00 | T=7368.9 | a=1.000154 | H=2.41e-05 | 575.3 steps/s | 1.74 ms/step | ETA: 28963.3 min
+Step 170000/1000000000 | t=6.80e+00 | T=7368.8 | a=1.000164 | H=2.41e-05 | 574.5 steps/s | 1.74 ms/step | ETA: 29004.0 min
+Step 180000/1000000000 | t=7.20e+00 | T=7368.7 | a=1.000173 | H=2.41e-05 | 574.6 steps/s | 1.74 ms/step | ETA: 29000.9 min
+Step 190000/1000000000 | t=7.60e+00 | T=7368.7 | a=1.000183 | H=2.41e-05 | 574.6 steps/s | 1.74 ms/step | ETA: 28999.2 min
+Step 200000/1000000000 | t=8.00e+00 | T=7368.6 | a=1.000192 | H=2.41e-05 | 574.7 steps/s | 1.74 ms/step | ETA: 28993.6 min
+Step 210000/1000000000 | t=8.40e+00 | T=7368.5 | a=1.000202 | H=2.41e-05 | 574.8 steps/s | 1.74 ms/step | ETA: 28988.8 min
+Step 220000/1000000000 | t=8.80e+00 | T=7368.4 | a=1.000212 | H=2.41e-05 | 575.0 steps/s | 1.74 ms/step | ETA: 28980.7 min
+Step 230000/1000000000 | t=9.20e+00 | T=7368.4 | a=1.000221 | H=2.41e-05 | 575.0 steps/s | 1.74 ms/step | ETA: 28980.4 min
+Step 240000/1000000000 | t=9.60e+00 | T=7368.3 | a=1.000231 | H=2.41e-05 | 575.1 steps/s | 1.74 ms/step | ETA: 28975.2 min
+Step 250000/1000000000 | t=1.00e+01 | T=7368.2 | a=1.000241 | H=2.41e-05 | 575.2 steps/s | 1.74 ms/step | ETA: 28967.0 min
+Step 260000/1000000000 | t=1.04e+01 | T=7368.2 | a=1.000250 | H=2.41e-05 | 575.5 steps/s | 1.74 ms/step | ETA: 28953.7 min
+Step 270000/1000000000 | t=1.08e+01 | T=7368.1 | a=1.000260 | H=2.41e-05 | 575.6 steps/s | 1.74 ms/step | ETA: 28945.5 min
+Step 280000/1000000000 | t=1.12e+01 | T=7368.0 | a=1.000269 | H=2.41e-05 | 575.7 steps/s | 1.74 ms/step | ETA: 28944.3 min
+Step 290000/1000000000 | t=1.16e+01 | T=7367.9 | a=1.000279 | H=2.41e-05 | 576.0 steps/s | 1.74 ms/step | ETA: 28926.1 min
+Step 300000/1000000000 | t=1.20e+01 | T=7367.9 | a=1.000289 | H=2.41e-05 | 575.9 steps/s | 1.74 ms/step | ETA: 28929.6 min
+Step 310000/1000000000 | t=1.24e+01 | T=7367.8 | a=1.000298 | H=2.41e-05 | 576.0 steps/s | 1.74 ms/step | ETA: 28925.2 min
+Step 320000/1000000000 | t=1.28e+01 | T=7367.7 | a=1.000308 | H=2.41e-05 | 575.9 steps/s | 1.74 ms/step | ETA: 28931.6 min
+Step 330000/1000000000 | t=1.32e+01 | T=7367.7 | a=1.000318 | H=2.41e-05 | 576.0 steps/s | 1.74 ms/step | ETA: 28926.9 min
+Step 340000/1000000000 | t=1.36e+01 | T=7367.6 | a=1.000327 | H=2.41e-05 | 575.6 steps/s | 1.74 ms/step | ETA: 28943.8 min
+Step 350000/1000000000 | t=1.40e+01 | T=7367.5 | a=1.000337 | H=2.41e-05 | 575.5 steps/s | 1.74 ms/step | ETA: 28951.9 min
+Step 360000/1000000000 | t=1.44e+01 | T=7367.4 | a=1.000346 | H=2.41e-05 | 575.8 steps/s | 1.74 ms/step | ETA: 28934.3 min
+Step 370000/1000000000 | t=1.48e+01 | T=7367.4 | a=1.000356 | H=2.41e-05 | 574.7 steps/s | 1.74 ms/step | ETA: 28991.5 min
+Step 380000/1000000000 | t=1.52e+01 | T=7367.3 | a=1.000366 | H=2.41e-05 | 574.8 steps/s | 1.74 ms/step | ETA: 28982.9 min
+Step 390000/1000000000 | t=1.56e+01 | T=7367.2 | a=1.000375 | H=2.41e-05 | 573.8 steps/s | 1.74 ms/step | ETA: 29032.6 min
+Step 400000/1000000000 | t=1.60e+01 | T=7367.2 | a=1.000385 | H=2.41e-05 | 573.5 steps/s | 1.74 ms/step | ETA: 29050.3 min
+Step 410000/1000000000 | t=1.64e+01 | T=7367.1 | a=1.000395 | H=2.41e-05 | 573.6 steps/s | 1.74 ms/step | ETA: 29046.2 min
+Step 420000/1000000000 | t=1.68e+01 | T=7367.0 | a=1.000404 | H=2.41e-05 | 572.8 steps/s | 1.75 ms/step | ETA: 29083.6 min
+Step 430000/1000000000 | t=1.72e+01 | T=7367.0 | a=1.000414 | H=2.41e-05 | 571.7 steps/s | 1.75 ms/step | ETA: 29142.0 min
+Step 440000/1000000000 | t=1.76e+01 | T=7366.9 | a=1.000423 | H=2.41e-05 | 570.7 steps/s | 1.75 ms/step | ETA: 29191.2 min
+Step 450000/1000000000 | t=1.80e+01 | T=7366.8 | a=1.000433 | H=2.41e-05 | 569.8 steps/s | 1.75 ms/step | ETA: 29235.3 min
+Step 460000/1000000000 | t=1.84e+01 | T=7366.7 | a=1.000443 | H=2.41e-05 | 569.5 steps/s | 1.76 ms/step | ETA: 29252.1 min
+Step 470000/1000000000 | t=1.88e+01 | T=7366.7 | a=1.000452 | H=2.41e-05 | 568.8 steps/s | 1.76 ms/step | ETA: 29288.6 min
+Step 480000/1000000000 | t=1.92e+01 | T=7366.6 | a=1.000462 | H=2.41e-05 | 568.4 steps/s | 1.76 ms/step | ETA: 29309.5 min
+Step 490000/1000000000 | t=1.96e+01 | T=7366.5 | a=1.000472 | H=2.41e-05 | 567.9 steps/s | 1.76 ms/step | ETA: 29331.3 min
+Step 500000/1000000000 | t=2.00e+01 | T=7366.5 | a=1.000481 | H=2.41e-05 | 567.4 steps/s | 1.76 ms/step | ETA: 29361.4 min
+Step 510000/1000000000 | t=2.04e+01 | T=7366.4 | a=1.000491 | H=2.41e-05 | 566.6 steps/s | 1.76 ms/step | ETA: 29401.5 min
+Step 520000/1000000000 | t=2.08e+01 | T=7366.3 | a=1.000500 | H=2.41e-05 | 565.1 steps/s | 1.77 ms/step | ETA: 29477.1 min
+Step 530000/1000000000 | t=2.12e+01 | T=7366.2 | a=1.000510 | H=2.41e-05 | 564.5 steps/s | 1.77 ms/step | ETA: 29509.0 min
+Step 540000/1000000000 | t=2.16e+01 | T=7366.2 | a=1.000520 | H=2.41e-05 | 564.3 steps/s | 1.77 ms/step | ETA: 29519.2 min
+Step 550000/1000000000 | t=2.20e+01 | T=7366.1 | a=1.000529 | H=2.41e-05 | 563.6 steps/s | 1.77 ms/step | ETA: 29556.1 min
+Step 560000/1000000000 | t=2.24e+01 | T=7366.0 | a=1.000539 | H=2.41e-05 | 563.5 steps/s | 1.77 ms/step | ETA: 29560.0 min
+Step 570000/1000000000 | t=2.28e+01 | T=7366.0 | a=1.000549 | H=2.41e-05 | 562.9 steps/s | 1.78 ms/step | ETA: 29589.8 min
+Step 580000/1000000000 | t=2.32e+01 | T=7365.9 | a=1.000558 | H=2.41e-05 | 562.5 steps/s | 1.78 ms/step | ETA: 29614.1 min
+Step 590000/1000000000 | t=2.36e+01 | T=7365.8 | a=1.000568 | H=2.41e-05 | 562.3 steps/s | 1.78 ms/step | ETA: 29622.0 min
+Step 600000/1000000000 | t=2.40e+01 | T=7365.7 | a=1.000578 | H=2.41e-05 | 562.0 steps/s | 1.78 ms/step | ETA: 29640.1 min
+Step 610000/1000000000 | t=2.44e+01 | T=7365.7 | a=1.000587 | H=2.41e-05 | 561.3 steps/s | 1.78 ms/step | ETA: 29677.4 min
+Step 620000/1000000000 | t=2.48e+01 | T=7365.6 | a=1.000597 | H=2.41e-05 | 561.2 steps/s | 1.78 ms/step | ETA: 29678.0 min
+Step 630000/1000000000 | t=2.52e+01 | T=7365.5 | a=1.000606 | H=2.41e-05 | 560.9 steps/s | 1.78 ms/step | ETA: 29696.9 min
+Step 640000/1000000000 | t=2.56e+01 | T=7365.5 | a=1.000616 | H=2.41e-05 | 560.9 steps/s | 1.78 ms/step | ETA: 29696.4 min
+Step 650000/1000000000 | t=2.60e+01 | T=7365.4 | a=1.000626 | H=2.41e-05 | 560.4 steps/s | 1.78 ms/step | ETA: 29722.7 min
+Step 660000/1000000000 | t=2.64e+01 | T=7365.3 | a=1.000635 | H=2.41e-05 | 560.0 steps/s | 1.79 ms/step | ETA: 29739.7 min
+Step 670000/1000000000 | t=2.68e+01 | T=7365.3 | a=1.000645 | H=2.41e-05 | 560.1 steps/s | 1.79 ms/step | ETA: 29738.3 min
+Step 680000/1000000000 | t=2.72e+01 | T=7365.2 | a=1.000655 | H=2.41e-05 | 559.5 steps/s | 1.79 ms/step | ETA: 29766.0 min
+Step 690000/1000000000 | t=2.76e+01 | T=7365.1 | a=1.000664 | H=2.41e-05 | 559.6 steps/s | 1.79 ms/step | ETA: 29761.1 min
+Step 700000/1000000000 | t=2.80e+01 | T=7365.0 | a=1.000674 | H=2.41e-05 | 558.6 steps/s | 1.79 ms/step | ETA: 29815.0 min
+Step 710000/1000000000 | t=2.84e+01 | T=7365.0 | a=1.000683 | H=2.41e-05 | 557.5 steps/s | 1.79 ms/step | ETA: 29874.4 min
+Step 720000/1000000000 | t=2.88e+01 | T=7364.9 | a=1.000693 | H=2.41e-05 | 557.3 steps/s | 1.79 ms/step | ETA: 29886.3 min
+Step 730000/1000000000 | t=2.92e+01 | T=7364.8 | a=1.000703 | H=2.41e-05 | 556.4 steps/s | 1.80 ms/step | ETA: 29932.9 min
+Step 740000/1000000000 | t=2.96e+01 | T=7364.8 | a=1.000712 | H=2.41e-05 | 556.0 steps/s | 1.80 ms/step | ETA: 29951.8 min
+Step 750000/1000000000 | t=3.00e+01 | T=7364.7 | a=1.000722 | H=2.41e-05 | 555.4 steps/s | 1.80 ms/step | ETA: 29987.0 min
+Step 760000/1000000000 | t=3.04e+01 | T=7364.6 | a=1.000732 | H=2.41e-05 | 554.0 steps/s | 1.81 ms/step | ETA: 30063.2 min
+Step 770000/1000000000 | t=3.08e+01 | T=7364.5 | a=1.000741 | H=2.41e-05 | 553.7 steps/s | 1.81 ms/step | ETA: 30077.9 min
+Step 780000/1000000000 | t=3.12e+01 | T=7364.5 | a=1.000751 | H=2.41e-05 | 553.8 steps/s | 1.81 ms/step | ETA: 30073.7 min
+Step 790000/1000000000 | t=3.16e+01 | T=7364.4 | a=1.000760 | H=2.41e-05 | 553.5 steps/s | 1.81 ms/step | ETA: 30088.6 min
+Step 800000/1000000000 | t=3.20e+01 | T=7364.3 | a=1.000770 | H=2.41e-05 | 553.4 steps/s | 1.81 ms/step | ETA: 30094.2 min
+Step 810000/1000000000 | t=3.24e+01 | T=7364.3 | a=1.000780 | H=2.41e-05 | 552.8 steps/s | 1.81 ms/step | ETA: 30124.2 min
+Step 820000/1000000000 | t=3.28e+01 | T=7364.2 | a=1.000789 | H=2.41e-05 | 552.5 steps/s | 1.81 ms/step | ETA: 30141.2 min
+Step 830000/1000000000 | t=3.32e+01 | T=7364.1 | a=1.000799 | H=2.41e-05 | 552.4 steps/s | 1.81 ms/step | ETA: 30145.2 min
+Step 840000/1000000000 | t=3.36e+01 | T=7364.0 | a=1.000809 | H=2.41e-05 | 552.2 steps/s | 1.81 ms/step | ETA: 30159.5 min
+Step 850000/1000000000 | t=3.40e+01 | T=7364.0 | a=1.000818 | H=2.41e-05 | 552.0 steps/s | 1.81 ms/step | ETA: 30167.3 min
+Step 860000/1000000000 | t=3.44e+01 | T=7363.9 | a=1.000828 | H=2.41e-05 | 552.0 steps/s | 1.81 ms/step | ETA: 30167.5 min
+Step 870000/1000000000 | t=3.48e+01 | T=7363.8 | a=1.000838 | H=2.41e-05 | 551.7 steps/s | 1.81 ms/step | ETA: 30184.4 min
+Step 880000/1000000000 | t=3.52e+01 | T=7363.8 | a=1.000847 | H=2.41e-05 | 551.5 steps/s | 1.81 ms/step | ETA: 30194.0 min
+Step 890000/1000000000 | t=3.56e+01 | T=7363.7 | a=1.000857 | H=2.41e-05 | 551.3 steps/s | 1.81 ms/step | ETA: 30203.8 min
+Step 900000/1000000000 | t=3.60e+01 | T=7363.6 | a=1.000866 | H=2.41e-05 | 551.0 steps/s | 1.81 ms/step | ETA: 30221.0 min
+Step 910000/1000000000 | t=3.64e+01 | T=7363.5 | a=1.000876 | H=2.41e-05 | 550.8 steps/s | 1.82 ms/step | ETA: 30228.8 min
+Step 920000/1000000000 | t=3.68e+01 | T=7363.5 | a=1.000886 | H=2.41e-05 | 550.8 steps/s | 1.82 ms/step | ETA: 30230.8 min
+Step 930000/1000000000 | t=3.72e+01 | T=7363.4 | a=1.000895 | H=2.41e-05 | 551.1 steps/s | 1.81 ms/step | ETA: 30215.6 min
+Step 940000/1000000000 | t=3.76e+01 | T=7363.3 | a=1.000905 | H=2.41e-05 | 551.3 steps/s | 1.81 ms/step | ETA: 30202.6 min
+Step 950000/1000000000 | t=3.80e+01 | T=7363.3 | a=1.000915 | H=2.41e-05 | 551.5 steps/s | 1.81 ms/step | ETA: 30193.7 min
+Step 960000/1000000000 | t=3.84e+01 | T=7363.2 | a=1.000924 | H=2.41e-05 | 551.6 steps/s | 1.81 ms/step | ETA: 30184.7 min
+Step 970000/1000000000 | t=3.88e+01 | T=7363.1 | a=1.000934 | H=2.41e-05 | 551.6 steps/s | 1.81 ms/step | ETA: 30183.4 min
+Step 980000/1000000000 | t=3.92e+01 | T=7363.1 | a=1.000943 | H=2.41e-05 | 551.7 steps/s | 1.81 ms/step | ETA: 30178.3 min
+Step 990000/1000000000 | t=3.96e+01 | T=7363.0 | a=1.000953 | H=2.41e-05 | 551.3 steps/s | 1.81 ms/step | ETA: 30204.3 min

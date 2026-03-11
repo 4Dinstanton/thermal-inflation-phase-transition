@@ -1,0 +1,87 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-03-05 21:29:29
+Log file: logs/simulation_20260305_212929.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+[Counterterm] Helpers defined; splines will be corrected after dx_phys is set.
+
+Time step: dt_phys = 7.50e-04, dt (rescaled) = 7.5000e-01
+  CFL limit: dt_CFL = 2.8868 (rescaled)
+  dt/dt_CFL = 2.5981e-01 (SAFE)
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=7360.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 1000 GeV  →  3H/η = 7.22e-08
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+Couplings: boson=1.09, fermion=1.09
+
+[Counterterm] Applying lattice counterterm:
+  dx_phys = 0.005, T0 = 7360
+  UV cutoff: k_max = pi/dx = 628.3 GeV
+  Dimensionless cutoff: x_cut = k_max/T = 0.0854
+  Soft-mode fraction: boson=0.0000 (0.00%), fermion=0.0000 (0.00%)
+  Spline coefficients replaced in 0.00s
+  [No runtime overhead: kernel code unchanged, only spline values differ]
+
+Finding thermal VEV at T = 7360.0...
+  V'(0) = 4.9290e-07
+  V'(VEV) = 7.1749e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 4.9290e-07
+  V'(1e0)   = 4.9290e+03
+  V'(1e5)   = -9.9982e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 1.1559e+03 and 1.2160e+03
+  Barrier top at: 1.2110e+03
+  Escape point: 1.3321e+03
+  V'(escape) = -1.4061e+06 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/512x512x512_T0_7360_dx_0.005_dtphys_0.00075_interval_4000_3D_hubble_eta_1000_gb_1.09_gf_1.09_rk2_nonfused_inline_CT/field_states
+Figures will be saved to: data/set6/512x512x512_T0_7360_dx_0.005_dtphys_0.00075_interval_4000_3D_hubble_eta_1000_gb_1.09_gf_1.09_rk2_nonfused_inline_CT/figs/latticeSnapshot
+
+--resume specified but no checkpoints found. Starting from scratch.
+
+============================================================
+Starting time evolution...
+Grid: 512×512×512, Steps: 1500000, dt: 7.50e-01
+Integrator: rk2_nonfused_inline
+Using Vprime lookup table: False (size=16384)
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 2.9719e+02)
+Overdamped mode: DISABLED (η = 1000)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 7.22e-08
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Dense snapshots: enabled (threshold=50000.0, interval=20)
+Step 0/1500000 | t=0.00e+00 | T=7360.0 | a=1.000000 | H=2.41e-05 | 0.2 steps/s | 4903.01 ms/step | ETA: 122575.2 min
+Step 4000/1500000 | t=3.00e+00 | T=7359.5 | a=1.000072 | H=2.41e-05 | 0.8 steps/s | 1221.52 ms/step | ETA: 30456.5 min
+Step 8000/1500000 | t=6.00e+00 | T=7358.9 | a=1.000144 | H=2.41e-05 | 1.0 steps/s | 1035.52 ms/step | ETA: 25749.9 min

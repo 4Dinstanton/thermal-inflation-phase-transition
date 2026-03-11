@@ -1,0 +1,34 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-29 16:32:07
+Log file: logs/simulation_20260129_163207.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+Field precision: float32
+VEV (true vacuum): ±1.0000e+11
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_50000/field_states
+Figures will be saved to: data/set6/T0_7375_dt_1e-05_a_0.001_interval_50000/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete. Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7375.0 | 338.2 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 50000/100000000 | t=5.00e-04 | T=7375.0 | 441.8 steps/s | 2.26 ms/step | ETA: 3770.3 min
+Step 100000/100000000 | t=1.00e-03 | T=7375.0 | 427.0 steps/s | 2.34 ms/step | ETA: 3899.1 min

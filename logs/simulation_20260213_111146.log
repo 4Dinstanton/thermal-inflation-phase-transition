@@ -1,0 +1,115 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-13 11:11:46
+Log file: logs/simulation_20260213_111146.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7350.0...
+  V'(0) = 2.1550e-07
+  V'(VEV) = 7.1457e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 2.1550e-07
+  V'(1e0)   = 2.1550e+03
+  V'(1e5)   = -9.9983e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 7.7025e+02 and 8.1034e+02
+  Barrier top at: 8.0472e+02
+  Escape point: 8.8519e+02
+  V'(escape) = -4.0450e+05 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 20.0 lattice units
+VEV magnitude: 1.0000e+11
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=40, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=7.5094e+04, max=9.8201e+10
+============================================================
+
+Field states will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/field_states
+Figures will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=40, +VEV
+Thermal noise: ENABLED
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+
+------------------------------------------------------------
+FORCE IMBALANCE DIAGNOSTIC (before relaxation)
+------------------------------------------------------------
+  Force imbalance (before relaxation):
+    max|F| = 3.8386e+10  at lattice site (97, 108)
+    phi range: [7.5094e+04, 9.8201e+10]
+    Saved: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/figs/latticeSnapshot/initial_force_imbalance.png
+------------------------------------------------------------
+
+
+============================================================
+GRADIENT FLOW RELAXATION
+============================================================
+  dt_gf = 0.1, max_iter = 50000, tol = 1e-06
+  wall_margin = 2.0 * wall_width
+  Annular mask: 20068 free sites out of 65536 (30.6%)
+  Band: r in [0, 80] lattice units
+  JIT warmup for gradient_flow_update complete.
+  Converged at iter 117! rel_change=9.13e-07 < tol=1e-06
+  Gradient flow took 0.23s (117 iterations)
+  Momentum reset to zero.
+============================================================
+
+------------------------------------------------------------
+FORCE IMBALANCE DIAGNOSTIC (after gradient flow)
+------------------------------------------------------------
+  Force imbalance (after gradient flow):
+    max|F| = 1.1151e+11  at lattice site (68, 75)
+    phi range: [7.5094e+04, 1.0000e+11]
+    Saved: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/figs/latticeSnapshot/initial_force_imbalance_after_gf.png
+------------------------------------------------------------
+
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7350.0 | 20.4 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7350.0 | 303.6 steps/s | 3.29 ms/step | ETA: 5484.4 min
+Step 200000/100000000 | t=2.00e-03 | T=7350.0 | 368.1 steps/s | 2.72 ms/step | ETA: 4518.3 min
+Step 300000/100000000 | t=3.00e-03 | T=7350.0 | 392.7 steps/s | 2.55 ms/step | ETA: 4231.5 min
+Step 400000/100000000 | t=4.00e-03 | T=7350.0 | 288.3 steps/s | 3.47 ms/step | ETA: 5757.4 min
+Step 500000/100000000 | t=5.00e-03 | T=7350.0 | 311.0 steps/s | 3.22 ms/step | ETA: 5332.0 min
+Step 600000/100000000 | t=6.00e-03 | T=7350.0 | 327.6 steps/s | 3.05 ms/step | ETA: 5057.3 min
+Step 700000/100000000 | t=7.00e-03 | T=7350.0 | 342.0 steps/s | 2.92 ms/step | ETA: 4838.9 min
+Step 800000/100000000 | t=8.00e-03 | T=7350.0 | 351.7 steps/s | 2.84 ms/step | ETA: 4700.7 min
+Step 900000/100000000 | t=9.00e-03 | T=7350.0 | 359.3 steps/s | 2.78 ms/step | ETA: 4597.1 min
+Step 1000000/100000000 | t=1.00e-02 | T=7350.0 | 365.6 steps/s | 2.74 ms/step | ETA: 4513.4 min
+Step 1100000/100000000 | t=1.10e-02 | T=7350.0 | 370.6 steps/s | 2.70 ms/step | ETA: 4447.8 min
+Step 1200000/100000000 | t=1.20e-02 | T=7350.0 | 375.3 steps/s | 2.66 ms/step | ETA: 4387.8 min

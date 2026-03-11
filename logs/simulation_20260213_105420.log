@@ -1,0 +1,154 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-13 10:54:20
+Log file: logs/simulation_20260213_105420.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7350.0...
+  V'(0) = 2.1550e-07
+  V'(VEV) = 7.1457e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 2.1550e-07
+  V'(1e0)   = 2.1550e+03
+  V'(1e5)   = -9.9983e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 7.7025e+02 and 8.1034e+02
+  Barrier top at: 8.0472e+02
+  Escape point: 8.8519e+02
+  V'(escape) = -4.0450e+05 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 20.0 lattice units
+VEV magnitude: 1.0000e+11
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=40, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=7.5094e+04, max=9.8201e+10
+============================================================
+
+Field states will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/field_states
+Figures will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=40, +VEV
+Thermal noise: ENABLED
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+
+------------------------------------------------------------
+FORCE IMBALANCE DIAGNOSTIC (before relaxation)
+------------------------------------------------------------
+  Force imbalance (before relaxation):
+    max|F| = 3.8386e+10  at lattice site (97, 108)
+    phi range: [7.5094e+04, 9.8201e+10]
+    Saved: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/figs/latticeSnapshot/initial_force_imbalance.png
+------------------------------------------------------------
+
+
+============================================================
+GRADIENT FLOW RELAXATION
+============================================================
+  dt_gf = 0.1, max_iter = 50000, tol = 1e-06
+  Pinning 1 bubble center(s) to VEV
+  JIT warmup for gradient_flow_update complete.
+  iter   1000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   2000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   3000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   4000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   5000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   6000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   7000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   8000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter   9000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  10000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  11000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  12000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  13000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  14000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  15000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  16000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  17000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  18000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  19000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  20000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  21000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  22000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  23000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  24000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  25000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  26000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  27000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  28000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  29000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  30000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  31000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  32000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  33000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  34000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  35000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  36000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  37000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  38000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  39000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  40000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  41000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  42000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  43000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  44000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  45000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  46000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  47000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  48000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  49000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  iter  50000: max|dphi|=9.27e+08, rel=9.27e-03, phi range=[9.82e+10, 1.00e+11]
+  WARNING: Did not converge in 50000 iterations
+  Final rel_change = 9.27e-03 (tol = 1e-06)
+  Gradient flow took 95.85s (50000 iterations)
+  Momentum reset to zero.
+============================================================
+
+------------------------------------------------------------
+FORCE IMBALANCE DIAGNOSTIC (after gradient flow)
+------------------------------------------------------------
+  Force imbalance (after gradient flow):
+    max|F| = 9.2675e+09  at lattice site (128, 128)
+    phi range: [9.8201e+10, 1.0000e+11]
+    Saved: data/set6/T0_7350_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles_tanh/figs/latticeSnapshot/initial_force_imbalance_after_gf.png
+------------------------------------------------------------
+
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7350.0 | 144.4 steps/s | 0.00 ms/step | ETA: 0.0 min
+Step 100000/100000000 | t=1.00e-03 | T=7350.0 | 452.6 steps/s | 2.21 ms/step | ETA: 3678.4 min
+Step 200000/100000000 | t=2.00e-03 | T=7350.0 | 461.4 steps/s | 2.17 ms/step | ETA: 3605.3 min

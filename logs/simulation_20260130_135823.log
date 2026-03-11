@@ -1,0 +1,85 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-30 13:58:23
+Log file: logs/simulation_20260130_135823.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 50.0 (rescaled: 5.00e-02)
+Field precision: float32
+VEV (true vacuum): ±1.0000e+11
+
+============================================================
+BUBBLE SEEDING ENABLED
+============================================================
+Number of bubbles: 1
+Profile type: tanh
+Wall width: 20.0 lattice units
+VEV magnitude: 1.0000e+11
+------------------------------------------------------------
+  Seeded bubble: center=(128, 128), radius=40, sign=+, profile=tanh
+------------------------------------------------------------
+Field after seeding: min=7.5094e+04, max=9.8201e+10
+============================================================
+
+
+============================================================
+DIAGNOSTIC: Checking V'(φ) at key field values
+============================================================
+Temperature T = 7300.0
+VEV (tree-level) = 1.0000e+11
+m² = 1.0000e+06, λ = 1.0000e-16
+
+φ = 0.0000e+00:
+  dV_tree    = 0.0000e+00
+  dV_thermal = 0.0000e+00 (boson only)
+  dV_total   ≈ 0.0000e+00
+  xb = 1.0251, dJb = 6.9177e-01
+
+φ = 5.0000e+10:
+  dV_tree    = -3.7500e+16
+  dV_thermal = 1.4002e-30 (boson only)
+  dV_total   ≈ -3.7500e+16
+  xb = 5279084.8732, dJb = 4.6089e-41
+
+φ = 1.0000e+11:
+  dV_tree    = 0.0000e+00
+  dV_thermal = 1.4002e-30 (boson only)
+  dV_total   ≈ 1.4002e-30
+  xb = 10558169.7465, dJb = 4.6089e-41
+
+φ = 1.5000e+11:
+  dV_tree    = 1.8750e+17
+  dV_thermal = 1.4002e-30 (boson only)
+  dV_total   ≈ 1.8750e+17
+  xb = 15837254.6197, dJb = 4.6089e-41
+============================================================
+If dV_total ≠ 0 at φ = VEV, the bubble will NOT be stable!
+============================================================
+
+Field states will be saved to: data/set6/T0_7300_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/field_states
+Figures will be saved to: data/set6/T0_7300_dt_1e-05_a_0.001_interval_100000_seeded_1bubbles/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 100000000, dt: 1.00e-05
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: ENABLED (1 bubbles)
+  Bubble 1: (128, 128), R=40, +VEV
+Thermal noise: DISABLED (deterministic evolution)
+Overdamped mode: ENABLED (η = 50.0, no ringing)
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/100000000 | t=0.00e+00 | T=7300.0 | 633.7 steps/s | 0.00 ms/step | ETA: 0.0 min

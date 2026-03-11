@@ -1,0 +1,77 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-21 19:13:28
+Log file: logs/simulation_20260221_191328.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=7347.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 0.3 GeV  →  3H/η = 2.41e-04
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7347.0...
+  V'(0) = 1.3233e-07
+  V'(VEV) = 7.1369e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 1.3233e-07
+  V'(1e0)   = 1.3233e+03
+  V'(1e5)   = -9.9983e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 6.2876e+02 and 6.6149e+02
+  Barrier top at: 6.3161e+02
+  Escape point: 6.9477e+02
+  V'(escape) = -1.9428e+05 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/64x64x64_T0_7347_dx_0.005_dtphys_2.5e-07_interval_50000_3D_hubble_eta_0.3/field_states
+Figures will be saved to: data/set6/64x64x64_T0_7347_dx_0.005_dtphys_2.5e-07_interval_50000_3D_hubble_eta_0.3/figs/latticeSnapshot
+
+============================================================
+RESUMING FROM CHECKPOINT
+============================================================
+  File: data/set6/64x64x64_T0_7347_dx_0.005_dtphys_2.5e-07_interval_50000_3D_hubble_eta_0.3/field_states/state_step_0000000000.npz
+  Step: 0  ->  resuming from step 0
+  Time: 0.000000e+00 (physical)
+  Temperature: 7347.0
+  phi range: [-4.3469e-02, 4.2572e-02]
+  scale_factor: 1.0000000000
+  Remaining steps: 1,000,000,000
+============================================================
+
+
+============================================================
+Starting time evolution...
+Grid: 64×64×64, Steps: 1000000000, dt: 2.50e-04
+Using single-pass fused RK2: True
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 2.9692e-06)
+Overdamped mode: DISABLED (η = 0.3)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 2.41e-04
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...

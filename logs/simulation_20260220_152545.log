@@ -1,0 +1,75 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-02-20 15:25:45
+Log file: logs/simulation_20260220_152545.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+OVERDAMPED MODE: η = 30.0 (rescaled: 3.00e-02)
+
+Hubble expansion: ENABLED (comoving lattice)
+  g_* = 106.75, M_Pl = 2.40e+18 GeV, ΔV = 1.00e+28 GeV^4
+  H² = (T⁴/χ_g² + ΔV) / (3 M_Pl²)
+  H(T0=7350.0) = 2.4056e-05 GeV
+  3H = 7.2169e-05 GeV
+  η_phys = 0.3 GeV  →  3H/η = 2.41e-04
+  T(t) = T0 / a(t)  (entropy conservation)
+  Initial a = 1.0
+Field precision: float32
+Tree-level VEV: ±1.0000e+11
+
+Finding thermal VEV at T = 7350.0...
+  V'(0) = 2.1550e-07
+  V'(VEV) = 7.1457e-31
+  Thermal VEV found: 1.0000e+11
+  Ratio thermal/tree: 1.0000
+
+Finding escape point...
+  V'(1e-10) = 2.1550e-07
+  V'(1e0)   = 2.1550e+03
+  V'(1e5)   = -9.9983e+10
+  V'(1e8)   = -1.0000e+14
+  V'(1e10)  = -9.9000e+15
+  Barrier found between 7.7025e+02 and 8.1034e+02
+  Barrier top at: 8.0472e+02
+  Escape point: 8.8519e+02
+  V'(escape) = -4.0450e+05 (should be < 0)
+
+Using TREE-LEVEL VEV for seeding: 1.0000e+11
+The bubble is seeded at the true vacuum (no rolling needed).
+Bubble seeding: DISABLED (thermal nucleation only)
+Field states will be saved to: data/set6/256x256_T0_7350_dx_0.005_dtphys_2.5e-07_interval_50000_hubble_eta_30/field_states
+Figures will be saved to: data/set6/256x256_T0_7350_dx_0.005_dtphys_2.5e-07_interval_50000_hubble_eta_30/figs/latticeSnapshot
+
+============================================================
+Starting time evolution...
+Grid: 256×256, Steps: 1000000000, dt: 2.50e-04
+Using fused RK2: True
+Using in-kernel RNG: True
+Field precision: float32
+Spline resolution N_Y: 256
+Bubble seeding: DISABLED
+Thermal noise: ENABLED (FDT noise_scale(T0) = 6.6408e-05)
+Overdamped mode: ENABLED (η = 30.0, no ringing)
+Hubble expansion: ENABLED
+  H(T0) = 2.4056e-05 GeV, 3H/η = 2.41e-04
+  g_* = 106.75, M_Pl = 2.40e+18 GeV
+============================================================
+
+Warming up JIT compilation...
+JIT warmup complete.
+Starting main loop...
+
+Step 0/1000000000 | t=0.00e+00 | T=7350.0 | a=1.000000 | H=2.41e-05 | 235.0 steps/s | 4.26 ms/step | ETA: 70917.6 min
+Step 50000/1000000000 | t=1.25e-02 | T=7350.0 | a=1.000000 | H=2.41e-05 | 409.8 steps/s | 2.44 ms/step | ETA: 40666.5 min
+Step 100000/1000000000 | t=2.50e-02 | T=7350.0 | a=1.000001 | H=2.41e-05 | 400.8 steps/s | 2.50 ms/step | ETA: 41582.1 min
+Step 150000/1000000000 | t=3.75e-02 | T=7350.0 | a=1.000001 | H=2.41e-05 | 397.6 steps/s | 2.52 ms/step | ETA: 41912.9 min
+Step 200000/1000000000 | t=5.00e-02 | T=7350.0 | a=1.000001 | H=2.41e-05 | 396.3 steps/s | 2.52 ms/step | ETA: 42050.0 min
+Step 250000/1000000000 | t=6.25e-02 | T=7350.0 | a=1.000002 | H=2.41e-05 | 394.1 steps/s | 2.54 ms/step | ETA: 42283.6 min
+Step 300000/1000000000 | t=7.50e-02 | T=7350.0 | a=1.000002 | H=2.41e-05 | 397.0 steps/s | 2.52 ms/step | ETA: 41967.4 min
+Step 350000/1000000000 | t=8.75e-02 | T=7350.0 | a=1.000002 | H=2.41e-05 | 400.3 steps/s | 2.50 ms/step | ETA: 41622.6 min

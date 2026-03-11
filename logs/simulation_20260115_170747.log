@@ -1,0 +1,15 @@
+======================================================================
+LATTICE SIMULATION LOG
+Started: 2026-01-15 17:07:47
+Log file: logs/simulation_20260115_170747.log
+======================================================================
+
+Numba Configuration:
+  Version: 0.63.1
+  Threading layer: default
+  Configured threads: 11
+  Active threads: 11
+----------------------------------------------------------------------
+Field precision: float32
+Field states will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_1000000/field_states
+Figures will be saved to: data/set6/T0_7350_dt_1e-05_a_0.001_interval_1000000/figs/latticeSnapShot

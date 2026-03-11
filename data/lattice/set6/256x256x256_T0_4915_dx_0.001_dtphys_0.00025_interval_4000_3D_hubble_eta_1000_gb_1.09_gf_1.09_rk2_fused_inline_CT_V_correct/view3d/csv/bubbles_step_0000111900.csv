@@ -1,0 +1,2 @@
+bubble_id,sign,centroid_x,centroid_y,centroid_z,volume,r_eff,r_rms,r_phys,r_rms_phys,peak,step,time,temperature
+1,+,94.69,83.47,135.52,33218,19.9417,15.4523,1.994167e-02,1.545226e-02,9.7615e+08,111900,2.79750000e+04,4911.69
