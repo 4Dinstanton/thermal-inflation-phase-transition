@@ -4,7 +4,7 @@ High-performance lattice simulation for finite-temperature scalar field theory, 
 
 ## Note on AI-Assisted Development
 
-Most of the code in this repository was written or substantially aided by AI (Claude / Cursor). This is shared intentionally -- we encourage students to leverage AI tools for scientific computing. AI is excellent at accelerating boilerplate, optimization, and visualization work, letting you focus on the physics. That said, always verify the physics and numerics yourself. Use AI as a collaborator, not a black box.
+Most of the code in this repository was written or substantially aided by AI (Claude / Cursor), including this readme file. This is shared intentionally -- I encourage students to leverage AI tools for scientific computing. AI is excellent at accelerating boilerplate, optimization, and visualization work, letting you focus on the physics. That said, always verify the physics and numerics yourself. Use AI as a collaborator, not a black box.
 
 ## Physics Overview
 
@@ -96,18 +96,56 @@ See `docs/DIRECTORY_STRUCTURE.md` for full details.
 
 ## Setup
 
-### Requirements
+### Prerequisites
+
+- Python 3.9+
+- [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html) (recommended for managing environments)
+
+### Installation
+
+It is recommended to create a dedicated conda environment:
 
 ```bash
-pip install numpy scipy matplotlib numba cosmoTransitions
+conda create -n phase_transition python=3.10
+conda activate phase_transition
 ```
 
-### Optional (for GPU acceleration on Linux/Windows):
+Install the required packages:
+
 ```bash
-pip install cupy-cuda11x  # or cuda12x
+pip install numpy scipy matplotlib numba sympy pandas Pillow cosmoTransitions
 ```
 
-**Note**: GPU acceleration not available on macOS. CPU version is already excellent on Apple Silicon.
+### Package Summary
+
+| Package | Purpose | Required by |
+|---------|---------|-------------|
+| `numpy` | Array operations, linear algebra | All scripts |
+| `scipy` | Interpolation, optimization, integration | Simulation, analysis, postprocess |
+| `matplotlib` | Plotting and visualization | Simulation, analysis, postprocess |
+| `numba` | JIT compilation for performance | `simulation/latticeSimeRescale_numba.py`, `latticeSimComplex_numba.py` |
+| `sympy` | Symbolic math (potential definitions) | `potential/`, some analysis scripts |
+| `pandas` | CSV data handling | Analysis scripts |
+| `Pillow` | GIF creation from PNG snapshots | `postprocess/make_gif.py` |
+| `cosmoTransitions` | Tunneling calculation, thermal integrals | `potential/`, `simulation/`, `analysis/` |
+
+### Optional
+
+**For GPU acceleration (Linux/Windows with NVIDIA GPU only):**
+
+```bash
+pip install cupy-cuda11x  # for CUDA 11.x
+# or
+pip install cupy-cuda12x  # for CUDA 12.x
+```
+
+**For 3D lattice simulation with PyTorch:**
+
+```bash
+pip install torch
+```
+
+GPU acceleration and PyTorch are not required. The CPU-optimized Numba version is already excellent, especially on Apple Silicon.
 
 ## Post-Processing
 
