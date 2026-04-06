@@ -45,6 +45,8 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
 
         self.fermionCoupling = param_dict["fermionCoupling"]
         self.fermionGaugeCoupling = param_dict["fermionGaugeCoupling"]
+        self.nb = param_dict.get("nb", 1)
+        self.nf = param_dict.get("nf", 1)
 
     def update_params(self, param_dict):
         self.bosonMassSquared = param_dict["bosonMassSquared"]
@@ -64,6 +66,7 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
         giving ~100-1000x speedup during tunneling profile iteration.
         """
         import time as _t
+
         _t0 = _t.time()
         x_grid = np.linspace(0.0, x_max, n_pts)
         Jb_vals = np.array([CTFT.Jb_exact(x) for x in x_grid])
@@ -77,10 +80,14 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
         self._fast_xmax = x_max
         self._fast_thermal = True
         self._fast_arrays = (x_grid, Jb_vals, Jf_vals, dJb_vals, dJf_vals)
-        print(f"[fast_thermal] Splines built in {_t.time()-_t0:.2f}s "
-              f"({n_pts} pts, x_max={x_max})")
+        print(
+            f"[fast_thermal] Splines built in {_t.time()-_t0:.2f}s "
+            f"({n_pts} pts, x_max={x_max})"
+        )
 
-    def set_fast_thermal_from_arrays(self, x_grid, Jb_vals, Jf_vals, dJb_vals, dJf_vals):
+    def set_fast_thermal_from_arrays(
+        self, x_grid, Jb_vals, Jf_vals, dJb_vals, dJf_vals
+    ):
         """Reconstruct splines from pre-computed arrays (fast, no quadrature)."""
         self._Jb_spl = CubicSpline(x_grid, Jb_vals, bc_type="not-a-knot")
         self._Jf_spl = CubicSpline(x_grid, Jf_vals, bc_type="not-a-knot")
@@ -91,19 +98,27 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
 
     def _Jb_fast(self, x):
         x = np.asarray(x)
-        return np.where(x <= self._fast_xmax, self._Jb_spl(np.clip(x, 0, self._fast_xmax)), 0.0)
+        return np.where(
+            x <= self._fast_xmax, self._Jb_spl(np.clip(x, 0, self._fast_xmax)), 0.0
+        )
 
     def _Jf_fast(self, x):
         x = np.asarray(x)
-        return np.where(x <= self._fast_xmax, self._Jf_spl(np.clip(x, 0, self._fast_xmax)), 0.0)
+        return np.where(
+            x <= self._fast_xmax, self._Jf_spl(np.clip(x, 0, self._fast_xmax)), 0.0
+        )
 
     def _dJb_fast(self, x):
         x = np.asarray(x)
-        return np.where(x <= self._fast_xmax, self._dJb_spl(np.clip(x, 0, self._fast_xmax)), 0.0)
+        return np.where(
+            x <= self._fast_xmax, self._dJb_spl(np.clip(x, 0, self._fast_xmax)), 0.0
+        )
 
     def _dJf_fast(self, x):
         x = np.asarray(x)
-        return np.where(x <= self._fast_xmax, self._dJf_spl(np.clip(x, 0, self._fast_xmax)), 0.0)
+        return np.where(
+            x <= self._fast_xmax, self._dJf_spl(np.clip(x, 0, self._fast_xmax)), 0.0
+        )
 
     def bosonic_input(self, x):
         return (
@@ -143,8 +158,8 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
     def V_p(self, X):
         phi = X[..., 0]
         treeLevelPotential = self.V_tree(X)
-        _Jb = self._Jb_fast if getattr(self, '_fast_thermal', False) else CTFT.Jb_exact
-        _Jf = self._Jf_fast if getattr(self, '_fast_thermal', False) else CTFT.Jf_exact
+        _Jb = self._Jb_fast if getattr(self, "_fast_thermal", False) else CTFT.Jb_exact
+        _Jf = self._Jf_fast if getattr(self, "_fast_thermal", False) else CTFT.Jf_exact
         thermalCorrectionBosonPotential = _Jb(self.bosonic_input(phi))
         thermalCorrectionFermionPotential = _Jf(self.fermionic_input(phi))
         correctedPotential = treeLevelPotential + self.T**4 / (2 * math.pi**2) * (
@@ -167,22 +182,23 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
     def V_p_correct(self, X):
         phi = X[..., 0]
         treeLevelPotential = self.V_tree(X)
-        _Jb = self._Jb_fast if getattr(self, '_fast_thermal', False) else CTFT.Jb_exact
-        _Jf = self._Jf_fast if getattr(self, '_fast_thermal', False) else CTFT.Jf_exact
+        _Jb = self._Jb_fast if getattr(self, "_fast_thermal", False) else CTFT.Jb_exact
+        _Jf = self._Jf_fast if getattr(self, "_fast_thermal", False) else CTFT.Jf_exact
         thermalCorrectionBosonPotential = _Jb(self.bosonic_input(phi))
         thermalCorrectionFermionPotential = _Jf(self.fermionic_input(phi))
         correctedPotential = treeLevelPotential + self.T**4 / (2 * math.pi**2) * (
-            thermalCorrectionBosonPotential + thermalCorrectionFermionPotential
+            self.nb * thermalCorrectionBosonPotential
+            + self.nf * thermalCorrectionFermionPotential
         )
         return correctedPotential
 
     def V_p_fermion_only(self, X):
         phi = X[..., 0]
         treeLevelPotential = self.V_tree(X)
-        _Jf = self._Jf_fast if getattr(self, '_fast_thermal', False) else CTFT.Jf_exact
+        _Jf = self._Jf_fast if getattr(self, "_fast_thermal", False) else CTFT.Jf_exact
         thermalCorrectionFermionPotential = _Jf(self.fermionic_input(phi))
         return treeLevelPotential + self.T**4 / (2 * math.pi**2) * (
-            thermalCorrectionFermionPotential
+            self.nf * thermalCorrectionFermionPotential
         )
 
     # def V(self, X):
@@ -223,8 +239,12 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
     def dV_p(self, X):
         phi = X[..., 0]
         dVdphi = self.dVdphi(phi)
-        _dJb = self._dJb_fast if getattr(self, '_fast_thermal', False) else CTFT.dJb_exact
-        _dJf = self._dJf_fast if getattr(self, '_fast_thermal', False) else CTFT.dJf_exact
+        _dJb = (
+            self._dJb_fast if getattr(self, "_fast_thermal", False) else CTFT.dJb_exact
+        )
+        _dJf = (
+            self._dJf_fast if getattr(self, "_fast_thermal", False) else CTFT.dJf_exact
+        )
         thermalCorrectionBosonPotentialDerivative = _dJb(
             self.bosonic_input(phi)
         ) * self._dxdphi_boson(phi)
@@ -241,8 +261,12 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
     def dV_p_correct(self, X):
         phi = X[..., 0]
         dVdphi = self.dVdphi(phi)
-        _dJb = self._dJb_fast if getattr(self, '_fast_thermal', False) else CTFT.dJb_exact
-        _dJf = self._dJf_fast if getattr(self, '_fast_thermal', False) else CTFT.dJf_exact
+        _dJb = (
+            self._dJb_fast if getattr(self, "_fast_thermal", False) else CTFT.dJb_exact
+        )
+        _dJf = (
+            self._dJf_fast if getattr(self, "_fast_thermal", False) else CTFT.dJf_exact
+        )
         thermalCorrectionBosonPotentialDerivative = _dJb(
             self.bosonic_input(phi)
         ) * self._dxdphi_boson(phi)
@@ -251,21 +275,23 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
         ) * self._dxdphi_fermion(phi)
 
         correctedPotentialDerivative = dVdphi + self.T**4 / (2 * math.pi**2) * (
-            thermalCorrectionBosonPotentialDerivative
-            + thermalCorrectionFermionPotentialDerivative
+            self.nb * thermalCorrectionBosonPotentialDerivative
+            + self.nf * thermalCorrectionFermionPotentialDerivative
         )
         return correctedPotentialDerivative
 
     def dV_p_fermion_only(self, X):
         phi = X[..., 0]
         dVdphi = self.dVdphi(phi)
-        _dJf = self._dJf_fast if getattr(self, '_fast_thermal', False) else CTFT.dJf_exact
+        _dJf = (
+            self._dJf_fast if getattr(self, "_fast_thermal", False) else CTFT.dJf_exact
+        )
         thermalCorrectionFermionPotentialDerivative = _dJf(
             self.fermionic_input(phi)
         ) * self._dxdphi_fermion(phi)
 
         return dVdphi + self.T**4 / (2 * math.pi**2) * (
-            thermalCorrectionFermionPotentialDerivative
+            self.nf * thermalCorrectionFermionPotentialDerivative
         )
 
     def _dxdphi_boson(self, x):

@@ -129,6 +129,18 @@ parser.add_argument(
     choices=["V_p", "V_correct", "fermion_only"],
     help="Thermal potential convention: V_p (2*Jb-Jf, default), V_correct (Jb+Jf), fermion_only (Jf only)",
 )
+parser.add_argument(
+    "--nb",
+    type=int,
+    default=1,
+    help="Number of boson species (thermal multiplicity, default: 1)",
+)
+parser.add_argument(
+    "--nf",
+    type=int,
+    default=1,
+    help="Number of fermion species (thermal multiplicity, default: 1)",
+)
 cli_args = parser.parse_args()
 
 # =====================================================
@@ -186,6 +198,9 @@ if REPLAY_MODE:
 # V_p:          2*dJb - dJf  →  [2.0, -1.0]
 # V_correct:    dJb + dJf    →  [1.0,  1.0]
 # fermion_only: dJf only     →  [0.0,  1.0]
+# Multiplied by nb / nf (species multiplicities)
+n_b = cli_args.nb
+n_f = cli_args.nf
 _POT_COEFFS = np.array([2.0, -1.0], dtype=np.float64)
 if cli_args.potential_type == "V_correct":
     _POT_COEFFS[0] = 1.0
@@ -193,6 +208,8 @@ if cli_args.potential_type == "V_correct":
 elif cli_args.potential_type == "fermion_only":
     _POT_COEFFS[0] = 0.0
     _POT_COEFFS[1] = 1.0
+_POT_COEFFS[0] *= n_b
+_POT_COEFFS[1] *= n_f
 
 # =====================================================
 # Logging Setup
@@ -238,7 +255,8 @@ print(f"  Threading layer: {nb.config.THREADING_LAYER}")
 print(f"  Configured threads: {nb.config.NUMBA_NUM_THREADS}")
 print(f"  Active threads: {nb.get_num_threads()}")
 print(
-    f"\nPotential type: {cli_args.potential_type}  (coeffs: boson={_POT_COEFFS[0]}, fermion={_POT_COEFFS[1]})"
+    f"\nPotential type: {cli_args.potential_type}  "
+    f"(nb={n_b}, nf={n_f}, coeffs: boson={_POT_COEFFS[0]:g}, fermion={_POT_COEFFS[1]:g})"
 )
 print("-" * 70)
 
@@ -2750,7 +2768,7 @@ def temperature(t):
 # =====================================================
 # Output
 # =====================================================
-param_set = "set6"
+param_set = "set7"
 steps = cli_args.steps
 
 # Determine integrator name

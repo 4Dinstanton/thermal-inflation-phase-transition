@@ -1,0 +1,32 @@
+{
+    "output": "figs/gw_spectrum/gw_multi.png",
+    "title": "GW Spectrum Comparison \u2014 Thermal Inflation",
+    "signals": [
+        {
+            "csv": "data/tunneling/set7/T-S_param_set7_lambdaSix_0E+00_fermion_only.csv",
+            "delV": 2.5e+27,
+            "T_d": 1000,
+            "label": "Bubble collision with newly params",
+            "color": "navy",
+            "shape": "jt2016",
+            "efficiency": "jt2016"
+        },
+        {
+            "csv": "data/tunneling/set8/T-S_param_set8_lambdaSix_0E+00_fermion_only.csv",
+            "delV": 2.5e+35,
+            "T_d": 1000,
+            "label": "Set 8 ($\\Delta V^{1/4}=(10^{36})/4$ PeV)",
+            "color": "crimson"
+        },
+        {
+            "csv": "data/tunneling/set7/T-S_param_set7_lambdaSix_0E+00_fermion_only.csv",
+            "delV": 2.5e+27,
+            "T_d": 100,
+            "formula": "EGLPS",
+            "label": "Bubble collision (2008)",
+            "color": "forestgreen",
+            "shape": "envelope",
+            "efficiency": "envelope"
+        }
+    ]
+}

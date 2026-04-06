@@ -78,7 +78,7 @@ def percol(T, popt, T_max):
 # =============================================================================
 # Configuration
 # =============================================================================
-param_set = "set6"
+param_set = "set7"
 # "V_correct" = boson + fermion, "fermion_only" = fermion only
 potential_flag = "fermion_only"
 
@@ -87,8 +87,8 @@ output_dir = f"figs/coupling_comparison_{potential_flag}"
 os.makedirs(output_dir, exist_ok=True)
 
 # Coupling range to include
-COUPLING_MIN = 1.0
-COUPLING_MAX = 1.17
+COUPLING_MIN = 1.03
+COUPLING_MAX = 1.16
 
 # =============================================================================
 # Load all coupling CSV files
@@ -112,6 +112,10 @@ for csv_file in sorted(csv_files):
     # Filter by coupling range
     if COUPLING_MIN <= coup_val <= COUPLING_MAX:
         df = pd.read_csv(csv_file)
+        # Treat failed tunneling points (r_c=0) as missing data
+        failed = df["r_c"] == 0
+        df.loc[failed, ["S3/T", "r_c", "phi_esc"]] = np.nan
+        df = df.dropna(subset=["S3/T"])
         if len(df) > 0:
             all_data[coup_val] = df
             print(

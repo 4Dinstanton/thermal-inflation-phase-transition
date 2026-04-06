@@ -15,8 +15,10 @@ from scipy.optimize import curve_fit
 # ── data ──────────────────────────────────────────────────────────────────
 import pandas as pd
 
-csv_path = "data/tunneling/set6/T-S_param_set6_lambdaSix_0E+00_fermion_only.csv"
-df = pd.read_csv(csv_path)
+dataset = "set7"
+
+csv_path = f"data/tunneling/{dataset}/T-S_param_{dataset}_lambdaSix_0E+00_fermion_only_Long.csv"
+df = pd.read_csv(csv_path).iloc[1:]
 
 # Slice here – e.g. filter by temperature range:
 # df = df[(df["T"] >= 7000) & (df["T"] <= 8500)]
@@ -86,7 +88,7 @@ print(hdr)
 print("-" * len(hdr))
 
 for name, y, model, label in quantities:
-    popt, _ = curve_fit(model, T, y, maxfev=10000)
+    popt, _ = curve_fit(model, T, y, maxfev=100000)
     y_fit = model(T, *popt)
     R2 = r_squared(y, y_fit)
     fits[name] = (popt, y_fit, R2, label)
@@ -136,9 +138,9 @@ for ax, (name, y, model, _) in zip(axes, quantities):
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 
-fig.suptitle("Tunneling quantities  –  fermion_only  (set6)", fontsize=13, y=1.02)
+fig.suptitle(f"Tunneling quantities  –  fermion_only  ({dataset})", fontsize=13, y=1.02)
 plt.tight_layout()
-plt.savefig("figs/finiteTemp/fitting_analysis_fermion_only_set6.png", dpi=200)
+plt.savefig(f"figs/finiteTemp/fitting_analysis_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig)
 
 # ── residual plot ─────────────────────────────────────────────────────────
@@ -155,7 +157,7 @@ for ax, (name, y, model, _) in zip(axes2, quantities):
     ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("figs/finiteTemp/fitting_residuals_fermion_only_set6.png", dpi=200)
+plt.savefig(f"figs/finiteTemp/fitting_residuals_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig2)
 
 # ── sqrt(T) dedicated figure ──────────────────────────────────────────────
@@ -192,7 +194,7 @@ ax_res.set_title(rf"$S_3/T$ sqrt fit residual  ($R^2={R2_sq:.5f}$)")
 ax_res.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("figs/finiteTemp/fitting_sqrtT_fermion_only_set6.png", dpi=200)
+plt.savefig(f"figs/finiteTemp/fitting_sqrtT_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig3)
 
 # ── combined-ansatz figure ────────────────────────────────────────────────
@@ -283,13 +285,13 @@ ax.set_ylabel("Residual  (%)")
 ax.set_title(f"phi_esc residual  (R²={R2_phic:.5f})")
 ax.grid(True, alpha=0.3)
 
-fig4.suptitle("Combined ansatze  –  fermion_only  (set6)", fontsize=13)
+fig4.suptitle(f"Combined ansatze  –  fermion_only  ({dataset})", fontsize=13)
 plt.tight_layout()
-plt.savefig("figs/finiteTemp/fitting_combined_fermion_only_set6.png", dpi=200)
+plt.savefig(f"figs/finiteTemp/fitting_combined_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig4)
 
 print("\nPlots saved:")
-print("  figs/finiteTemp/fitting_analysis_fermion_only_set6.png")
-print("  figs/finiteTemp/fitting_residuals_fermion_only_set6.png")
-print("  figs/finiteTemp/fitting_sqrtT_fermion_only_set6.png")
-print("  figs/finiteTemp/fitting_combined_fermion_only_set6.png")
+print(f"  figs/finiteTemp/fitting_analysis_fermion_only_{dataset}.png")
+print(f"  figs/finiteTemp/fitting_residuals_fermion_only_{dataset}.png")
+print(f"  figs/finiteTemp/fitting_sqrtT_fermion_only_{dataset}.png")
+print(f"  figs/finiteTemp/fitting_combined_fermion_only_{dataset}.png")

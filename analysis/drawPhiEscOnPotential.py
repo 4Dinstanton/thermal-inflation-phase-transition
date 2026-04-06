@@ -8,11 +8,18 @@ already stores the corrected value).
 
 import numpy as np
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import sys as _sys, os as _os
-_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"))
+
+_sys.path.insert(
+    0,
+    _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"
+    ),
+)
 import Potential as p
 
 # ── parameters (must match drawPotential / scanCouplingTemp) ──────────────
@@ -40,8 +47,12 @@ param = {
     "fermionGaugeCoupling": fermionGaugeCoupling,
 }
 
+dataset = "set7"
+
 # ── load CSV ──────────────────────────────────────────────────────────────
-csv_path = "data/tunneling/set6/T-S_param_set6_lambdaSix_0E+00_fermion_only.csv"
+csv_path = (
+    f"data/tunneling/{dataset}/T-S_param_{dataset}_lambdaSix_0E+00_fermion_only.csv"
+)
 df = pd.read_csv(csv_path)
 T_arr = df["T"].values
 phi_esc_arr = df["phi_esc"].values
@@ -82,26 +93,32 @@ for ci, idx in enumerate(idx_sel):
     V_shifted = V_vals - V_at_zero
 
     col = colors[ci]
-    ax.plot(phi_range[:, 0] / 1e3, V_shifted, color=col, lw=1.5,
-            label=f"T={TEMP:.0f}")
+    ax.plot(phi_range[:, 0] / 1e3, V_shifted, color=col, lw=1.5, label=f"T={TEMP:.0f}")
 
     pe_arr = np.array([[pe]])
     V_at_esc = V_func(pe_arr).item() - V_at_zero
-    ax.plot(pe / 1e3, V_at_esc, "o", color=col,
-            markersize=8, markeredgecolor="k", markeredgewidth=0.8, zorder=5)
+    ax.plot(
+        pe / 1e3,
+        V_at_esc,
+        "o",
+        color=col,
+        markersize=8,
+        markeredgecolor="k",
+        markeredgewidth=0.8,
+        zorder=5,
+    )
 
 ax.set_xlabel(r"$\phi$  (TeV)", fontsize=12)
 ax.set_ylabel(r"$V(\phi) - V(0)$", fontsize=12)
 ax.set_title(
-    r"Potential with escape point $\phi_{\mathrm{esc}}$"
-    f"  ({potential_flag})",
+    r"Potential with escape point $\phi_{\mathrm{esc}}$" f"  ({potential_flag})",
     fontsize=12,
 )
 ax.legend(fontsize=9, title=r"$\bigcirc$ = $\phi_{\mathrm{esc}}$")
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("figs/finiteTemp/phi_esc_on_potential_fermion_only_set6.png", dpi=200)
+plt.savefig(f"figs/finiteTemp/phi_esc_on_potential_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig)
 
 # ── figure 2: zoomed near phi_esc ────────────────────────────────────────
@@ -122,25 +139,37 @@ for ci, idx in enumerate(idx_sel):
     V_shifted = V_vals - V_at_zero
 
     col = colors[ci]
-    ax2.plot(phi_zoom[:, 0] / 1e3, V_shifted, color=col, lw=1.5,
-             label=f"T={TEMP:.0f}")
+    ax2.plot(phi_zoom[:, 0] / 1e3, V_shifted, color=col, lw=1.5, label=f"T={TEMP:.0f}")
 
     pe_arr = np.array([[pe]])
     V_at_esc = V_func(pe_arr).item() - V_at_zero
-    ax2.plot(pe / 1e3, V_at_esc, "o", color=col,
-             markersize=8, markeredgecolor="k", markeredgewidth=0.8, zorder=5)
+    ax2.plot(
+        pe / 1e3,
+        V_at_esc,
+        "o",
+        color=col,
+        markersize=8,
+        markeredgecolor="k",
+        markeredgewidth=0.8,
+        zorder=5,
+    )
     ax2.axvline(pe / 1e3, color=col, ls=":", lw=0.7, alpha=0.5)
 
 ax2.set_xlabel(r"$\phi$  (TeV)", fontsize=12)
 ax2.set_ylabel(r"$V(\phi) - V(0)$", fontsize=12)
 ax2.set_title(r"Zoomed near $\phi_{\mathrm{esc}}$", fontsize=12)
-ax2.legend(fontsize=9, title=r"$\bigcirc$ = $\phi_{\mathrm{esc}}$, dotted = $\phi_{\mathrm{esc}}$ line")
+ax2.legend(
+    fontsize=9,
+    title=r"$\bigcirc$ = $\phi_{\mathrm{esc}}$, dotted = $\phi_{\mathrm{esc}}$ line",
+)
 ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("figs/finiteTemp/phi_esc_on_potential_zoom_fermion_only_set6.png", dpi=200)
+plt.savefig(
+    f"figs/finiteTemp/phi_esc_on_potential_zoom_fermion_only_{dataset}.png", dpi=200
+)
 plt.close(fig2)
 
 print("Plots saved:")
-print("  figs/finiteTemp/phi_esc_on_potential_fermion_only_set6.png")
-print("  figs/finiteTemp/phi_esc_on_potential_zoom_fermion_only_set6.png")
+print(f"  figs/finiteTemp/phi_esc_on_potential_fermion_only_{dataset}.png")
+print(f"  figs/finiteTemp/phi_esc_on_potential_zoom_fermion_only_{dataset}.png")

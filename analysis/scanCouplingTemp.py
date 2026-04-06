@@ -16,12 +16,20 @@ import os
 import json
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import scipy.optimize as opt
 
 import cosmoTransitions.finiteT as CTFT
 import cosmoTransitions.pathDeformation as CTPD
 import sys as _sys, os as _os
-_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"))
+
+_sys.path.insert(
+    0,
+    _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"
+    ),
+)
 import Potential as p
+from tunneling_utils import fullTunneling
 
 # "V_correct" = boson + fermion (Jb + Jf)
 # "fermion_only" = fermion only (Jf)
@@ -32,6 +40,54 @@ def format_e(n):
     """Format number in scientific notation."""
     a = "%E" % n
     return a.split("E")[0].rstrip("0").rstrip(".") + "E" + a.split("E")[1]
+
+
+def _V_at(VT, phi_val, pot_flag="fermion_only"):
+    """Evaluate the potential at a single field value."""
+    X = np.array([[phi_val]])
+    if pot_flag == "fermion_only":
+        return VT.V_p_fermion_only(X).item()
+    return VT.V_p_correct(X).item()
+
+
+def _V_second_derivative_at_origin(VT, pot_flag="fermion_only", h=1.0):
+    """V''(0) via central finite difference."""
+    return (
+        _V_at(VT, h, pot_flag)
+        - 2.0 * _V_at(VT, 0.0, pot_flag)
+        + _V_at(VT, -h, pot_flag)
+    ) / h**2
+
+
+def find_barrier_temperature(
+    VT, pot_flag="fermion_only", T_lo=100.0, T_hi=50000.0, n_coarse=500, fd_step=1.0
+):
+    """
+    Find T_sp where V''(0) = 0 (barrier near origin disappears).
+
+    Above T_sp the origin is a local minimum (barrier exists);
+    below T_sp the curvature is negative (no barrier, no tunneling).
+    """
+    T_arr = np.linspace(T_lo, T_hi, n_coarse)
+    d2V_vals = np.empty(n_coarse)
+    for i, T in enumerate(T_arr):
+        VT.update_T(T)
+        d2V_vals[i] = _V_second_derivative_at_origin(VT, pot_flag, h=fd_step)
+
+    sign_changes = np.where(np.diff(np.sign(d2V_vals)))[0]
+    if len(sign_changes) == 0:
+        print(f"  [find_barrier_temperature] No sign change in [{T_lo}, {T_hi}]")
+        print(f"  V''(0) range: [{d2V_vals.min():.6e}, {d2V_vals.max():.6e}]")
+        return None
+
+    idx = sign_changes[0]
+
+    def _d2V_at_T(T):
+        VT.update_T(T)
+        return _V_second_derivative_at_origin(VT, pot_flag, h=fd_step)
+
+    T_sp = opt.brentq(_d2V_at_T, T_arr[idx], T_arr[idx + 1], xtol=1e-4)
+    return T_sp
 
 
 def _tunneling_worker(args):
@@ -53,18 +109,23 @@ def _tunneling_worker(args):
         V_func = VT_w.V_correct
         dV_func = VT_w.dV_p_correct
 
-    tunneling_result = CTPD.fullTunneling(
-        path_pts=np.array([[tv_estimate], [fv]]),
-        V=V_func,
-        dV=dV_func,
-        maxiter=1,
-        V_spline_samples=200,
-        tunneling_init_params=dict(alpha=2),
-        tunneling_findProfile_params=dict(
-            xtol=0.00001, phitol=0.00001, rmin=0.00001, npoints=200
-        ),
-        deformation_class=CTPD.Deformation_Spline,
-    )
+    try:
+        tunneling_result = fullTunneling(
+            path_pts=np.array([[tv_estimate], [fv]]),
+            V=V_func,
+            dV=dV_func,
+            maxiter=1,
+            V_spline_samples=200,
+            tunneling_init_params=dict(alpha=2),
+            tunneling_findProfile_params=dict(
+                xtol=0.00001, phitol=0.00001, rmin=0.00001, npoints=200
+            ),
+            deformation_class=CTPD.Deformation_Spline,
+            extend_to_minima=False,
+        )
+    except Exception as e:
+        print(f"  T={TEMP:.1f}  tunneling FAILED (T_c2 / no barrier): {e}", flush=True)
+        return TEMP, 0.0, 0.0, 0.0
 
     S3_T = tunneling_result.action / TEMP
     _R = tunneling_result.profile1D.R
@@ -100,8 +161,10 @@ if __name__ == "__main__":
     bosonGaugeCoupling = 1.05
     fermionCoupling = 1.09
     fermionGaugeCoupling = 1.05
+    nb = 20
+    nf = 20
 
-    param_set = "set6"
+    param_set = "set7"
 
     param = {
         param_set: {
@@ -114,6 +177,8 @@ if __name__ == "__main__":
             "bosonGaugeCoupling": bosonGaugeCoupling,
             "fermionCoupling": fermionCoupling,
             "fermionGaugeCoupling": fermionGaugeCoupling,
+            "nb": nb,
+            "nf": nf,
         }
     }
 
@@ -121,7 +186,8 @@ if __name__ == "__main__":
     # Scan ranges
     # =============================================================================
     COUPLING_LIST = np.arange(1.00, 1.21, 0.01)
-    TEMP_LIST = np.arange(6000, 12000, 20)
+    TEMP_RANGE = 1000.0
+    TEMP_STEP = 20.0
 
     # =============================================================================
     # Output directory
@@ -136,7 +202,7 @@ if __name__ == "__main__":
     VT.build_fast_thermal(x_max=150.0, n_pts=4096)
     spline_arrays = VT._fast_arrays
 
-    N_WORKERS = min(len(TEMP_LIST), multiprocessing.cpu_count())
+    N_WORKERS = min(multiprocessing.cpu_count(), 4)
     N_WORKERS = 1
 
     # =============================================================================
@@ -153,11 +219,7 @@ if __name__ == "__main__":
     )
     print(f"Fixed:   bosonGaugeCoupling = {bosonGaugeCoupling:.3f}")
     print(f"Fixed:   fermionGaugeCoupling = {fermionGaugeCoupling:.3f}")
-    print(f"Temperature range: {TEMP_LIST[0]:.1f} to {TEMP_LIST[-1]:.1f}")
-    print(
-        f"Total combinations: {len(COUPLING_LIST)} x {len(TEMP_LIST)} = "
-        f"{len(COUPLING_LIST) * len(TEMP_LIST)}"
-    )
+    print(f"Temperature range: T_sp to T_sp + {TEMP_RANGE:.0f} GeV (per coupling)")
     print(f"Workers: {N_WORKERS}")
     print(f"Potential: {potential_flag}")
     print("=" * 70)
@@ -170,6 +232,31 @@ if __name__ == "__main__":
         param[param_set]["bosonCoupling"] = float(COUP)
         param[param_set]["fermionCoupling"] = float(COUP)
 
+        # --- Find T_sp for this coupling ---
+        VT_scan = p.finiteTemperaturePotential(param[param_set])
+        VT_scan.update_T(1.0)
+        VT_scan.set_fast_thermal_from_arrays(*spline_arrays)
+
+        T_sp = find_barrier_temperature(
+            VT_scan,
+            pot_flag=potential_flag,
+            T_lo=100.0,
+            T_hi=50000.0,
+            n_coarse=500,
+            fd_step=1.0,
+        )
+        if T_sp is not None:
+            print(f"  T_sp = {T_sp:.2f} GeV")
+        else:
+            print(f"  T_sp not found, skipping coupling g = {COUP:.4f}")
+            continue
+
+        TEMP_LIST = np.arange(T_sp, T_sp + TEMP_RANGE, TEMP_STEP)
+        print(
+            f"  Temperature scan: [{TEMP_LIST[0]:.2f}, {TEMP_LIST[-1]:.2f}] GeV, "
+            f"{len(TEMP_LIST)} points"
+        )
+
         S3_T_list = []
         r_c_list = []
         phi_esc_list = []
@@ -178,76 +265,64 @@ if __name__ == "__main__":
         _t0 = _time.time()
 
         S3T_CUTOFF = 1000.0
-        BATCH_SIZE = max(1, N_WORKERS * 2)
         n_done = 0
         n_fail = 0
         hit_cutoff = False
 
-        for batch_start in range(0, len(TEMP_LIST), BATCH_SIZE):
+        worker_args = []
+        for TEMP in TEMP_LIST:
+            tv = max(10.0 * TEMP, 80000.0)
+            worker_args.append(
+                (
+                    float(TEMP),
+                    param[param_set].copy(),
+                    epsil,
+                    spline_arrays,
+                    potential_flag,
+                    tv,
+                )
+            )
+
+        with ProcessPoolExecutor(max_workers=N_WORKERS) as pool:
+            future_to_temp = {
+                pool.submit(_tunneling_worker, a): a[0] for a in worker_args
+            }
+            results_map = {}
+            for fut in as_completed(future_to_temp):
+                temp_key = future_to_temp[fut]
+                try:
+                    TEMP_r, S3_T, r_c, phi_esc = fut.result()
+                    results_map[TEMP_r] = (S3_T, r_c, phi_esc)
+                    n_done += 1
+                except Exception as e:
+                    print(f"  T={temp_key:.1f} FAILED: {e}", flush=True)
+                    n_fail += 1
+
+        for TEMP in TEMP_LIST:
             if hit_cutoff:
                 break
-
-            batch_temps = TEMP_LIST[batch_start : batch_start + BATCH_SIZE]
-            worker_args = []
-            for TEMP in batch_temps:
-                if TEMP <= 80000:
-                    tv = 100000
-                elif TEMP < 15000:
-                    tv = 120000 * TEMP / 10000
-                elif TEMP < 60000:
-                    tv = 1000000 * TEMP / 12000
-                else:
-                    tv = 3500000 * TEMP / 12000
-                worker_args.append(
-                    (
-                        float(TEMP),
-                        param[param_set].copy(),
-                        epsil,
-                        spline_arrays,
-                        potential_flag,
-                        tv,
-                    )
+            T_val = float(TEMP)
+            if T_val in results_map:
+                S3_T, r_c, phi_esc = results_map[T_val]
+                S3_T_list.append(S3_T)
+                r_c_list.append(r_c)
+                phi_esc_list.append(phi_esc)
+                successful_temps.append(T_val)
+                all_results.append(
+                    {
+                        "coupling": COUP,
+                        "T": T_val,
+                        "S3/T": S3_T,
+                        "r_c": r_c,
+                        "phi_esc": phi_esc,
+                    }
                 )
-
-            with ProcessPoolExecutor(max_workers=N_WORKERS) as pool:
-                future_to_temp = {
-                    pool.submit(_tunneling_worker, a): a[0] for a in worker_args
-                }
-                results_map = {}
-                for fut in as_completed(future_to_temp):
-                    temp_key = future_to_temp[fut]
-                    try:
-                        TEMP_r, S3_T, r_c, phi_esc = fut.result()
-                        results_map[TEMP_r] = (S3_T, r_c, phi_esc)
-                        n_done += 1
-                    except Exception as e:
-                        print(f"  T={temp_key:.1f} FAILED: {e}", flush=True)
-                        n_fail += 1
-
-            for TEMP in batch_temps:
-                T_val = float(TEMP)
-                if T_val in results_map:
-                    S3_T, r_c, phi_esc = results_map[T_val]
-                    S3_T_list.append(S3_T)
-                    r_c_list.append(r_c)
-                    phi_esc_list.append(phi_esc)
-                    successful_temps.append(T_val)
-                    all_results.append(
-                        {
-                            "coupling": COUP,
-                            "T": T_val,
-                            "S3/T": S3_T,
-                            "r_c": r_c,
-                            "phi_esc": phi_esc,
-                        }
+                if S3_T > S3T_CUTOFF:
+                    print(
+                        f"  S3/T = {S3_T:.2f} > {S3T_CUTOFF} at T={T_val:.1f}"
+                        f" -> skipping to next coupling"
                     )
-                    if S3_T > S3T_CUTOFF:
-                        print(
-                            f"  S3/T = {S3_T:.2f} > {S3T_CUTOFF} at T={T_val:.1f}"
-                            f" -> skipping to next coupling"
-                        )
-                        hit_cutoff = True
-                        break
+                    hit_cutoff = True
 
         _elapsed = _time.time() - _t0
         print(

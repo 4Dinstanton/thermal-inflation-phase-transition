@@ -43,23 +43,23 @@ def Hubble(T, delV):
 
 lambdaSix = 0
 
-param_set = "set6"
+param_set = "set8"
 csv_path = f"data/tunneling/{param_set}"
 MPL = 2.4e18
 
 
 # df = pd.read_csv(f"{csv_path}/T-S_param_{param_set}_lambdaSix_{format_e(lambdaSix)}.csv")
-potential_flag = "fermion_only"
+potential_flag = "boson_only"
 # potential_flag = "boson_fermion"
 df = pd.read_csv(
     f"{csv_path}/T-S_param_{param_set}_lambdaSix_0E+00_{potential_flag}.csv"
-).iloc[:63]
+).iloc[1:]
 # df = pd.concat((df,df2)).iloc[:150].reset_index()
 # print(df)
-delV = 10**28
+delV = 10**36 / 4
 chig2 = 30 / (math.pi**2 * 106.75)
 T_c = df["T"].max()
-T_c = 20000
+T_c = 15000
 # print(df["T"].values.dtype)
 # print(ho)
 
@@ -93,7 +93,7 @@ popt, pcov = curve_fit(rev, df["T"].values, G.values)
 MPL = 2.4e18
 chig2 = 30 / (math.pi**2 * 106.75)
 H_ = Hubble(2_00_000, delV)
-tp_arr = np.linspace(df["T"].min(), 7410, 400)
+tp_arr = np.linspace(df["T"].min(), df["T"].max() + 5000, 400)
 # print((np.exp(rev(tp_arr, *popt)) / (H_**4 * tp_arr))[:-50:])
 # plt.plot(tp_arr, np.exp(rev(tp_arr, *popt)) / (H_**4))
 # plt.plot(tp_arr, np.exp(rev(tp_arr, *popt)) / (H_**4) * (Tp / T - 1) ** 3)
@@ -154,38 +154,52 @@ plt.figure(figsize=(10, 8))
 # print(G_H4)
 # popt1, pcov1= curve_fit(rev, df["T"].values, G_H4)
 
-# plt.plot(t_arr, np.log(quartic(t_arr, *popt))-np.log(HubbleSquare(t_arr,delV)**2), color="red", label="fitted", linestyle="--")
-# print(quartic(t_arr, *popt))
-t_arr = np.linspace(6720, 6860, 500)[:]
-# t_arr = np.linspace(4850, 5000, 500)[:]
-# print(t_arr)
-# print(ho)
-nt_arr = []
-perc_arr = []
-for t in t_arr:
-    nt_arr.append(nT(t, *popt))
-    perc_arr.append(percol(t, *popt))
+# --- Step 1: coarse scan to locate approximate T_n (where Gamma/H^4 ~ 1) ---
+t_coarse = np.linspace(df["T"].min(), df["T"].max() + 5000, 5000)
+log_gamma_h4_coarse = rev(t_coarse, *popt) - 4 * np.log(Hubble(t_coarse, delV))
+cross_idx = np.where(np.diff(np.sign(log_gamma_h4_coarse)))[0]
+if len(cross_idx) > 0:
+    T_n_approx = 0.5 * (t_coarse[cross_idx[-1]] + t_coarse[cross_idx[-1] + 1])
+else:
+    T_n_approx = 0.5 * (df["T"].min() + df["T"].max())
+    print(
+        f"  WARNING: Gamma/H^4=1 crossing not found, fallback T_n_approx={T_n_approx:.1f}"
+    )
+print(f"  Approximate T_n (Gamma/H^4=1): {T_n_approx:.2f} GeV")
 
-# print(nt_arr)
-# print(np.min(abs(np.array(nt_arr) - 1)))
-# print(t_arr[np.argmin(abs(np.array(nt_arr) - 1))])
-# print("????", t_arr[np.argmin(abs(np.array(nt_arr) - 1))])
-# print("????", nt_arr[np.argmin(abs(np.array(nt_arr) - 1))])
+# --- Step 2: fine grid around T_n_approx ---
+HALF_WIDTH = 200.0
+N_FINE = 500
+t_arr = np.linspace(T_n_approx - HALF_WIDTH, T_n_approx + HALF_WIDTH, N_FINE)
+nt_arr = np.empty(N_FINE)
+perc_arr = np.empty(N_FINE)
+for i, t in enumerate(t_arr):
+    nt_arr[i] = nT(t, *popt)
+    perc_arr[i] = percol(t, *popt)
 
-# print(ho)
-neg_shift = 170
-end_shift = -50
-# print(len(t_arr))
-# print(np.argmin(abs(np.array(nt_arr) - 1)))
-t_arr = t_arr[np.argmin(abs(np.array(nt_arr) - 1)) - neg_shift : end_shift]
-perc_arr = perc_arr[np.argmin(abs(np.array(nt_arr) - 1)) - neg_shift : end_shift]
-nt_arr = nt_arr[np.argmin(abs(np.array(nt_arr) - 1)) - neg_shift : end_shift]
+# --- Step 3: determine plot boundaries from visible y-range ---
+YLIM_LO, YLIM_HI = 1e-4, 1e4
+gamma_h4_fine = np.exp(rev(t_arr, *popt)) / (Hubble(t_arr, delV) ** 4)
+I_over_034 = perc_arr / 0.34
+
+# Right boundary: first T where Gamma/H^4 drops below YLIM_LO
+right_mask = np.where(gamma_h4_fine < YLIM_LO)[0]
+idx_right = right_mask[0] if len(right_mask) > 0 else N_FINE - 1
+
+# Left boundary: last T where I/0.34 exceeds YLIM_HI
+left_mask = np.where(I_over_034 > YLIM_HI)[0]
+idx_left = left_mask[-1] if len(left_mask) > 0 else 0
+
+# Slight margin (~5 % of visible span, at least 3 points)
+margin = max(3, int(0.05 * (idx_right - idx_left)))
+idx_left = max(0, idx_left - margin)
+idx_right = min(N_FINE - 1, idx_right + margin)
+
+t_arr = t_arr[idx_left : idx_right + 1]
+perc_arr = perc_arr[idx_left : idx_right + 1]
+nt_arr = nt_arr[idx_left : idx_right + 1]
 f_arr = rev(t_arr, *popt)
-# print("", t_arr[np.argmin(abs(f_arr))])
-# print("2", nt_arr[np.argmin(abs(f_arr))])
-# print(perc_arr)
-# print(ho)
-# plt.rcParams['mathtext.fontset'] = 'cm'
+print(f"  Plot range: [{t_arr[0]:.2f}, {t_arr[-1]:.2f}] GeV  ({len(t_arr)} points)")
 line1 = plt.plot(t_arr / 1000, nt_arr, color="red", label=r"$n(T)$")
 plt.axhline(1, 0, 1, linestyle="--", color="black")
 T_n = t_arr[np.argmin(abs(np.array(nt_arr) - 1))] / 1000

@@ -1,4 +1,3 @@
-
 import sympy as sp
 import numpy as np
 import scipy
@@ -10,9 +9,16 @@ import cosmoTransitions.pathDeformation as CTPD
 import math
 
 import sys as _sys, os as _os
-_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"))
+
+_sys.path.insert(
+    0,
+    _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"
+    ),
+)
 
 import Potential as p
+from tunneling_utils import fullTunneling
 
 
 def draw_VVT(phi, VT, T):
@@ -83,7 +89,7 @@ def format_e(n):
     return a.split("E")[0].rstrip("0").rstrip(".") + "E" + a.split("E")[1]
 
 
-lam = 1e-16
+lam = 1e-24
 v = 1e6
 mphi = 1000
 epsil = 0
@@ -92,8 +98,8 @@ T = 0.6
 
 print("D", 4 * lam**2 - 5 * lambdaSix * mphi**2)
 
-#set 6 : thermal coupling g= 1.05, lambda = 1.09
-#ser 7 : thermal coupling g= 1.31, lambda = 1.35
+# set 6 : thermal coupling g= 1.05, lambda = 1.09
+# ser 7 : thermal coupling g= 1.31, lambda = 1.35
 
 bosonMassSquared = 1000000
 bosonCoupling = 1.09
@@ -117,7 +123,6 @@ param = {
 }
 
 
-
 VT = p.finiteTemperaturePotential(param[param_set])
 T = 7450
 VT.update_T(T)
@@ -134,29 +139,22 @@ print(COUPLING_LIST)
 for COUP in COUPLING_LIST:
     param[param_set]["bosonCoupling"] = COUP
     param[param_set]["fermionCoupling"] = COUP
-    #TEMP = 12_000_000
+    # TEMP = 12_000_000
     print(COUP)
     VT.update_params(param[param_set])
-    #window = 0.0000000025
-    #phi = np.linspace(0, window * VT.v, 500).reshape(-1, 1)
+    # window = 0.0000000025
+    # phi = np.linspace(0, window * VT.v, 500).reshape(-1, 1)
     # print(-window* VT.v)
     # VT.V_p(phi)
-    #plt.plot(phi, VT.V_p(phi))
-    #plt.show()
+    # plt.plot(phi, VT.V_p(phi))
+    # plt.show()
     tv, fv = VT.find_new_minima()
     if tv < 0.01:
         tv = prev_tv
     # print("V diff?", VT.V(np.array([fv]).reshape(-1,1)) - VT.V(np.array([tv]).reshape(-1,1)))
     if epsil == 0:
         fv = 0
-    if T < 8000:
-        tv = 35000 * T / 7500
-    elif T < 12000:
-        tv = 120000 * T / 10000
-    elif T < 60000:
-        tv = 1000000 * T / 12000
-    else:
-        tv = 3500000 * T / 12000
+    tv = max(10.0 * T, 20000.0)
 
     V_tv = VT.V(np.array([tv]).reshape(-1, 1))
     V_fv = VT.V(np.array([fv]).reshape(-1, 1))
@@ -166,7 +164,7 @@ for COUP in COUPLING_LIST:
             V_tv[0], V_fv[0], V_fv[0] - V_tv[0]
         )
     )
-    tunneling_result = CTPD.fullTunneling(
+    tunneling_result = fullTunneling(
         path_pts=np.array(
             [
                 [tv],
@@ -182,6 +180,7 @@ for COUP in COUPLING_LIST:
             xtol=0.00001, phitol=0.00001, rmin=0.00001, npoints=200
         ),
         deformation_class=CTPD.Deformation_Spline,
+        extend_to_minima=False,
     )
     print(tunneling_result.profile1D.Phi[0])
     print(tunneling_result.profile1D.Phi[-1])
@@ -193,7 +192,11 @@ for COUP in COUPLING_LIST:
     _R = tunneling_result.profile1D.R
     _Phi = tunneling_result.profile1D.Phi
     _phi_mid = 0.5 * (_Phi[0] + _Phi[-1])
-    r_c = np.interp(_phi_mid, _Phi[::-1], _R[::-1]) if _Phi[0] > _Phi[-1] else np.interp(_phi_mid, _Phi, _R)
+    r_c = (
+        np.interp(_phi_mid, _Phi[::-1], _R[::-1])
+        if _Phi[0] > _Phi[-1]
+        else np.interp(_phi_mid, _Phi, _R)
+    )
     phi_esc = _Phi[0]  # Field value at bubble center
     r_c_list.append(r_c)
     phi_esc_list.append(phi_esc)
