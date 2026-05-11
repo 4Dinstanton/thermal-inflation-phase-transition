@@ -49,14 +49,15 @@ MPL = 2.4e18
 
 
 # df = pd.read_csv(f"{csv_path}/T-S_param_{param_set}_lambdaSix_{format_e(lambdaSix)}.csv")
-potential_flag = "boson_only"
-# potential_flag = "boson_fermion"
+# potential_flag = "fermion_only"
+potential_flag = "boson_and_fermion"
 df = pd.read_csv(
     f"{csv_path}/T-S_param_{param_set}_lambdaSix_0E+00_{potential_flag}.csv"
 ).iloc[1:]
 # df = pd.concat((df,df2)).iloc[:150].reset_index()
 # print(df)
-delV = 10**36 / 4
+gamma = 4.1667 * 10**-8
+delV = gamma**2 * 1000**2 * MPL**2 / 4
 chig2 = 30 / (math.pi**2 * 106.75)
 T_c = df["T"].max()
 T_c = 15000
@@ -203,7 +204,6 @@ print(f"  Plot range: [{t_arr[0]:.2f}, {t_arr[-1]:.2f}] GeV  ({len(t_arr)} point
 line1 = plt.plot(t_arr / 1000, nt_arr, color="red", label=r"$n(T)$")
 plt.axhline(1, 0, 1, linestyle="--", color="black")
 T_n = t_arr[np.argmin(abs(np.array(nt_arr) - 1))] / 1000
-# print("T_n", T_n)
 plt.axvline(T_n, 0, 1, color="red", linestyle="--")
 plt.text(T_n + 0.001, 10, r"$T_n$", color="red", fontsize=12)
 
@@ -254,7 +254,8 @@ labels = [line.get_label() for line in lines]
 plt.legend(lines, labels)
 # plt.title(r"$m_0 = $")
 # plt.title(r"$\log(\Gamma(T))$")
-plt.savefig(f"figs/finiteTemp/{param_set}_V0_{delV}_{potential_flag}.png", dpi=300)
+os.makedirs("figs/action", exist_ok=True)
+plt.savefig(f"figs/action/{param_set}_V0_{delV}_{potential_flag}.png", dpi=300)
 plt.show()
 # print(df)
 
@@ -263,8 +264,6 @@ t_arr = np.linspace(df["T"].min(), 200000, 1000)[:]
 plt.plot(t_arr / 1000, np.exp(rev(t_arr, *popt)), label=r"$\Gamma$")
 plt.xlabel("T (TeV)")
 plt.ylabel(r"$\Gamma$")
-plt.savefig(
-    f"figs/finiteTemp/{param_set}_V0_{delV}_{potential_flag}_Gamma.png", dpi=300
-)
+plt.savefig(f"figs/action/{param_set}_V0_{delV}_{potential_flag}_Gamma.png", dpi=300)
 # plt.show()
 print("T_n", T_n, "T_p", T_p)

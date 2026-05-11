@@ -9,7 +9,13 @@ import os
 
 import cosmoTransitions.pathDeformation as CTPD
 import sys as _sys, os as _os
-_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"))
+
+_sys.path.insert(
+    0,
+    _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "potential"
+    ),
+)
 
 import Potential as p
 
@@ -101,11 +107,16 @@ for coupling in COUPLING_LIST:
         S3 = tunneling_result.action
         S3_T = S3 / TEMP
         _phi_mid = 0.5 * (Phi[0] + Phi[-1])
-        r_c = np.interp(_phi_mid, Phi[::-1], R[::-1]) if Phi[0] > Phi[-1] else np.interp(_phi_mid, Phi, R)
+        r_c = (
+            np.interp(_phi_mid, Phi[::-1], R[::-1])
+            if Phi[0] > Phi[-1]
+            else np.interp(_phi_mid, Phi, R)
+        )
         phi_diff = Phi[-1] - fv
         Phi = phi_diff - Phi
-        phi_esc = Phi[0] # Field value at center (r=0) = escape point in physical manner
-
+        phi_esc = Phi[
+            0
+        ]  # Field value at center (r=0) = escape point in physical manner
 
         # False vacuum should be at φ = 0 (boundary condition)
         # CosmoTransitions may give small non-zero value numerically
@@ -180,10 +191,24 @@ for coupling in COUPLING_LIST:
         )
 
 # Add dummy scatter entries to legend for marker explanation
-ax1.scatter([], [], color="gray", s=80, marker="o", edgecolors="black",
-            label=r"$\phi_{\rm esc}$ (escape)")
-ax1.scatter([], [], color="gray", s=80, marker="x", linewidths=2,
-            label=r"$\phi_{\rm fv}$ (false vacuum)")
+ax1.scatter(
+    [],
+    [],
+    color="gray",
+    s=80,
+    marker="o",
+    edgecolors="black",
+    label=r"$\phi_{\rm esc}$ (escape)",
+)
+ax1.scatter(
+    [],
+    [],
+    color="gray",
+    s=80,
+    marker="x",
+    linewidths=2,
+    label=r"$\phi_{\rm fv}$ (false vacuum)",
+)
 
 ax1.set_xlabel(r"$r$ (GeV$^{-1}$)", fontsize=12)
 ax1.set_ylabel(r"$\phi(r)$ (GeV)", fontsize=12)
@@ -226,8 +251,15 @@ for coupling in COUPLING_LIST:
         # Note: phi_fv = 0 cannot be shown on log scale
 
 # Add dummy scatter entry to legend for escape point marker
-ax2.scatter([], [], color="gray", s=80, marker="o", edgecolors="black",
-            label=r"$\phi_{\rm esc}$ (escape)")
+ax2.scatter(
+    [],
+    [],
+    color="gray",
+    s=80,
+    marker="o",
+    edgecolors="black",
+    label=r"$\phi_{\rm esc}$ (escape)",
+)
 
 ax2.set_xlabel(r"$r$ (GeV$^{-1}$)", fontsize=12)
 ax2.set_ylabel(r"$\phi(r)$ (GeV)", fontsize=12)
@@ -241,8 +273,9 @@ ax2.grid(True, alpha=0.3)
 ax2.set_xlim(left=0)
 
 plt.tight_layout()
-plt.savefig(f"figs/bounce_profile_comparison_T_{TEMP}.png", dpi=200)
-print(f"Saved: figs/bounce_profile_comparison_T_{TEMP}.png")
+os.makedirs("figs/bounce_profiles", exist_ok=True)
+plt.savefig(f"figs/bounce_profiles/bounce_profile_comparison_T_{TEMP}.png", dpi=200)
+print(f"Saved: figs/bounce_profiles/bounce_profile_comparison_T_{TEMP}.png")
 
 # =============================================================================
 # Plot: Potential V(phi) comparison with escape points from pre-computed CSVs
@@ -264,7 +297,9 @@ for coupling in COUPLING_LIST:
         tv_estimate = 70000 if coupling > 0.8 else 50000
         phi_esc_physical = tv_estimate - row["phi_esc"]
         phi_esc_from_csv[coupling] = phi_esc_physical
-        print(f"  λ={coupling:.2f}: φ_esc_raw={row['phi_esc']:.1f}, φ_esc={phi_esc_physical:.1f} at T={row['T']:.0f}")
+        print(
+            f"  λ={coupling:.2f}: φ_esc_raw={row['phi_esc']:.1f}, φ_esc={phi_esc_physical:.1f} at T={row['T']:.0f}"
+        )
     else:
         print(f"  λ={coupling:.2f}: CSV not found at {csv_path}")
 
@@ -292,13 +327,25 @@ for coupling in COUPLING_LIST:
         X_esc = np.array([[phi_esc]])
         V_esc = np.nan_to_num(VT.V(X_esc) - V0, nan=0.0)
         ax_pot.scatter(
-            [phi_esc], [V_esc], color=color, s=80,
-            marker="o", edgecolors="black", zorder=5,
+            [phi_esc],
+            [V_esc],
+            color=color,
+            s=80,
+            marker="o",
+            edgecolors="black",
+            zorder=5,
         )
 
 # Dummy scatter for legend
-ax_pot.scatter([], [], color="gray", s=80, marker="o", edgecolors="black",
-               label=r"$\phi_{\rm esc}$ (escape point)")
+ax_pot.scatter(
+    [],
+    [],
+    color="gray",
+    s=80,
+    marker="o",
+    edgecolors="black",
+    label=r"$\phi_{\rm esc}$ (escape point)",
+)
 
 ax_pot.axvline(x=0, color="gray", linestyle="--", alpha=0.5)
 ax_pot.set_xlabel(r"$\phi$ (GeV)", fontsize=13)
@@ -309,7 +356,7 @@ ax_pot.grid(True, alpha=0.3)
 ax_pot.set_xlim(left=0, right=phi_max)
 
 plt.tight_layout()
-pot_file = f"figs/potential_comparison_T_{TEMP}.png"
+pot_file = f"figs/bounce_profiles/potential_comparison_T_{TEMP}.png"
 plt.savefig(pot_file, dpi=200)
 print(f"Saved: {pot_file}")
 

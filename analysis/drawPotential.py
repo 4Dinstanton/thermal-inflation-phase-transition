@@ -22,7 +22,7 @@ _sys.path.insert(
 import Potential as p
 from tunneling_utils import fullTunneling
 
-potential_flag = "fermion_only"
+potential_flag = "boson_and_fermion"
 
 
 def draw_VVT(phi, VT, T):
@@ -93,7 +93,8 @@ def draw_VT_temp_array(phi, VT, temp_arr, title="toy_model_VT"):
     plt.xlabel(r"$\phi (\text{TeV})$")
     # ax1.set_xlim([-4,4])
     # ax1.set_ylim([-5,-0])
-    plt.savefig(f"figs/finiteTemp/{title}", dpi=300)
+    _os.makedirs("figs/potential", exist_ok=True)
+    plt.savefig(f"figs/potential/{title}", dpi=300)
     plt.show()
 
 

@@ -204,6 +204,14 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
     # def V(self, X):
     #    return self.V_tree(X) + self.V_T(X) + math.pi**2/30 * 100 * self.T**4 + self.mphi2(X)**2 / (64 * math.pi**2) * (np.log(self.mphi2(X) / self.T) - 3/2)
 
+    def _CW(self, X):
+        """Coleman-Weinberg 1-loop correction, regularised at phi=0
+        where m^2 -> 0 and the limit m^4 log(m^2) -> 0."""
+        m2 = self.mphi2(X)
+        m2abs = np.abs(m2)
+        raw = m2**2 / (64 * math.pi**2) * (np.log(m2abs / self.T) - 1.5)
+        return np.where(m2abs > 0, raw, 0.0)
+
     def V(self, X):
         return (
             self.V_p(X)
@@ -214,21 +222,11 @@ class finiteTemperaturePotential(zeroTemperaturePotential):
         )
 
     def V_correct(self, X):
-        return (
-            self.V_p_correct(X)
-            + math.pi**2 / 30 * 100 * self.T**4
-            + self.mphi2(X) ** 2
-            / (64 * math.pi**2)
-            * (np.log(np.abs(self.mphi2(X)) / self.T) - 3 / 2)
-        )
+        return self.V_p_correct(X) + math.pi**2 / 30 * 100 * self.T**4 + self._CW(X)
 
     def V_fermion_only(self, X):
         return (
-            self.V_p_fermion_only(X)
-            + math.pi**2 / 30 * 100 * self.T**4
-            + self.mphi2(X) ** 2
-            / (64 * math.pi**2)
-            * (np.log(np.abs(self.mphi2(X)) / self.T) - 3 / 2)
+            self.V_p_fermion_only(X) + math.pi**2 / 30 * 100 * self.T**4 + self._CW(X)
         )
 
     def dVdphi(self, X):

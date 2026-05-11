@@ -604,8 +604,9 @@ if True:
         ax3.set_title("Extended Data (none)", fontsize=14)
 
     plt.tight_layout()
-    plt.savefig(f"figs/Tc2_and_Gamma_H4_analysis_{potential_flag}.png", dpi=200)
-    print(f"Saved: figs/Tc2_and_Gamma_H4_analysis_{potential_flag}.png")
+    os.makedirs("figs/barrier_analysis", exist_ok=True)
+    plt.savefig(f"figs/barrier_analysis/Tc2_and_Gamma_H4_analysis_{potential_flag}.png", dpi=200)
+    print(f"Saved: figs/barrier_analysis/Tc2_and_Gamma_H4_analysis_{potential_flag}.png")
 
     # Also create a combined plot showing original vs extended
     if len(extended_results) > 0 and len(df_small) > 0 and "df_summary" in dir():
@@ -645,8 +646,8 @@ if True:
         ax_comb.legend(fontsize=10)
 
         plt.tight_layout()
-        plt.savefig(f"figs/Gamma_H4_original_vs_extended_{potential_flag}.png", dpi=200)
-        print(f"Saved: figs/Gamma_H4_original_vs_extended_{potential_flag}.png")
+        plt.savefig(f"figs/barrier_analysis/Gamma_H4_original_vs_extended_{potential_flag}.png", dpi=200)
+        print(f"Saved: figs/barrier_analysis/Gamma_H4_original_vs_extended_{potential_flag}.png")
 
     plt.show()
 

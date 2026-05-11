@@ -70,21 +70,39 @@ def load_field_state(state_file):
     if is_complex:
         phi1 = data["phi1"]
         phi2 = data["phi2"]
-        rho = data["rho"] if "rho" in data else np.sqrt(phi1.astype(np.float64)**2 + phi2.astype(np.float64)**2).astype(np.float32)
-        theta = data["theta"] if "theta" in data else np.arctan2(phi2.astype(np.float64), phi1.astype(np.float64)).astype(np.float32)
+        rho = (
+            data["rho"]
+            if "rho" in data
+            else np.sqrt(
+                phi1.astype(np.float64) ** 2 + phi2.astype(np.float64) ** 2
+            ).astype(np.float32)
+        )
+        theta = (
+            data["theta"]
+            if "theta" in data
+            else np.arctan2(phi2.astype(np.float64), phi1.astype(np.float64)).astype(
+                np.float32
+            )
+        )
         winding = data["winding"] if "winding" in data else None
         return {
             "complex": True,
-            "phi1": phi1, "phi2": phi2,
-            "rho": rho, "theta": theta,
+            "phi1": phi1,
+            "phi2": phi2,
+            "rho": rho,
+            "theta": theta,
             "winding": winding,
             "phi": rho,  # backward compat: use rho as the scalar field
             "pi": None,
             "step": int(data["step"]),
             "time": float(data["time"]),
             "temperature": float(data["temperature"]),
-            "phi_min": float(data["rho_min"]) if "rho_min" in data else float(rho.min()),
-            "phi_max": float(data["rho_max"]) if "rho_max" in data else float(rho.max()),
+            "phi_min": (
+                float(data["rho_min"]) if "rho_min" in data else float(rho.min())
+            ),
+            "phi_max": (
+                float(data["rho_max"]) if "rho_max" in data else float(rho.max())
+            ),
             "zn_active": float(data["zn_active"]) if "zn_active" in data else 0.0,
         }
 
@@ -333,6 +351,7 @@ def _write_bubble_csv(csv_path, bubbles, step, time_val, temperature, dx_phys):
 # Cosmic string detection and visualization
 # =====================================================================
 
+
 def _identify_strings(winding, threshold=0.5):
     """Label connected string voxels (|winding| > threshold) and measure each loop.
 
@@ -351,13 +370,15 @@ def _identify_strings(winding, threshold=0.5):
         centroid = coords.mean(axis=0)
         w_vals = winding[labelled == lid]
         sign = 1 if np.mean(w_vals) >= 0 else -1
-        strings.append(dict(
-            loop_id=lid,
-            n_voxels=n_vox,
-            centroid=centroid,
-            winding_sign=sign,
-            max_winding=float(np.max(np.abs(w_vals))),
-        ))
+        strings.append(
+            dict(
+                loop_id=lid,
+                n_voxels=n_vox,
+                centroid=centroid,
+                winding_sign=sign,
+                max_winding=float(np.max(np.abs(w_vals))),
+            )
+        )
 
     strings.sort(key=lambda s: s["n_voxels"], reverse=True)
     return labelled, strings
@@ -400,16 +421,18 @@ def plot_strings_2d(state, metadata, output_file):
 
     # Panel 1: theta slice
     theta_sl = theta[:, :, zmid]
-    im1 = axes[0, 1].imshow(theta_sl.T, origin="lower", cmap="hsv",
-                             vmin=-np.pi, vmax=np.pi)
+    im1 = axes[0, 1].imshow(
+        theta_sl.T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
+    )
     axes[0, 1].set_title(r"$\theta = \arg(\Phi)$  (z-midplane)")
     fig.colorbar(im1, ax=axes[0, 1], shrink=0.8)
 
     # Panel 2: winding number slice
     wind_sl = winding[:, :, zmid]
     wmax = max(float(np.max(np.abs(wind_sl))), 0.1)
-    im2 = axes[0, 2].imshow(wind_sl.T, origin="lower", cmap="RdBu_r",
-                             vmin=-wmax, vmax=wmax)
+    im2 = axes[0, 2].imshow(
+        wind_sl.T, origin="lower", cmap="RdBu_r", vmin=-wmax, vmax=wmax
+    )
     axes[0, 2].set_title(f"Winding  (|W|>0.5 total: {n_total_vox})")
     fig.colorbar(im2, ax=axes[0, 2], shrink=0.8)
 
@@ -424,8 +447,9 @@ def plot_strings_2d(state, metadata, output_file):
             if np.any(mask_2d):
                 c = loop_cmap(si % 20)
                 loop_display[mask_2d] = c
-    axes[1, 0].imshow(np.zeros((nx, ny)), origin="lower", cmap="gray_r",
-                      vmin=0, vmax=1, alpha=0.3)
+    axes[1, 0].imshow(
+        np.zeros((nx, ny)), origin="lower", cmap="gray_r", vmin=0, vmax=1, alpha=0.3
+    )
     axes[1, 0].imshow(np.transpose(loop_display, (1, 0, 2)), origin="lower")
     axes[1, 0].set_title(f"String loops by ID  ({n_loops} distinct loops)")
 
@@ -447,14 +471,23 @@ def plot_strings_2d(state, metadata, output_file):
         axes[1, 2].set_xlabel("Voxels (string length)")
         axes[1, 2].set_title(f"Top {top_n} string loops")
     else:
-        axes[1, 2].text(0.5, 0.5, "No strings detected", ha="center", va="center",
-                        transform=axes[1, 2].transAxes, fontsize=14, color="gray")
+        axes[1, 2].text(
+            0.5,
+            0.5,
+            "No strings detected",
+            ha="center",
+            va="center",
+            transform=axes[1, 2].transAxes,
+            fontsize=14,
+            color="gray",
+        )
         axes[1, 2].set_title("String lengths")
 
     fig.suptitle(
         f"Step {step:,} | t={time_phys:.4e} | T={T_val:.1f} | "
         f"Strings: {n_loops} loops, {n_total_vox} voxels",
-        fontsize=12)
+        fontsize=12,
+    )
     fig.tight_layout()
     fig.savefig(output_file, dpi=150)
     plt.close(fig)
@@ -462,8 +495,9 @@ def plot_strings_2d(state, metadata, output_file):
     return strings
 
 
-def plot_strings_3d(state, metadata, output_file,
-                    elev=25, azim=135, max_points=300_000):
+def plot_strings_3d(
+    state, metadata, output_file, elev=25, azim=135, max_points=300_000
+):
     """3D scatter plot of cosmic string voxels, colored by loop ID."""
     winding = np.asarray(state["winding"], dtype=np.float64)
     step = state["step"]
@@ -506,8 +540,14 @@ def plot_strings_3d(state, metadata, output_file,
         ms = max(1.0, min(8.0, 5000.0 / max(1, n_total_vox)))
         sign_str = "+" if s_info["winding_sign"] > 0 else "−"
         ax.scatter(
-            coords[:, 0], coords[:, 1], coords[:, 2],
-            c=[col], s=ms, alpha=0.8, linewidths=0, depthshade=True,
+            coords[:, 0],
+            coords[:, 1],
+            coords[:, 2],
+            c=[col],
+            s=ms,
+            alpha=0.8,
+            linewidths=0,
+            depthshade=True,
             label=f"#{lid} ({sign_str}, {n_vox} vox)" if si < 10 else None,
         )
         total_pts_plotted += len(coords)
@@ -522,7 +562,9 @@ def plot_strings_3d(state, metadata, output_file,
     ax.set_title(
         f"Cosmic Strings (3D) | Step {step:,} | t={time_phys:.2e} | T={T_val:.1f}\n"
         f"{n_loops} loops, {n_total_vox} voxels",
-        fontsize=11, pad=12)
+        fontsize=11,
+        pad=12,
+    )
     if n_loops <= 10:
         ax.legend(loc="upper right", fontsize=7, markerscale=4)
 
@@ -537,14 +579,18 @@ def plot_strings_3d(state, metadata, output_file,
 def _write_string_csv(csv_path, strings, step, time_val, temperature):
     """Write per-step CSV with one row per string loop."""
     with open(csv_path, "w") as f:
-        f.write("loop_id,winding_sign,n_voxels,centroid_x,centroid_y,centroid_z,"
-                "max_winding,step,time,temperature\n")
+        f.write(
+            "loop_id,winding_sign,n_voxels,centroid_x,centroid_y,centroid_z,"
+            "max_winding,step,time,temperature\n"
+        )
         for s in strings:
             cx, cy, cz = s["centroid"]
             sign_str = "+" if s["winding_sign"] > 0 else "-"
-            f.write(f"{s['loop_id']},{sign_str},{s['n_voxels']},"
-                    f"{cx:.2f},{cy:.2f},{cz:.2f},{s['max_winding']:.4f},"
-                    f"{step},{time_val:.8e},{temperature:.2f}\n")
+            f.write(
+                f"{s['loop_id']},{sign_str},{s['n_voxels']},"
+                f"{cx:.2f},{cy:.2f},{cz:.2f},{s['max_winding']:.4f},"
+                f"{step},{time_val:.8e},{temperature:.2f}\n"
+            )
 
 
 def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None):
@@ -586,7 +632,9 @@ def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None
 
         if not state.get("complex", False) or state.get("winding") is None:
             if i == 0:
-                print("  Warning: snapshot has no winding data (not a complex-field run)")
+                print(
+                    "  Warning: snapshot has no winding data (not a complex-field run)"
+                )
             continue
 
         winding = np.asarray(state["winding"], dtype=np.float64)
@@ -608,17 +656,21 @@ def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None
                 mu = float(metadata["mu"])
             elif metadata is not None and "mphi" in metadata:
                 mu = float(metadata["mphi"])
-            _write_string_csv(csv_path, strings, step, state["time"],
-                              state["temperature"])
+            _write_string_csv(
+                csv_path, strings, step, state["time"], state["temperature"]
+            )
 
         top_lens = [s["n_voxels"] for s in strings[:3]] if strings else []
         top_str = ", ".join(str(v) for v in top_lens) if top_lens else "-"
         summary_rows.append(
             f"{step},{state['time']:.8e},{state['temperature']:.2f},"
-            f"{n_loops},{n_string_vox},{top_str}\n")
+            f"{n_loops},{n_string_vox},{top_str}\n"
+        )
 
-        print(f"  [{i+1}/{len(state_files)}] step {step:>10,}  "
-              f"loops={n_loops:>4d}  voxels={n_string_vox:>7d}")
+        print(
+            f"  [{i+1}/{len(state_files)}] step {step:>10,}  "
+            f"loops={n_loops:>4d}  voxels={n_string_vox:>7d}"
+        )
 
     with open(summary_path, "w") as f:
         f.write("step,time,temperature,n_loops,n_string_voxels,top_loop_sizes\n")
@@ -680,13 +732,18 @@ def revisualize_3d(
     summary_hdr = "step,time,temperature,n_bubbles,n_pos,n_neg"
     if dx_phys is not None:
         summary_hdr += ",r_max_phys,r_mean_phys"
-    summary_hdr += ",r_max_lattice,r_mean_lattice,total_volume\n"
+    summary_hdr += ",r_max_lattice,r_mean_lattice,total_volume,volume_fraction\n"
     summary_rows = []
 
     rendered = 0
+    t_perc_found = False
+    T_perc = None
+
     for i, state_file in enumerate(state_files):
         state = load_field_state(state_file)
         phi = state["phi"]
+
+        lattice_volume = phi.size
 
         has_bubbles = np.any(np.abs(phi) > escape_phi)
         if not has_bubbles:
@@ -730,13 +787,22 @@ def revisualize_3d(
             r_max = max(r_all)
             r_mean = np.mean(r_all)
             tot_vol = sum(b["volume"] for b in bubbles)
+            vol_frac = tot_vol / lattice_volume
+
+            if vol_frac > 0.9999 and not t_perc_found:
+                print(
+                    f"\n  *** Volume fraction exceeded 99.99% at T={state['temperature']:.2f} (frac={vol_frac:.2f}) ***\n"
+                )
+                T_perc = state["temperature"]
+                t_perc_found = True
+
             row = (
                 f"{state['step']},{state['time']:.8e},{state['temperature']:.2f},"
                 f"{n_bub},{n_pos_bub},{n_neg_bub}"
             )
             if dx_phys is not None:
                 row += f",{r_max * dx_phys:.6e},{r_mean * dx_phys:.6e}"
-            row += f",{r_max:.4f},{r_mean:.4f},{tot_vol}\n"
+            row += f",{r_max:.4f},{r_mean:.4f},{tot_vol},{vol_frac:.6f}\n"
             summary_rows.append(row)
 
         # --- Console output ---
@@ -750,7 +816,9 @@ def revisualize_3d(
                 if dx_phys is not None:
                     r_part += f"({b['r_eff'] * dx_phys:.2e})"
                 parts.append(f"{s}{r_part}")
-            bub_info = f"  {n_bub} clusters: {', '.join(parts)}"
+            bub_info = (
+                f"  {n_bub} clusters: {', '.join(parts)} | vol_frac={vol_frac:.2%}"
+            )
 
         print(f"  [{i+1}/{len(state_files)}] step {state['step']:>10,}{bub_info}")
 
@@ -761,6 +829,10 @@ def revisualize_3d(
             f.write(row)
 
     print(f"\nDone – {rendered} 3D frames saved to {output_dir}")
+    if T_perc is not None:
+        print(
+            f"  *** Percolation temperature (fraction > 0.9999): T = {T_perc:.2f} ***"
+        )
     print(f"  Per-step CSV : {csv_dir}/")
     print(f"  Summary CSV  : {summary_path}")
 
@@ -888,8 +960,12 @@ def plot_snapshot_fixed(
 
 
 def revisualize_all(
-    sim_dir, colorbar_mode="normalized", cmap="coolwarm", escape_phi=None,
-    step_min=None, step_max=None,
+    sim_dir,
+    colorbar_mode="normalized",
+    cmap="coolwarm",
+    escape_phi=None,
+    step_min=None,
+    step_max=None,
 ):
     """
     Revisualize all snapshots with FIXED colorbar range.
@@ -1177,7 +1253,9 @@ def print_usage():
     print("  python postprocess/revisualize_snapshots.py <sim_dir> --escape_phi 3000")
     print("")
     print("  # 3D bubble rendering (requires --escape_phi)")
-    print("  python postprocess/revisualize_snapshots.py <sim_dir> --view3d --escape_phi 3000")
+    print(
+        "  python postprocess/revisualize_snapshots.py <sim_dir> --view3d --escape_phi 3000"
+    )
     print(
         "  python postprocess/revisualize_snapshots.py <sim_dir> --view3d --escape_phi 3000 --elev 30 --azim 120"
     )
@@ -1187,12 +1265,20 @@ def print_usage():
     print("")
     print("  # Cosmic string visualization (complex-field snapshots)")
     print("  python postprocess/revisualize_snapshots.py <sim_dir> --strings")
-    print("  python postprocess/revisualize_snapshots.py <sim_dir> --strings --elev 30 --azim 120")
+    print(
+        "  python postprocess/revisualize_snapshots.py <sim_dir> --strings --elev 30 --azim 120"
+    )
     print("")
     print("  # Process only a range of steps (works with all modes)")
-    print("  python postprocess/revisualize_snapshots.py <sim_dir> --strings --step_min 500000")
-    print("  python postprocess/revisualize_snapshots.py <sim_dir> --strings --step_min 500000 --step_max 1000000")
-    print("  python postprocess/revisualize_snapshots.py <sim_dir> --view3d --escape_phi 3000 --step_max 200000")
+    print(
+        "  python postprocess/revisualize_snapshots.py <sim_dir> --strings --step_min 500000"
+    )
+    print(
+        "  python postprocess/revisualize_snapshots.py <sim_dir> --strings --step_min 500000 --step_max 1000000"
+    )
+    print(
+        "  python postprocess/revisualize_snapshots.py <sim_dir> --view3d --escape_phi 3000 --step_max 200000"
+    )
 
 
 def main():
@@ -1267,8 +1353,9 @@ def main():
         print(f"Step range: [{step_min or 'start'} .. {step_max or 'end'}]")
 
     if strings_mode:
-        revisualize_strings(sim_dir, elev=elev, azim=azim,
-                            step_min=step_min, step_max=step_max)
+        revisualize_strings(
+            sim_dir, elev=elev, azim=azim, step_min=step_min, step_max=step_max
+        )
     elif view3d:
         if escape_phi is None:
             print("Error: --view3d requires --escape_phi <value>")
@@ -1285,8 +1372,14 @@ def main():
     elif compare_mode:
         compare_colorbar_modes(sim_dir)
     else:
-        revisualize_all(sim_dir, colorbar_mode=mode, cmap=cmap, escape_phi=escape_phi,
-                        step_min=step_min, step_max=step_max)
+        revisualize_all(
+            sim_dir,
+            colorbar_mode=mode,
+            cmap=cmap,
+            escape_phi=escape_phi,
+            step_min=step_min,
+            step_max=step_max,
+        )
 
 
 if __name__ == "__main__":

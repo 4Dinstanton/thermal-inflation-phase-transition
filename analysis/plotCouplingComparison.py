@@ -15,6 +15,7 @@ import math
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
 
@@ -36,7 +37,8 @@ def drev(x, a, b, c, d, e, f):
 # Cosmological functions (from drawAction.py)
 # =============================================================================
 MPL = 2.4e18  # Reduced Planck mass
-delV = 10**28  # Vacuum energy difference
+gamma = 4.1667 * 10**-8
+delV = gamma**2 * 1000**2 * MPL**2 / 4  # Vacuum energy difference
 chig2 = 30 / (math.pi**2 * 106.75)
 
 
@@ -78,12 +80,12 @@ def percol(T, popt, T_max):
 # =============================================================================
 # Configuration
 # =============================================================================
-param_set = "set7"
+param_set = "set8"
 # "V_correct" = boson + fermion, "fermion_only" = fermion only
-potential_flag = "fermion_only"
+potential_flag = "boson_and_fermion"
 
 data_dir = f"data/tunneling/{param_set}/coupling_temp_scan_{potential_flag}"
-output_dir = f"figs/coupling_comparison_{potential_flag}"
+output_dir = f"figs/coupling_comparison/{potential_flag}"
 os.makedirs(output_dir, exist_ok=True)
 
 # Coupling range to include
@@ -235,7 +237,7 @@ def get_plot_style(coup):
             "color": "red",
             "linewidth": 3.0,
             "zorder": 10,
-            "label": rf"$\lambda$={coup:.2f} ★",
+            "label": rf"$y$={coup:.2f} ★",
         }
     else:
         idx = couplings.index(coup)
@@ -243,7 +245,7 @@ def get_plot_style(coup):
             "color": colors[idx],
             "linewidth": 1.2,
             "zorder": 1,
-            "label": rf"$\lambda$={coup:.2f}",
+            "label": rf"$y$={coup:.2f}",
         }
 
 
@@ -252,16 +254,16 @@ fig1, ax1 = plt.subplots(figsize=(10, 7))
 for coup in couplings:
     df = plot_data[coup]
     style = get_plot_style(coup)
-    ax1.plot(df["T"] / 1000, df["S3"], **style)
+    ax1.plot(df["T"] / 1000, df["S3/T"], **style)
 ax1.set_xlabel("T (TeV)", fontsize=12)
-ax1.set_ylabel(r"$S_3$", fontsize=12)
-ax1.set_title(r"Bounce Action $S_3$ vs Temperature", fontsize=14)
+ax1.set_ylabel(r"$S_3/T$", fontsize=12)
+ax1.set_title(r"Bounce Action $S_3/T$ vs Temperature", fontsize=14)
 ax1.legend(fontsize=8, loc="best", ncol=2)
 ax1.grid(True, alpha=0.3)
 ax1.set_xlim([T_overlap_min / 1000, T_overlap_max / 1000])
 plt.tight_layout()
-plt.savefig(f"{output_dir}/S3_comparison.png", dpi=200)
-print(f"Saved: {output_dir}/S3_comparison.png")
+plt.savefig(f"{output_dir}/S3_T_comparison.png", dpi=200)
+print(f"Saved: {output_dir}/S3_T_comparison.png")
 
 # Figure 2: beta/H
 fig2, ax2 = plt.subplots(figsize=(10, 7))
@@ -287,12 +289,17 @@ for coup in couplings:
         style = get_plot_style(coup)
         ax3.plot(df["T"] / 1000, df["r_c"], **style)
 ax3.set_xlabel("T (TeV)", fontsize=12)
-ax3.set_ylabel(r"$r_c$", fontsize=12)
+ax3.set_ylabel(r"$r_c\;(\mathrm{GeV}^{-1})$", fontsize=12)
 ax3.set_title(r"Critical Bubble Radius $r_c$ vs Temperature", fontsize=14)
 ax3.legend(fontsize=8, loc="best", ncol=2)
 ax3.grid(True, alpha=0.3)
 ax3.set_yscale("log")
 ax3.set_xlim([T_overlap_min / 1000, T_overlap_max / 1000])
+ax3.yaxis.set_major_formatter(mticker.ScalarFormatter())
+ax3.yaxis.get_major_formatter().set_scientific(False)
+ax3.set_yticks([0.002, 0.003, 0.005, 0.007, 0.01, 0.015])
+ax3.set_yticklabels(["0.002", "0.003", "0.005", "0.007", "0.01", "0.015"])
+ax3.yaxis.set_minor_formatter(mticker.NullFormatter())
 plt.tight_layout()
 plt.savefig(f"{output_dir}/r_c_comparison.png", dpi=200)
 print(f"Saved: {output_dir}/r_c_comparison.png")
@@ -317,15 +324,15 @@ print(f"Saved: {output_dir}/phi_esc_comparison.png")
 # Figure 5: Combined 2x2 plot
 fig5, axes = plt.subplots(2, 2, figsize=(14, 12))
 
-# S_3
+# S_3/T
 for coup in couplings:
     df = plot_data[coup]
     style = get_plot_style(coup)
     style["linewidth"] = style["linewidth"] * 0.8  # Thinner for combined
-    axes[0, 0].plot(df["T"] / 1000, df["S3"], **style)
+    axes[0, 0].plot(df["T"] / 1000, df["S3/T"], **style)
 axes[0, 0].set_xlabel("T (TeV)")
-axes[0, 0].set_ylabel(r"$S_3$")
-axes[0, 0].set_title(r"Bounce Action $S_3$")
+axes[0, 0].set_ylabel(r"$S_3/T$")
+axes[0, 0].set_title(r"Bounce Action $S_3/T$")
 axes[0, 0].legend(fontsize=6, loc="best", ncol=2)
 axes[0, 0].grid(True, alpha=0.3)
 
@@ -347,13 +354,18 @@ for coup in couplings:
     if "r_c" in df.columns:
         style = get_plot_style(coup)
         style["linewidth"] = style["linewidth"] * 0.8
-        axes[1, 0].plot(df["T"] / 1000, df["r_c"], **style)
+        axes[1, 0].plot(df["T"] / 1000, df["r_c"] * 1000, **style)
 axes[1, 0].set_xlabel("T (TeV)")
-axes[1, 0].set_ylabel(r"$r_c$")
+axes[1, 0].set_ylabel(r"$r_c\;(\mathrm{TeV}^{-1})$")
 axes[1, 0].set_title(r"Critical Bubble Radius $r_c$")
 axes[1, 0].legend(fontsize=6, loc="best", ncol=2)
 axes[1, 0].grid(True, alpha=0.3)
 axes[1, 0].set_yscale("log")
+axes[1, 0].yaxis.set_major_formatter(mticker.ScalarFormatter())
+axes[1, 0].yaxis.get_major_formatter().set_scientific(False)
+axes[1, 0].set_yticks([2, 3, 5, 7, 10, 15])
+axes[1, 0].set_yticklabels(["2", "3", "5", "7", "10", "15"])
+axes[1, 0].yaxis.set_minor_formatter(mticker.NullFormatter())
 
 # phi_esc
 for coup in couplings:
@@ -361,16 +373,16 @@ for coup in couplings:
     if "phi_esc" in df.columns:
         style = get_plot_style(coup)
         style["linewidth"] = style["linewidth"] * 0.8
-        axes[1, 1].plot(df["T"] / 1000, df["phi_esc"], **style)
+        axes[1, 1].plot(df["T"] / 1000, df["phi_esc"] / 1000, **style)
 axes[1, 1].set_xlabel("T (TeV)")
-axes[1, 1].set_ylabel(r"$\phi_{esc}$")
+axes[1, 1].set_ylabel(r"$\phi_{esc}(\mathrm{TeV})$")
 axes[1, 1].set_title(r"Escape Point $\phi_{esc}$")
 axes[1, 1].legend(fontsize=6, loc="best", ncol=2)
 axes[1, 1].grid(True, alpha=0.3)
 
 plt.suptitle(
-    rf"Coupling Comparison ($\lambda$ = {COUPLING_MIN} to {COUPLING_MAX}), "
-    rf"★ = $\lambda$ = {HIGHLIGHT_COUPLING}",
+    rf"Coupling Comparison ($y$ = {COUPLING_MIN} to {COUPLING_MAX}), "
+    rf"★ = $y$ = {HIGHLIGHT_COUPLING}",
     fontsize=14,
     y=1.02,
 )
@@ -430,6 +442,8 @@ for coup in couplings:
     T_range = T_high - T_low
     T_low = T_low - 0.08 * T_range
     T_high = T_high + 0.08 * T_range
+    T_low = 1150
+    T_high = 1325
 
     # Ensure valid range
     if T_low >= T_high:
@@ -726,8 +740,7 @@ ax_P.grid(True, alpha=0.3)
 ax_P.legend(fontsize=6, loc="best", ncol=2)
 
 plt.suptitle(
-    rf"Nucleation & Percolation ($\lambda$ = {COUPLING_MIN:.2f}"
-    rf" to {COUPLING_MAX:.2f})",
+    rf"Nucleation & Percolation ($y$ = {COUPLING_MIN:.2f}" rf" to {COUPLING_MAX:.2f})",
     fontsize=14,
     y=1.02,
 )

@@ -80,7 +80,8 @@ def draw_VT_temp_array(phi, VT, temp_arr, title="toy_model_VT"):
     plt.xlabel(r"$\phi (\text{TeV})$")
     # ax1.set_xlim([-4,4])
     # ax1.set_ylim([-5,-0])
-    plt.savefig(f"figs/finiteTemp/{title}", dpi=300)
+    _os.makedirs("figs/tunneling", exist_ok=True)
+    plt.savefig(f"figs/tunneling/{title}", dpi=300)
     plt.show()
 
 
@@ -249,7 +250,7 @@ ax.set_ylabel(r'$S_4$')
 ax.legend(leg, labels)
 fig.tight_layout()
 #plt.savefig("figs/meeting/V-VT", dpi=300)
-plt.savefig(f"figs/finiteTemp/T-S_{param_set}_p2", dpi=300)
+plt.savefig(f"figs/tunneling/T-S_{param_set}_p2", dpi=300)
 """
 import pandas as pd
 

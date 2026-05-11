@@ -5,6 +5,7 @@ Plot r_c, phi_esc, S3/T from tunneling CSV and test analytic fitting ansatze:
     phi_esc ~ a * T ln(T-b)   + c
 """
 
+import os
 import numpy as np
 import matplotlib
 
@@ -140,7 +141,8 @@ for ax, (name, y, model, _) in zip(axes, quantities):
 
 fig.suptitle(f"Tunneling quantities  –  fermion_only  ({dataset})", fontsize=13, y=1.02)
 plt.tight_layout()
-plt.savefig(f"figs/finiteTemp/fitting_analysis_fermion_only_{dataset}.png", dpi=200)
+os.makedirs("figs/fitting", exist_ok=True)
+plt.savefig(f"figs/fitting/fitting_analysis_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig)
 
 # ── residual plot ─────────────────────────────────────────────────────────
@@ -157,7 +159,7 @@ for ax, (name, y, model, _) in zip(axes2, quantities):
     ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig(f"figs/finiteTemp/fitting_residuals_fermion_only_{dataset}.png", dpi=200)
+plt.savefig(f"figs/fitting/fitting_residuals_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig2)
 
 # ── sqrt(T) dedicated figure ──────────────────────────────────────────────
@@ -194,7 +196,7 @@ ax_res.set_title(rf"$S_3/T$ sqrt fit residual  ($R^2={R2_sq:.5f}$)")
 ax_res.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig(f"figs/finiteTemp/fitting_sqrtT_fermion_only_{dataset}.png", dpi=200)
+plt.savefig(f"figs/fitting/fitting_sqrtT_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig3)
 
 # ── combined-ansatz figure ────────────────────────────────────────────────
@@ -287,11 +289,11 @@ ax.grid(True, alpha=0.3)
 
 fig4.suptitle(f"Combined ansatze  –  fermion_only  ({dataset})", fontsize=13)
 plt.tight_layout()
-plt.savefig(f"figs/finiteTemp/fitting_combined_fermion_only_{dataset}.png", dpi=200)
+plt.savefig(f"figs/fitting/fitting_combined_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig4)
 
 print("\nPlots saved:")
-print(f"  figs/finiteTemp/fitting_analysis_fermion_only_{dataset}.png")
-print(f"  figs/finiteTemp/fitting_residuals_fermion_only_{dataset}.png")
-print(f"  figs/finiteTemp/fitting_sqrtT_fermion_only_{dataset}.png")
-print(f"  figs/finiteTemp/fitting_combined_fermion_only_{dataset}.png")
+print(f"  figs/fitting/fitting_analysis_fermion_only_{dataset}.png")
+print(f"  figs/fitting/fitting_residuals_fermion_only_{dataset}.png")
+print(f"  figs/fitting/fitting_sqrtT_fermion_only_{dataset}.png")
+print(f"  figs/fitting/fitting_combined_fermion_only_{dataset}.png")

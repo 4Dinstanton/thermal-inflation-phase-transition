@@ -593,10 +593,12 @@ def gw_soundwave_thermal_inflation(
     a_d_over_a0 = (G_S0 / g_star) ** (1.0 / 3.0) * T_CMB_GEV / T_d
 
     rho_rad = math.pi**2 / 30.0 * g_star * T_n**4
-    alpha_wall = DV_wall / rho_rad
-    kv = kappa_v(alpha_wall, v_w)
 
-    K = kv * alpha_wall / (1.0 + alpha_wall)
+    # User requested to use V0 directly. In this context V0 = V_TI.
+    alpha_total = V_TI / rho_rad
+    kv = kappa_v(alpha_total, v_w)
+
+    K = kv * alpha_total / (1.0 + alpha_total)
     Uf = math.sqrt(max(0.75 * K, 1e-300))
 
     c_s = 1.0 / math.sqrt(3.0)
@@ -1053,8 +1055,14 @@ def plot_gw_spectrum_eglps(
 # Multi-signal overlay plot
 # ---------------------------------------------------------------------------
 _SIGNAL_COLORS = [
-    "navy", "crimson", "forestgreen", "darkorange", "darkviolet",
-    "teal", "saddlebrown", "deeppink",
+    "navy",
+    "crimson",
+    "forestgreen",
+    "darkorange",
+    "darkviolet",
+    "teal",
+    "saddlebrown",
+    "deeppink",
 ]
 
 
@@ -1108,7 +1116,9 @@ def plot_gw_multi(signals, output_path, title=None):
         ax.loglog(fv, sv, color=color, lw=1.5, alpha=0.45, zorder=2)
 
     _annotate_detector(ax, f_lisa, sensitivity_LISA(f_lisa), "LISA", "purple", 3e-3)
-    _annotate_detector(ax, f_decigo, sensitivity_DECIGO(f_decigo), "DECIGO", "orange", 0.2)
+    _annotate_detector(
+        ax, f_decigo, sensitivity_DECIGO(f_decigo), "DECIGO", "orange", 0.2
+    )
     _annotate_detector(ax, f_bbo, sensitivity_BBO(f_bbo), "BBO", "cyan", 0.05)
     _annotate_detector(ax, f_et, sensitivity_ET(f_et), "ET", "brown", 5.0)
     _annotate_detector(ax, f_ligo, sensitivity_aLIGO(f_ligo), "aLIGO", "green", 50.0)
@@ -1166,8 +1176,9 @@ def plot_gw_multi(signals, output_path, title=None):
             fontsize=7.5,
             verticalalignment="top",
             color=c,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                      edgecolor=c, alpha=0.8),
+            bbox=dict(
+                boxstyle="round,pad=0.3", facecolor="white", edgecolor=c, alpha=0.8
+            ),
         )
         n_lines = len(lines)
         box_y -= 0.025 * n_lines + 0.03
@@ -1671,15 +1682,28 @@ def _compute_one_signal(csv_path, delV, T_d, g_star, v_w, shape, efficiency):
     alpha_val = compute_alpha(T_n, delV, g_star)
     freq = np.logspace(-5, 5, 3000)
     omega, f_pk, h2_pk = gw_thermal_inflation(
-        freq, beta_H, delV, T_d if T_d is not None else T_RH,
-        g_star=g_star, v_w=v_w, shape=shape, efficiency=efficiency,
+        freq,
+        beta_H,
+        delV,
+        T_d if T_d is not None else T_RH,
+        g_star=g_star,
+        v_w=v_w,
+        shape=shape,
+        efficiency=efficiency,
     )
     return dict(
-        freq=freq, omega=omega, f_peak=f_pk, omega_peak=h2_pk,
+        freq=freq,
+        omega=omega,
+        f_peak=f_pk,
+        omega_peak=h2_pk,
         params=dict(
-            T_n=T_n, T_d=T_d if T_d is not None else T_RH,
-            beta_H=beta_H, alpha=alpha_val, delV=delV,
-            shape=shape, efficiency=efficiency,
+            T_n=T_n,
+            T_d=T_d if T_d is not None else T_RH,
+            beta_H=beta_H,
+            alpha=alpha_val,
+            delV=delV,
+            shape=shape,
+            efficiency=efficiency,
         ),
     )
 
@@ -1724,14 +1748,26 @@ def main_compare():
         description="Overlay multiple TI GW spectra on one plot."
     )
     parser.add_argument(
-        "config", nargs="?", default=None,
+        "config",
+        nargs="?",
+        default=None,
         help="Path to JSON config file (alternative to --csv flags)",
     )
-    parser.add_argument("--csv", action="append", default=[], help="CSV path (repeatable)")
-    parser.add_argument("--delV", action="append", type=float, default=[], help="delV (repeatable)")
-    parser.add_argument("--T_d", action="append", type=float, default=[], help="T_d (repeatable)")
-    parser.add_argument("--label", action="append", default=[], help="Label (repeatable)")
-    parser.add_argument("--color", action="append", default=[], help="Color (repeatable, optional)")
+    parser.add_argument(
+        "--csv", action="append", default=[], help="CSV path (repeatable)"
+    )
+    parser.add_argument(
+        "--delV", action="append", type=float, default=[], help="delV (repeatable)"
+    )
+    parser.add_argument(
+        "--T_d", action="append", type=float, default=[], help="T_d (repeatable)"
+    )
+    parser.add_argument(
+        "--label", action="append", default=[], help="Label (repeatable)"
+    )
+    parser.add_argument(
+        "--color", action="append", default=[], help="Color (repeatable, optional)"
+    )
     parser.add_argument("--shape", type=str, default="jt2016")
     parser.add_argument("--efficiency", type=str, default="jt2016")
     parser.add_argument("--g_star", type=float, default=G_STAR_DEFAULT)
@@ -1768,7 +1804,9 @@ def main_compare():
         n = len(args.csv)
         if n == 0:
             parser.error("Provide either a JSON config or --csv flags.")
-        labels = args.label if len(args.label) == n else [f"signal {i+1}" for i in range(n)]
+        labels = (
+            args.label if len(args.label) == n else [f"signal {i+1}" for i in range(n)]
+        )
         delVs = args.delV if len(args.delV) == n else [DEL_V_DEFAULT] * n
         T_ds = args.T_d if len(args.T_d) == n else [None] * n
         colors = args.color if len(args.color) == n else []
@@ -1795,6 +1833,7 @@ def main_compare():
 
 if __name__ == "__main__":
     import sys as _sys
+
     if len(_sys.argv) > 1 and _sys.argv[1] == "compare":
         _sys.argv.pop(1)
         main_compare()

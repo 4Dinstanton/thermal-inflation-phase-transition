@@ -12,7 +12,7 @@ Corrections applied to the PDF:
     • C(T_n) = 0           [Eq. 66 corrected]
     • ε replaces γ in Eq. 63 to avoid symbol clash with Eq. 77
 
-Key insight:  S₃/T depends only on {m, y, n_f, g, δ²} — independent of γ.
+Key insight:  S₃/T depends only on {m, y, n_f, n_b, g, δ²_f, δ²_b} — independent of γ.
 T_n(γ) is determined solely by where S₃/T(T) crosses 4 ln(2√3 T/(m γ)).
 
 Also implements the semi-analytical linearisation from Eqs. 67-71 / C14-C18.
@@ -37,13 +37,18 @@ m = 1000.0  # flaton mass [GeV]
 y = 1.09  # Yukawa coupling
 g = 1.05  # gauge coupling
 n_f = 20  # fermion d.o.f.
-delta2 = g**2 / 6.0  # δ² ≈ 0.1838
+n_b = 20  # boson d.o.f. (scalar SUSY partners)
+delta2_f = g**2 / 6.0  # δ²_f  fermionic thermal mass
+delta2_b = y**2 / 4.0 + 2.0 * g**2 / 3.0  # δ²_b  bosonic thermal mass
+delta2 = delta2_f  # backward compat alias
 
 # Gaussian-quadrature nodes & weights (Appendix A of PDF)
 QX = np.array([0.0320224, 0.339406])
 QW = np.array([0.900848, 0.0991516])
 
-GAMMA_REF = 1.0e11 / M_PL  # reference γ ≈ 4.1667e-8
+# GAMMA_REF = 1.0e11 / M_PL  # reference γ ≈ 4.1667e-8
+GAMMA_REF = 2.75 * 10**-5
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  Fermionic thermal integral J'_F(u²) via cubic-spline cache
@@ -58,16 +63,13 @@ def _jfp_integrand(x, u2):
 
 def _jfp_exact(u2):
     val, _ = integrate.quad(
-        _jfp_integrand, 0, 200, args=(u2,),
-        limit=500, epsabs=1e-15, epsrel=1e-15
+        _jfp_integrand, 0, 200, args=(u2,), limit=500, epsabs=1e-15, epsrel=1e-15
     )
     return val / (4.0 * math.pi**2)
 
 
 print("Building J'_F spline on [0, 60] …", end=" ", flush=True)
-_U2_GRID = np.concatenate(
-    [np.linspace(0, 5, 3000), np.linspace(5.01, 60, 3000)]
-)
+_U2_GRID = np.concatenate([np.linspace(0, 5, 3000), np.linspace(5.01, 60, 3000)])
 _JFP_VALS = np.array([_jfp_exact(u2) for u2 in _U2_GRID])
 _SP = CubicSpline(_U2_GRID, _JFP_VALS)
 print("done.")
@@ -95,36 +97,92 @@ def Jppp(u2):
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Bosonic thermal integral J'_B(u²) via cubic-spline cache
+# ═══════════════════════════════════════════════════════════════════
+def _jbp_integrand(x, u2):
+    s = math.sqrt(u2 + x * x)
+    if s > 500:
+        return 0.0
+    es = math.exp(s)
+    if es <= 1.0:
+        return 0.0
+    return x * x / (s * (es - 1.0))
+
+
+def _jbp_exact(u2):
+    val, _ = integrate.quad(
+        _jbp_integrand, 0, 200, args=(u2,), limit=500, epsabs=1e-15, epsrel=1e-15
+    )
+    return val / (4.0 * math.pi**2)
+
+
+if n_b > 0:
+    print("Building J'_B spline on [0, 60] …", end=" ", flush=True)
+    _JBP_VALS = np.array([_jbp_exact(u2) for u2 in _U2_GRID])
+    _SP_B = CubicSpline(_U2_GRID, _JBP_VALS)
+    print("done.")
+
+
+def JpB(u2):
+    if n_b == 0 or u2 > 60:
+        return 0.0
+    return float(_SP_B(u2))
+
+
+def JppB(u2):
+    if n_b == 0 or u2 > 60:
+        return 0.0
+    return float(_SP_B(u2, 1))
+
+
+def JpppB(u2):
+    if n_b == 0 or u2 > 60:
+        return 0.0
+    return float(_SP_B(u2, 2))
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Spinodal temperature T_c2 (Eq. 76)
 # ═══════════════════════════════════════════════════════════════════
-T_c2 = m / (y * math.sqrt(n_f * Jp(delta2)))
+_total_Jp0 = n_f * Jp(delta2_f) + n_b * JpB(delta2_b)
+T_c2 = m / (y * math.sqrt(_total_Jp0))
 print(f"T_c2 = {T_c2:.4f} GeV  ({T_c2 / 1e3:.6f} TeV)")
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  α(T) from Eq. (52)  and  S₃/T from Eq. (55)
 # ═══════════════════════════════════════════════════════════════════
-def _Gi(alpha, i):
-    """G_i(α) ≡ J'_F(z) − (x_i α / 2) J''_F(z),  z = δ² + x_i α.  [Eq. C7]"""
-    z = delta2 + QX[i] * alpha
+def _Gi_F(alpha, i):
+    """Fermionic G_i(α): J'_F(z) − (x_i α / 2) J''_F(z),  z = δ²_f + x_i α."""
+    z = delta2_f + QX[i] * alpha
     return Jp(z) - QX[i] * alpha / 2.0 * Jpp(z)
 
 
+def _Gi_B(alpha, i):
+    """Bosonic G_i(α): J'_B(z) − (x_i α / 2) J''_B(z),  z = δ²_b + x_i α."""
+    z = delta2_b + QX[i] * alpha
+    return JpB(z) - QX[i] * alpha / 2.0 * JppB(z)
+
+
 def _f_sum(alpha):
-    """Σ_i w_i G_i(α)   (without n_f factor)."""
-    return QW[0] * _Gi(alpha, 0) + QW[1] * _Gi(alpha, 1)
+    """Σ_i w_i [n_f G_i_F(α) + n_b G_i_B(α)]."""
+    s = 0.0
+    for i in range(2):
+        s += QW[i] * (n_f * _Gi_F(alpha, i) + n_b * _Gi_B(alpha, i))
+    return s
 
 
-_F0 = n_f * _f_sum(0.0)  # = n_f J'_F(δ²), threshold for T > T_c2
+_F0 = _f_sum(0.0)
 
 
 def solve_alpha(T):
-    """Solve  m²/(y²T²) = n_f Σ w_i G_i(α)  for α ≥ 0.  Returns α or None."""
+    """Solve  m²/(y²T²) = Σ w_i [n_f G_i_F + n_b G_i_B]  for α ≥ 0."""
     lhs = m**2 / (y**2 * T**2)
     if lhs >= _F0:
-        return None  # T ≤ T_c2
+        return None
 
     def residual(a):
-        return lhs - n_f * _f_sum(a)
+        return lhs - _f_sum(a)
 
     hi = 1.0
     while residual(hi) < 0 and hi < 500:
@@ -135,9 +193,18 @@ def solve_alpha(T):
 
 
 def S3_over_T(alpha):
-    """S₃/T from Eq. (55)."""
-    denom = sum(QW[i] * QX[i] * Jpp(delta2 + QX[i] * alpha) for i in range(2))
-    arg = -2.0 * alpha / (3.0 * y**2 * n_f * denom)
+    """S₃/T from Eq. (55), including fermionic + bosonic contributions."""
+    denom = 0.0
+    for i in range(2):
+        denom += (
+            QW[i]
+            * QX[i]
+            * (
+                n_f * Jpp(delta2_f + QX[i] * alpha)
+                + n_b * JppB(delta2_b + QX[i] * alpha)
+            )
+        )
+    arg = -2.0 * alpha / (3.0 * y**2 * denom)
     if arg <= 0:
         return None
     return 2.0 * math.pi / (3.0 * y**2) * math.sqrt(arg)
@@ -154,9 +221,9 @@ _A_GRID = np.full(_N_T, np.nan)
 _S_GRID = np.full(_N_T, np.nan)
 
 print(
-    f"Pre-computing α(T) and S₃/T on "
-    f"[{_T_LO:.1f}, {_T_HI:.1f}] GeV …",
-    end=" ", flush=True,
+    f"Pre-computing α(T) and S₃/T on " f"[{_T_LO:.1f}, {_T_HI:.1f}] GeV …",
+    end=" ",
+    flush=True,
 )
 for k, T_val in enumerate(_T_GRID):
     a = solve_alpha(T_val)
@@ -174,33 +241,23 @@ print(f"done ({np.sum(_valid)} valid points).")
 #  Validate against Table II
 # ═══════════════════════════════════════════════════════════════════
 print(f"\n{'─' * 80}")
-print(
-    f"  Validation vs Table II  "
-    f"(temperatures in TeV, γ_ref = {GAMMA_REF:.6e})"
-)
+print(f"  Validation vs Table II  " f"(temperatures in TeV, γ_ref = {GAMMA_REF:.6e})")
 print(f"{'─' * 80}")
-print(
-    f"  {'T':>5}  {'α':>10}  {'S₃/T':>10}  "
-    f"{'4ln(2√3T/(mγ))':>16}  {'C(T)':>10}"
-)
+print(f"  {'T':>5}  {'α':>10}  {'S₃/T':>10}  " f"{'4ln(2√3T/(mγ))':>16}  {'C(T)':>10}")
 print(f"{'─' * 80}")
 for T_TeV in np.arange(1.50, 1.66, 0.01):
     T_GeV = T_TeV * 1e3
     a = solve_alpha(T_GeV)
     if a is None:
-        print(
-            f"  {T_TeV:5.2f}  {'—':>10}  {'—':>10}"
-            f"  {'—':>16}  {'—':>10}"
-        )
+        print(f"  {T_TeV:5.2f}  {'—':>10}  {'—':>10}" f"  {'—':>16}  {'—':>10}")
         continue
     s3t = S3_over_T(a)
-    log4 = 4.0 * math.log(
-        2 * math.sqrt(3) * T_GeV / (m * GAMMA_REF)
-    )
+    log4 = 4.0 * math.log(2 * math.sqrt(3) * T_GeV / (m * GAMMA_REF))
     C_val = s3t - log4 if s3t else None
     s3_str = f"{s3t:.5f}" if s3t else "—"
     c_str = f"{C_val:.5f}" if C_val is not None else "—"
     print(f"  {T_TeV:5.2f}  {a:10.5f}  {s3_str:>10}  {log4:16.5f}  {c_str:>10}")
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  Fast T_n finder using pre-computed S₃/T spline
@@ -217,9 +274,7 @@ def find_Tn(gamma):
     idx = sc[0]
 
     def _res(T):
-        return float(_S3T_spl(T)) - 4.0 * math.log(
-            2 * math.sqrt(3) * T / (m * gamma)
-        )
+        return float(_S3T_spl(T)) - 4.0 * math.log(2 * math.sqrt(3) * T / (m * gamma))
 
     return optimize.brentq(_res, T_v[idx], T_v[idx + 1], xtol=1e-3)
 
@@ -228,19 +283,36 @@ def find_Tn(gamma):
 #  Semi-analytical approach (Eqs. 67-71 / C14-C18)
 # ═══════════════════════════════════════════════════════════════════
 def linearisation_coeffs(alpha_ref):
-    """c₀, c₁, s₀, s₁ from Eqs. (68-71) evaluated at α_ref."""
+    """c₀, c₁, s₀, s₁ from Eqs. (68-71) evaluated at α_ref (fermion + boson)."""
     c0 = c1 = s0 = s1 = 0.0
     for i in range(2):
-        z = delta2 + QX[i] * alpha_ref
-        jp = Jp(z)
-        jpp = Jpp(z)
-        jppp = Jppp(z)
         x = QX[i]
         w = QW[i]
-        c0 += w * (jp - x * alpha_ref * jpp + x**2 * alpha_ref**2 / 2 * jppp)
-        c1 += w * (x / 2 * jpp - x**2 * alpha_ref / 2 * jppp)
-        s0 += w * (x * jpp - alpha_ref * x**2 * jppp)
-        s1 += w * x**2 * jppp
+        # fermionic contribution
+        zf = delta2_f + x * alpha_ref
+        jp_f = Jp(zf)
+        jpp_f = Jpp(zf)
+        jppp_f = Jppp(zf)
+        c0 += (
+            w * n_f * (jp_f - x * alpha_ref * jpp_f + x**2 * alpha_ref**2 / 2 * jppp_f)
+        )
+        c1 += w * n_f * (x / 2 * jpp_f - x**2 * alpha_ref / 2 * jppp_f)
+        s0 += w * n_f * (x * jpp_f - alpha_ref * x**2 * jppp_f)
+        s1 += w * n_f * x**2 * jppp_f
+        # bosonic contribution
+        if n_b > 0:
+            zb = delta2_b + x * alpha_ref
+            jp_b = JpB(zb)
+            jpp_b = JppB(zb)
+            jppp_b = JpppB(zb)
+            c0 += (
+                w
+                * n_b
+                * (jp_b - x * alpha_ref * jpp_b + x**2 * alpha_ref**2 / 2 * jppp_b)
+            )
+            c1 += w * n_b * (x / 2 * jpp_b - x**2 * alpha_ref / 2 * jppp_b)
+            s0 += w * n_b * (x * jpp_b - alpha_ref * x**2 * jppp_b)
+            s1 += w * n_b * x**2 * jppp_b
     return c0, c1, s0, s1
 
 
@@ -248,11 +320,11 @@ def find_Tn_semi(gamma, c0, c1, s0, s1):
     """Solve the linearised nucleation equation (C18) for T_n."""
 
     def residual(T):
-        alpha = (m**2 / (n_f * y**2 * T**2) - c0) / c1
+        alpha = (m**2 / (y**2 * T**2) - c0) / c1
         if alpha <= 0:
             return -1e10
         denom = s0 + s1 * alpha
-        inside = -2 * alpha / (3 * y**2 * n_f * denom)
+        inside = -2 * alpha / (3 * y**2 * denom)
         if inside <= 0:
             return -1e10
         s3t = 2 * math.pi / (3 * y**2) * math.sqrt(inside)
@@ -273,10 +345,7 @@ alpha_ref = float(_ALPHA_spl(Tn_ref))
 c0, c1, s0, s1 = linearisation_coeffs(alpha_ref)
 
 print(f"\n{'─' * 80}")
-print(
-    f"  Reference:  γ_ref = {GAMMA_REF:.6e}"
-    f"   (φ₀ = {GAMMA_REF * M_PL:.2e} GeV)"
-)
+print(f"  Reference:  γ_ref = {GAMMA_REF:.6e}" f"   (φ₀ = {GAMMA_REF * M_PL:.2e} GeV)")
 print(f"  T_n(γ_ref) = {Tn_ref:.4f} GeV   ({Tn_ref / 1e3:.6f} TeV)")
 print(f"  α_n        = {alpha_ref:.5f}")
 print(f"  c₀ = {c0:.10e}   c₁ = {c1:.10e}")
@@ -294,8 +363,8 @@ print(f"{'─' * 80}")
 #
 #  with  b = F' − 4/T_n⁰,   a = F''/2 + 2/(T_n⁰)².
 # ═══════════════════════════════════════════════════════════════════
-Fp = float(_S3T_spl(Tn_ref, 1))    # dF/dT
-Fpp = float(_S3T_spl(Tn_ref, 2))   # d²F/dT²
+Fp = float(_S3T_spl(Tn_ref, 1))  # dF/dT
+Fpp = float(_S3T_spl(Tn_ref, 2))  # d²F/dT²
 Fppp = float(_S3T_spl(Tn_ref, 3))  # d³F/dT³
 lng0 = math.log(GAMMA_REF)
 
@@ -313,8 +382,8 @@ pt_d = Fppp / 6.0 - 4.0 / (3.0 * Tn_ref**3)
 # Then T_n = T_n⁰ + δT₁·4(L-L₀) + δT₂·16(L-L₀)² + δT₃·64(L-L₀)³
 # where L = lnγ, L₀ = lnγ₀.
 
-_c1 = -4.0 / pt_b                              # coeff of (L-L₀)
-_c2 = -16.0 * pt_a / pt_b**3                   # coeff of (L-L₀)²
+_c1 = -4.0 / pt_b  # coeff of (L-L₀)
+_c2 = -16.0 * pt_a / pt_b**3  # coeff of (L-L₀)²
 _c3 = -64.0 * (2 * pt_a**2 - pt_b * pt_d) / pt_b**5  # coeff of (L-L₀)³
 
 # Expand (L-L₀)^n in powers of L to get T_n = A₀+A₁L+A₂L²+A₃L³
@@ -371,6 +440,7 @@ Tn_p2 = np.array([Tn_pert_2nd(gv) for gv in gamma_arr])
 Tn_p3 = np.array([Tn_pert_3rd_poly(gv) for gv in gamma_arr])
 print("done.")
 
+
 # ═══════════════════════════════════════════════════════════════════
 #  Numerical fit of perturbative quadratic form:
 #  Fit  a_eff, b_eff  in  a(T_n-T_n⁰)² + b(T_n-T_n⁰) + 4ln(γ/γ₀) = 0
@@ -398,18 +468,14 @@ Tn_nq = _pert_quad_model(np.log(gamma_arr), b_num, a_num)
 # Also derive the implied polynomial coefficients from fitted a, b
 nq_A2 = -16.0 * a_num / b_num**3
 nq_A1 = -4.0 / b_num + 32.0 * a_num * lng0 / b_num**3
-nq_A0 = (
-    Tn_ref + 4.0 / b_num * lng0
-    - 16.0 * a_num / b_num**3 * lng0**2
-)
+nq_A0 = Tn_ref + 4.0 / b_num * lng0 - 16.0 * a_num / b_num**3 * lng0**2
 
 print(f"\n{'─' * 80}")
 print("  Numerical fit of perturbative form:")
 print(f"  b_eff = {b_num:.10e}   (analytic: {pt_b:.10e})")
 print(f"  a_eff = {a_num:.10e}   (analytic: {pt_a:.10e})")
 print(
-    f"  Implied polynomial: {nq_A0:.4f}"
-    f" + ({nq_A1:.6f}) lnγ + ({nq_A2:.8f}) (lnγ)²"
+    f"  Implied polynomial: {nq_A0:.4f}" f" + ({nq_A1:.6f}) lnγ + ({nq_A2:.8f}) (lnγ)²"
 )
 print(f"{'─' * 80}")
 
@@ -434,6 +500,7 @@ r2_f3 = 1 - np.sum((Tv - Tv_f3) ** 2) / ss_tot
 # --- Fit 3: power law  T_n = T_c2 + A (−lnγ)^B ---
 pw_ok = False
 try:
+
     def _pwl(lngn, A, B):
         return T_c2 + A * lngn**B
 
@@ -483,22 +550,10 @@ r2_p1 = 1 - np.sum((Tv - Tv_p1) ** 2) / ss_tot
 r2_p2 = 1 - np.sum((Tv - Tv_p2) ** 2) / ss_tot
 r2_p3 = 1 - np.sum((Tv - Tv_p3) ** 2) / ss_tot
 r2_nq = 1 - np.sum((Tv - Tv_nq) ** 2) / ss_tot
-print(
-    f"  Pert. 1st:   δT = −(4/b) lnε"
-    f"                  R² = {r2_p1:.10f}"
-)
-print(
-    f"  Pert. 2nd:   a δT² + b δT + 4lnε = 0"
-    f"         R² = {r2_p2:.10f}"
-)
-print(
-    f"  Pert. 3rd:   semi-analytic cubic poly"
-    f"         R² = {r2_p3:.10f}"
-)
-print(
-    f"  Num. pert.:  fit a_eff, b_eff"
-    f"                     R² = {r2_nq:.10f}"
-)
+print(f"  Pert. 1st:   δT = −(4/b) lnε" f"                  R² = {r2_p1:.10f}")
+print(f"  Pert. 2nd:   a δT² + b δT + 4lnε = 0" f"         R² = {r2_p2:.10f}")
+print(f"  Pert. 3rd:   semi-analytic cubic poly" f"         R² = {r2_p3:.10f}")
+print(f"  Num. pert.:  fit a_eff, b_eff" f"                     R² = {r2_nq:.10f}")
 print(f"{'═' * 80}")
 
 # Polynomial coefficient comparison table
@@ -506,11 +561,19 @@ print("\n  Polynomial coefficients  (T_n = A₀ + A₁ lnγ + A₂ (lnγ)² + A�
 hdr = f"  {'Method':22} {'A₀':>12} {'A₁':>12} {'A₂':>12} {'A₃':>14}"
 print(hdr)
 print(f"  {'─' * len(hdr)}")
-print(f"  {'Pert. 2nd (analytic)':22} {pt_A0:12.4f} {pt_A1:12.6f} {_c2:12.8f} {'—':>14}")
-print(f"  {'Pert. 3rd (analytic)':22} {pt_A0:12.4f} {pt_A1:12.6f} {pt_A2:12.8f} {pt_A3:14.10f}")
-print(f"  {'Num. pert. (fitted)':22} {nq_A0:12.4f} {nq_A1:12.6f} {nq_A2:12.8f} {'—':>14}")
+print(
+    f"  {'Pert. 2nd (analytic)':22} {pt_A0:12.4f} {pt_A1:12.6f} {_c2:12.8f} {'—':>14}"
+)
+print(
+    f"  {'Pert. 3rd (analytic)':22} {pt_A0:12.4f} {pt_A1:12.6f} {pt_A2:12.8f} {pt_A3:14.10f}"
+)
+print(
+    f"  {'Num. pert. (fitted)':22} {nq_A0:12.4f} {nq_A1:12.6f} {nq_A2:12.8f} {'—':>14}"
+)
 print(f"  {'Brute-force quad.':22} {p2[2]:12.4f} {p2[1]:12.6f} {p2[0]:12.8f} {'—':>14}")
-print(f"  {'Brute-force cubic':22} {p3[3]:12.4f} {p3[2]:12.6f} {p3[1]:12.8f} {p3[0]:14.10f}")
+print(
+    f"  {'Brute-force cubic':22} {p3[3]:12.4f} {p3[2]:12.6f} {p3[1]:12.8f} {p3[0]:14.10f}"
+)
 
 # ═══════════════════════════════════════════════════════════════════
 #  Detailed table at selected γ values
@@ -547,7 +610,7 @@ for ge in np.arange(-10, -3.5, 0.5):
 # ═══════════════════════════════════════════════════════════════════
 #  Plots
 # ═══════════════════════════════════════════════════════════════════
-OUT = "figs/Tn_gamma"
+OUT = f"figs/Tn/nf{n_f}_nb{n_b}_y{y}"
 os.makedirs(OUT, exist_ok=True)
 
 # ─── Plot 1: T_n vs γ ────────────────────────────────────────────
@@ -566,21 +629,32 @@ ax1.plot(
 )
 m_p2 = ~np.isnan(Tn_p2)
 ax1.plot(
-    gamma_arr[m_p2], Tn_p2[m_p2] / 1e3, "c--", lw=1.2,
+    gamma_arr[m_p2],
+    Tn_p2[m_p2] / 1e3,
+    "c--",
+    lw=1.2,
     label=rf"Pert. 2nd analytic ($R^2$={r2_p2:.6f})",
 )
 ax1.plot(
-    gamma_arr[m_p2], Tn_p3[m_p2] / 1e3, "m-", lw=1.2,
+    gamma_arr[m_p2],
+    Tn_p3[m_p2] / 1e3,
+    "m-",
+    lw=1.2,
     label=rf"Pert. 3rd analytic ($R^2$={r2_p3:.6f})",
 )
 ax1.plot(
-    gamma_arr, Tn_nq / 1e3, color="orange", ls="-.", lw=1.5,
+    gamma_arr,
+    Tn_nq / 1e3,
+    color="orange",
+    ls="-.",
+    lw=1.5,
     label=rf"Num. pert. fit ($R^2$={r2_nq:.6f})",
 )
 ax1.plot(
     gamma_arr[mask],
     np.polyval(p3, np.log(gamma_arr[mask])) / 1e3,
-    "g:", lw=1.8,
+    "g:",
+    lw=1.8,
     label=f"BF cubic fit ($R^2$={r2_f3:.6f})",
 )
 ax1.axvline(GAMMA_REF, color="gray", ls=":", lw=0.8, alpha=0.5)
@@ -600,21 +674,33 @@ ax1.grid(True, alpha=0.3)
 
 # T_n vs log10(γ) — compare semi-analytic vs numerical fit
 ax2.plot(
-    np.log10(gamma_arr[m_bf]), Tn_bf[m_bf] / 1e3,
-    "b-", lw=2, label="Brute force",
+    np.log10(gamma_arr[m_bf]),
+    Tn_bf[m_bf] / 1e3,
+    "b-",
+    lw=2,
+    label="Brute force",
 )
 ax2.plot(
-    np.log10(gamma_arr[m_p2]), Tn_p3[m_p2] / 1e3,
-    "m-", lw=1.2, label="Pert. 3rd (analytic)",
+    np.log10(gamma_arr[m_p2]),
+    Tn_p3[m_p2] / 1e3,
+    "m-",
+    lw=1.2,
+    label="Pert. 3rd (analytic)",
 )
 ax2.plot(
-    np.log10(gamma_arr), Tn_nq / 1e3,
-    color="orange", ls="-.", lw=1.5, label="Num. pert. (fitted a,b)",
+    np.log10(gamma_arr),
+    Tn_nq / 1e3,
+    color="orange",
+    ls="-.",
+    lw=1.5,
+    label="Num. pert. (fitted a,b)",
 )
 ax2.plot(
     np.log10(gamma_arr[mask]),
     np.polyval(p3, np.log(gamma_arr[mask])) / 1e3,
-    "g--", lw=1.5, label="BF cubic fit",
+    "g--",
+    lw=1.5,
+    label="BF cubic fit",
 )
 ax2.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
 ax2.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
@@ -635,7 +721,7 @@ S_plot = _S_GRID[_valid]
 ax3.plot(T_plot / 1e3, S_plot, "k-", lw=2.5, label=r"$S_3/T$")
 
 cmap = plt.cm.coolwarm
-gamma_show = [-10, -9, -8, -7, -6, -5, -4]
+gamma_show = [-9, -8, -7, -6, -5, -4, -3, -2]
 for j, ge in enumerate(gamma_show):
     gv = 10**ge
     nuc_line = 4 * np.log(2 * np.sqrt(3) * T_plot / (m * gv))
@@ -656,12 +742,12 @@ for j, ge in enumerate(gamma_show):
 ax3.set_xlabel(r"$T$ [TeV]", fontsize=13)
 ax3.set_ylabel(r"$S_3/T$", fontsize=13)
 ax3.set_title(
-    r"Nucleation: $S_3/T ="
+    r"Nucleation Condition: $S_3/T ="
     r" 4\ln\!\left(\frac{2\sqrt{3}\,T}{m\gamma}\right)$",
     fontsize=14,
 )
-ax3.set_xlim([T_c2 / 1e3 - 0.01, T_c2 / 1e3 + 0.5])
-ax3.set_ylim([0, 200])
+ax3.set_xlim([T_c2 / 1e3 - 0.01, 1.35])
+ax3.set_ylim([0, 125])
 ax3.legend(fontsize=8.5, ncol=2, loc="upper left")
 ax3.grid(True, alpha=0.3)
 fig2.tight_layout()
@@ -766,12 +852,12 @@ err_qf = np.abs(np.polyval(p2, _lg_bf) - Tn_valid)
 err_cf = np.abs(np.polyval(p3, _lg_bf) - Tn_valid)
 
 _methods = [
-    (err_p1, "c-",      1.5, "Pert. 1st (analytic)"),
-    (err_p2, "c--",     1.2, "Pert. 2nd (analytic)"),
-    (err_p3, "m-",      1.5, "Pert. 3rd (analytic)"),
-    (err_nq, "orange",  1.8, "Num. pert. (fitted a,b)"),
-    (err_qf, "b-",      1.5, "Brute-force quad. fit"),
-    (err_cf, "g-.",     1.2, "Brute-force cubic fit"),
+    (err_p1, "c-", 1.5, "Pert. 1st (analytic)"),
+    (err_p2, "c--", 1.2, "Pert. 2nd (analytic)"),
+    (err_p3, "m-", 1.5, "Pert. 3rd (analytic)"),
+    (err_nq, "orange", 1.8, "Num. pert. (fitted a,b)"),
+    (err_qf, "b-", 1.5, "Brute-force quad. fit"),
+    (err_cf, "g-.", 1.2, "Brute-force cubic fit"),
 ]
 
 # Left: absolute error
@@ -781,9 +867,7 @@ for err, style, lw, lab in _methods:
     else:
         ax6.semilogy(lg10, err, color=style, lw=lw, label=lab)
 ax6.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
-ax6.set_ylabel(
-    r"$|T_n^{\rm method} - T_n^{\rm BF}|$ [GeV]", fontsize=13
-)
+ax6.set_ylabel(r"$|T_n^{\rm method} - T_n^{\rm BF}|$ [GeV]", fontsize=13)
 ax6.set_title("Absolute error vs brute force", fontsize=14)
 ax6.legend(fontsize=8.5, loc="upper left")
 ax6.grid(True, alpha=0.3, which="both")
@@ -810,14 +894,14 @@ print(f"Saved: {OUT}/perturbative_error.png")
 fig6, (ax8, ax9) = plt.subplots(1, 2, figsize=(15, 6))
 
 lg10_v = np.log10(gamma_arr[mask])
-lng_v = lng                         # ln γ  (natural log, same as used for fits)
+lng_v = lng  # ln γ  (natural log, same as used for fits)
 
 # Three quadratic descriptions to compare:
 #   1) Pert. 2nd analytic:  A₀ + A₁ lnγ + A₂ (lnγ)²   coefficients from F', F''
 #   2) Num. pert. (fitted): implied polynomial from fitted a_eff, b_eff
 #   3) BF quadratic fit:   np.polyfit degree 2
 
-_c2_ana = -16.0 * pt_a / pt_b**3          # analytic A₂ (2nd order, no A₃)
+_c2_ana = -16.0 * pt_a / pt_b**3  # analytic A₂ (2nd order, no A₃)
 _c1_ana = -4.0 / pt_b + 32.0 * pt_a * lng0 / pt_b**3
 _c0_ana = Tn_ref + 4.0 / pt_b * lng0 - 16.0 * pt_a / pt_b**3 * lng0**2
 Tn_ana_q = _c0_ana + _c1_ana * lng_v + _c2_ana * lng_v**2
@@ -845,20 +929,28 @@ ax8.grid(True, alpha=0.3)
 _lines = []
 for lab, c0, c1, c2, _, _, _ in quads:
     _lines.append(f"{lab}")
-    _lines.append(
-        f"  $A_0$ = {c0:.2f},  $A_1$ = {c1:.4f},  $A_2$ = {c2:.6f}"
-    )
+    _lines.append(f"  $A_0$ = {c0:.2f},  $A_1$ = {c1:.4f},  $A_2$ = {c2:.6f}")
 txt = "\n".join(_lines)
 ax8.text(
-    0.03, 0.03, txt, transform=ax8.transAxes, fontsize=8.5,
-    verticalalignment="bottom", fontfamily="monospace",
+    0.03,
+    0.03,
+    txt,
+    transform=ax8.transAxes,
+    fontsize=8.5,
+    verticalalignment="bottom",
+    fontfamily="monospace",
     bbox=dict(boxstyle="round,pad=0.4", fc="wheat", alpha=0.85),
 )
 
 # Right panel: residuals of each quadratic vs brute force
 for lab, c0, c1, c2, Tn_q, col, ls in quads:
     ax9.plot(
-        lng_v, (Tn_q - Tv), color=col, ls=ls, lw=1.8, label=lab,
+        lng_v,
+        (Tn_q - Tv),
+        color=col,
+        ls=ls,
+        lw=1.8,
+        label=lab,
     )
 ax9.axhline(0, color="k", lw=0.5)
 ax9.set_xlabel(r"$\ln\gamma$", fontsize=13)
@@ -870,12 +962,15 @@ ax9.grid(True, alpha=0.3)
 # Annotate R² on residual panel
 _r2_ana_q = 1 - np.sum((Tv - Tn_ana_q) ** 2) / ss_tot
 ax9.text(
-    0.03, 0.97,
+    0.03,
+    0.97,
     f"$R^2$  Pert. 2nd analytic = {_r2_ana_q:.10f}\n"
     f"$R^2$  Num. pert. fitted  = {r2_nq:.10f}\n"
     f"$R^2$  BF quadratic fit   = {r2_f2:.10f}",
-    transform=ax9.transAxes, fontsize=9,
-    verticalalignment="top", fontfamily="monospace",
+    transform=ax9.transAxes,
+    fontsize=9,
+    verticalalignment="top",
+    fontfamily="monospace",
     bbox=dict(boxstyle="round,pad=0.4", fc="lightyellow", alpha=0.85),
 )
 

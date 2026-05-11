@@ -243,7 +243,7 @@ labels = [line.get_label() for line in lines]
 plt.legend(lines, labels)
 #plt.title(r"$m_0 = $")
 #plt.title(r"$\log(\Gamma(T))$")
-#plt.savefig(f"figs/finiteTemp/{param_set}_V0_{delV}.png",dpi=300)
+#plt.savefig(f"figs/action/{param_set}_V0_{delV}.png",dpi=300)
 plt.show()
 print(df)
 
@@ -269,7 +269,7 @@ ax[0].set_xlabel("T (TeV)")
 ax[0].set_ylabel(r"$S_3$")
 ax[0].legend()
 ax[0].set_title(r"$S_3$")
-# plt.savefig(f"figs/finiteTemp/{param_set}_V0_{delV}_S_3_full.png", dpi=300)
+# plt.savefig(f"figs/action/{param_set}_V0_{delV}_S_3_full.png", dpi=300)
 # plt.show()
 
 ax[1].plot(t_arr / 1000, (rev(t_arr, *popt)), label=r"$\log(\Gamma)$")
@@ -277,7 +277,7 @@ ax[1].set_xlabel("T (TeV)")
 ax[1].set_ylabel(r"$\log(\Gamma)$")
 ax[1].legend()
 ax[1].set_title(r"$\log(\Gamma)$")
-# plt.savefig(f"figs/finiteTemp/{param_set}_V0_{delV}_Gamma_full.png", dpi=300)
+# plt.savefig(f"figs/action/{param_set}_V0_{delV}_Gamma_full.png", dpi=300)
 # plt.show()
 
 ax[2].plot(
@@ -289,8 +289,9 @@ ax[2].set_xlabel("T (TeV)")
 ax[2].set_ylabel(r"$\beta/H$")
 ax[2].legend()
 ax[2].set_title(r"$\beta/H$")
+os.makedirs("figs/action", exist_ok=True)
 fig.savefig(
-    f"figs/finiteTemp/{param_set}_V0_{delV}_tunneling_full_temp_{potential_flag}.png",
+    f"figs/action/{param_set}_V0_{delV}_tunneling_full_temp_{potential_flag}.png",
     dpi=300,
 )
 # plt.show()
@@ -326,7 +327,7 @@ al[0].legend()
 al[0].set_title(
     r"$\text{Numeric fitting of } S_3 \text { in the region of } \alpha T \gg m $"
 )
-# fl.savefig(f"figs/finiteTemp/{param_set}_V0_{delV}_S3_fit_full_temp.png", dpi=300)
+# fl.savefig(f"figs/action/{param_set}_V0_{delV}_S3_fit_full_temp.png", dpi=300)
 
 T_up = 7700
 t_arr = np.linspace(df["T"].min(), T_up, 1000)[:]
@@ -354,7 +355,7 @@ al[1].set_title(
     r"$\text{Numeric fitting of } S_3 \text { in the region of } \alpha T \sim m $"
 )
 fl.savefig(
-    f"figs/finiteTemp/{param_set}_V0_{delV}_S3_fit_{potential_flag}.png", dpi=300
+    f"figs/action/{param_set}_V0_{delV}_S3_fit_{potential_flag}.png", dpi=300
 )
 
 
@@ -397,7 +398,7 @@ ax1[0].set_xlabel("T (TeV)")
 ax1[0].set_ylabel(r"$S_3$")
 ax1[0].legend()
 ax1[0].set_title(r"$S_3$")
-# plt.savefig(f"figs/finiteTemp/{param_set}_V0_{delV}_S_3_small.png", dpi=300)
+# plt.savefig(f"figs/action/{param_set}_V0_{delV}_S_3_small.png", dpi=300)
 # plt.show()
 
 # print(pd.DataFrame({"temp":t_arr, "S_3/T":cs(t_arr)/t_arr}).iloc[10:25])
@@ -409,7 +410,7 @@ ax1[1].set_xlabel("T (TeV)")
 ax1[1].set_ylabel(r"$\log(\Gamma)$")
 ax1[1].legend()
 ax1[1].set_title(r"$\log(\Gamma)$")
-# ax1[1].savefig(f"figs/finiteTemp/{param_set}_V0_{delV}_Gamma_small.png", dpi=300)
+# ax1[1].savefig(f"figs/action/{param_set}_V0_{delV}_Gamma_small.png", dpi=300)
 # plt.show()
 
 
@@ -423,7 +424,7 @@ ax1[2].set_ylabel(r"$\beta/H$")
 ax1[2].legend()
 ax1[2].set_title(r"$\beta/H$")
 fig1.savefig(
-    f"figs/finiteTemp/{param_set}_V0_{delV}_tunneling_small_temp_{potential_flag}.png",
+    f"figs/action/{param_set}_V0_{delV}_tunneling_small_temp_{potential_flag}.png",
     dpi=300,
 )
 # plt.show()
@@ -475,6 +476,6 @@ al2[1].set_ylabel(r"$S_3/T$")
 al2[1].legend()
 # al[1].set_title(r"$\text{Numeric fitting of } S_3 \text { in the region of } \alpha T \sim m $")
 fl2.savefig(
-    f"figs/finiteTemp/{param_set}_V0_{delV}_S3_fit_smaller_{potential_flag}.png",
+    f"figs/action/{param_set}_V0_{delV}_S3_fit_smaller_{potential_flag}.png",
     dpi=300,
 )

@@ -6,6 +6,7 @@ phi_esc in the CSV is the actual field value at the escape point
 already stores the corrected value).
 """
 
+import os
 import numpy as np
 import matplotlib
 
@@ -118,7 +119,8 @@ ax.legend(fontsize=9, title=r"$\bigcirc$ = $\phi_{\mathrm{esc}}$")
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig(f"figs/finiteTemp/phi_esc_on_potential_fermion_only_{dataset}.png", dpi=200)
+os.makedirs("figs/phi_esc", exist_ok=True)
+plt.savefig(f"figs/phi_esc/phi_esc_on_potential_fermion_only_{dataset}.png", dpi=200)
 plt.close(fig)
 
 # ── figure 2: zoomed near phi_esc ────────────────────────────────────────
@@ -166,10 +168,10 @@ ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.savefig(
-    f"figs/finiteTemp/phi_esc_on_potential_zoom_fermion_only_{dataset}.png", dpi=200
+    f"figs/phi_esc/phi_esc_on_potential_zoom_fermion_only_{dataset}.png", dpi=200
 )
 plt.close(fig2)
 
 print("Plots saved:")
-print(f"  figs/finiteTemp/phi_esc_on_potential_fermion_only_{dataset}.png")
-print(f"  figs/finiteTemp/phi_esc_on_potential_zoom_fermion_only_{dataset}.png")
+print(f"  figs/phi_esc/phi_esc_on_potential_fermion_only_{dataset}.png")
+print(f"  figs/phi_esc/phi_esc_on_potential_zoom_fermion_only_{dataset}.png")

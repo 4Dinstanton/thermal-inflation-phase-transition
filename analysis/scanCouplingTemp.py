@@ -33,7 +33,7 @@ from tunneling_utils import fullTunneling
 
 # "V_correct" = boson + fermion (Jb + Jf)
 # "fermion_only" = fermion only (Jf)
-potential_flag = "fermion_only"
+potential_flag = "boson_and_fermion"
 
 
 def format_e(n):
@@ -90,6 +90,35 @@ def find_barrier_temperature(
     return T_sp
 
 
+def _make_clipped_potential(V_func, dV_func, phi_cutoff, wall_k=1.0):
+    """Wrap V and dV with a quadratic wall beyond phi_cutoff.
+
+    Prevents cosmoTransitions from extending the path to the
+    tree-level VEV (astronomically large for small lambda).
+    """
+
+    def V_clipped(X):
+        val = V_func(X)
+        phi = X[..., 0]
+        excess = np.abs(phi) - phi_cutoff
+        mask = excess > 0
+        if np.any(mask):
+            val = np.array(val, dtype=float, copy=True)
+            val[mask] += 0.5 * wall_k * excess[mask] ** 2
+        return val
+
+    def dV_clipped(X):
+        val = np.array(dV_func(X), dtype=float, copy=True)
+        phi = X[..., 0]
+        excess = np.abs(phi) - phi_cutoff
+        mask = excess > 0
+        if np.any(mask):
+            val[mask] += wall_k * excess[mask] * np.sign(phi[mask])
+        return val
+
+    return V_clipped, dV_clipped
+
+
 def _tunneling_worker(args):
     """Worker: create own VT, reconstruct fast splines, run fullTunneling."""
     TEMP, param_dict, epsil, spline_arrays, pot_flag, tv_estimate = args
@@ -103,11 +132,16 @@ def _tunneling_worker(args):
         _, fv = VT_w.find_new_minima()
 
     if pot_flag == "fermion_only":
-        V_func = VT_w.V_fermion_only
-        dV_func = VT_w.dV_p_fermion_only
+        V_raw = VT_w.V_fermion_only
+        dV_raw = VT_w.dV_p_fermion_only
     else:
-        V_func = VT_w.V_correct
-        dV_func = VT_w.dV_p_correct
+        V_raw = VT_w.V_correct
+        dV_raw = VT_w.dV_p_correct
+
+    phi_cutoff = max(15.0 * TEMP, 50000.0)
+    mphi = param_dict["mphi"]
+    wall_k = 100.0 * mphi**2
+    V_func, dV_func = _make_clipped_potential(V_raw, dV_raw, phi_cutoff, wall_k)
 
     try:
         tunneling_result = fullTunneling(
@@ -151,7 +185,7 @@ if __name__ == "__main__":
     # =============================================================================
     # Physical parameters
     # =============================================================================
-    lam = 1e-16
+    lam = 1e-24
     mphi = 1000
     epsil = 0
     lambdaSix = 0
@@ -164,7 +198,7 @@ if __name__ == "__main__":
     nb = 20
     nf = 20
 
-    param_set = "set7"
+    param_set = "set8"
 
     param = {
         param_set: {
@@ -271,7 +305,7 @@ if __name__ == "__main__":
 
         worker_args = []
         for TEMP in TEMP_LIST:
-            tv = max(10.0 * TEMP, 80000.0)
+            tv = max(10.0 * TEMP, 50000.0)
             worker_args.append(
                 (
                     float(TEMP),
@@ -317,6 +351,7 @@ if __name__ == "__main__":
                         "phi_esc": phi_esc,
                     }
                 )
+                print(S3_T, S3T_CUTOFF)
                 if S3_T > S3T_CUTOFF:
                     print(
                         f"  S3/T = {S3_T:.2f} > {S3T_CUTOFF} at T={T_val:.1f}"

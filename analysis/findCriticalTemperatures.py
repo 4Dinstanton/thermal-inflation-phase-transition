@@ -199,10 +199,11 @@ def main():
 
     fig.suptitle("Critical Temperatures (fermion_only, set7)", fontsize=13)
     fig.tight_layout()
+    _os.makedirs("figs/critical_temp", exist_ok=True)
     fig.savefig(
-        "figs/finiteTemp/critical_temperatures.png", dpi=200, bbox_inches="tight"
+        "figs/critical_temp/critical_temperatures.png", dpi=200, bbox_inches="tight"
     )
-    print(f"\nPlot saved: figs/finiteTemp/critical_temperatures.png")
+    print(f"\nPlot saved: figs/critical_temp/critical_temperatures.png")
 
     # ----------------------------------------------------------------
     # Plot 2: Potential at key temperatures
@@ -239,11 +240,11 @@ def main():
         ax_sp.grid(True, alpha=0.3)
         fig_sp.tight_layout()
         fig_sp.savefig(
-            "figs/finiteTemp/potential_barrier_disappearance.png",
+            "figs/critical_temp/potential_barrier_disappearance.png",
             dpi=200,
             bbox_inches="tight",
         )
-        print(f"Plot saved: figs/finiteTemp/potential_barrier_disappearance.png")
+        print(f"Plot saved: figs/critical_temp/potential_barrier_disappearance.png")
 
     # ----------------------------------------------------------------
     # Plot 3: Vacuum degeneracy at T_c  (full range showing both minima)
@@ -355,11 +356,11 @@ def main():
         )
         fig_tc.tight_layout()
         fig_tc.savefig(
-            "figs/finiteTemp/potential_vacuum_degeneracy.png",
+            "figs/critical_temp/potential_vacuum_degeneracy.png",
             dpi=200,
             bbox_inches="tight",
         )
-        print(f"Plot saved: figs/finiteTemp/potential_vacuum_degeneracy.png")
+        print(f"Plot saved: figs/critical_temp/potential_vacuum_degeneracy.png")
 
     plt.close("all")
 

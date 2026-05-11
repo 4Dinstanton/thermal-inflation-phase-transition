@@ -1,3 +1,6 @@
 data/lattice/set6/*/field_states/*
 __pycache__/
+logs/
+figs/
+data
 .DS_Store

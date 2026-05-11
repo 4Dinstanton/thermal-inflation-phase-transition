@@ -11,6 +11,7 @@ Uses the TI bubble-collision formula from gwSpectrum.py.
 Thermal-integral and S₃/T infrastructure duplicated from computeTn.py.
 """
 
+import argparse
 import math
 import os
 import sys
@@ -20,9 +21,19 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 import numpy as np
 from scipy import integrate, optimize
 from scipy.interpolate import CubicSpline
+
+_parser = argparse.ArgumentParser(description="GW spectrum vs gamma")
+_parser.add_argument(
+    "--show_nti",
+    action="store_true",
+    help="Show N_TI <= 10 excluded region (shading, dashed lines, daggers)",
+)
+_cli = _parser.parse_args()
+SHOW_NTI = _cli.show_nti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gwSpectrum import (
@@ -47,6 +58,7 @@ m = 1000.0  # flaton mass [GeV]
 y = 1.09  # Yukawa coupling
 g_c = 1.05  # gauge coupling
 n_f = 20  # fermion DOF
+n_b = 20  # boson DOF
 delta2 = g_c**2 / 6.0  # δ² ≈ 0.1838
 
 QX = np.array([0.0320224, 0.339406])
@@ -185,23 +197,23 @@ def V0_of_gamma(gamma):
     return 0.25 * m**2 * (gamma * M_PL) ** 2
 
 
-def DV_wall_of(Tn):
-    r"""Energy released at the bubble wall ≈ (m² − δ²T_n²) T_n² / 2."""
-    return 0.5 * (m**2 - delta2 * Tn**2) * Tn**2
-
-
-def P_BM_of(Tn):
+def P_BM_of(Tn, phi0):
     r"""Bödeker–Moore saturation pressure.  P_BM = n_f y² T⁴ / 48."""
-    return n_f * y**2 * Tn**4 / 48.0
+    return (
+        n_f * (y**2 * phi0**2 / 2 + g_c**2 * Tn**2) * Tn**4 / 48.0
+        + n_b
+        * (y**2 * phi0 * 2 / 2 + (y**2 / 4 + 2 * g_c**2 / 3) * Tn**2)
+        * Tn**2
+        / 24.0
+    )
 
 
-def terminal_vw(Tn):
+def terminal_vw(Tn, V0, phi0):
     r"""Terminal wall velocity from simplified friction model."""
-    DV = DV_wall_of(Tn)
-    P = P_BM_of(Tn)
-    if P <= 0 or DV <= 0:
+    P = P_BM_of(Tn, phi0)
+    if P <= 0 or V0 <= 0:
         return 1.0
-    r = DV / P
+    r = V0 / P
     if r >= 1.0:
         return 1.0
     u2 = r / (1.0 - r)
@@ -209,16 +221,34 @@ def terminal_vw(Tn):
     return uy / math.sqrt(1.0 + uy**2)
 
 
+def terminal_vw(Tn, V0, phi0):
+    P = P_BM_of(Tn, phi0)
+    if P <= 0 or V0 <= 0:
+        return 1.0
+    r = V0 / P
+    print("r?", r)
+    if r >= 1.0:
+        return 1.0
+    # Standard approximation assuming P_fric ~ v^2 P_BM
+    return math.sqrt(r)
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  GW spectra for γ = 10⁻², 10⁻³, 10⁻⁴
 # ═══════════════════════════════════════════════════════════════════
-GAMMA_LIST = [1e-2, 1e-3, 1e-4]
-T_D_LIST = [100.0, 1000.0]
+GAMMA_LIST = [1e-3, 1e-5, 1e-7, 1e-9, 1e-11, 1e-13, 1e-15, 1e-17]
+T_D_LIST = [100.0, 500.0]
 g_star = G_STAR_DEFAULT
 freq = np.logspace(-5, 5, 3000)
 GAMMA_CUT = 1e-4
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "figs", "gw_gamma")
+OUT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "figs",
+    f"GW",
+    f"nf{n_f}_nb{n_b}_y{y}",
+)
 os.makedirs(OUT, exist_ok=True)
 
 EPS_TURB_LO = 0.05
@@ -237,14 +267,22 @@ for gv in GAMMA_LIST:
     alpha_gw = V0 / rho_rad
     H_TI = math.sqrt(V0 / (3.0 * M_PL**2))
 
-    DV = DV_wall_of(Tn)
-    vwt = terminal_vw(Tn)
+    vwt = terminal_vw(Tn, V0, phi0)
+    vwt = 1
+    # print(f"terminal_vel", vwt)
 
     gamma_info.append(
         dict(
-            gamma=gv, phi0=phi0, V0=V0, lam=m**2 / phi0**2,
-            Tn=Tn, beta_H=beta_H, alpha=alpha_gw, H_TI=H_TI,
-            DV_wall=DV, vw_terminal=vwt,
+            gamma=gv,
+            phi0=phi0,
+            V0=V0,
+            lam=m**2 / phi0**2,
+            Tn=Tn,
+            beta_H=beta_H,
+            alpha=alpha_gw,
+            H_TI=H_TI,
+            DV_wall=V0,
+            vw_terminal=vwt,
         )
     )
 
@@ -258,9 +296,9 @@ for gv in gamma_scan:
         continue
     V0 = V0_of_gamma(gv)
     beta_H = float(Tn * _S3T_spl(Tn, 1))
-    DV = DV_wall_of(Tn)
-    vwt = terminal_vw(Tn)
-    scan_base.append((gv, Tn, beta_H, V0, DV, vwt))
+    vwt = terminal_vw(Tn, V0, phi0)
+    vwt = 1
+    scan_base.append((gv, Tn, beta_H, V0, V0, vwt))
 scan_base = np.array(scan_base)
 print(f"done ({len(scan_base)} points).")
 
@@ -278,10 +316,8 @@ for T_D in T_D_LIST:
     #  A) Bubble collision — both spectral shapes
     # ──────────────────────────────────────────────────────────────
     SHAPE_DEFS = [
-        ("envelope", "envelope",
-         "Envelope (HK 2008)", "env"),
-        ("jt2016", "jt2016",
-         "JT 2016", "jt"),
+        ("envelope", "envelope", "Envelope (HK 2008)", "env"),
+        ("jt2016", "jt2016", "JT 2016", "jt"),
     ]
     sig_coll = {}  # keyed by shape tag
     for sh, eff, label, tag in SHAPE_DEFS:
@@ -291,17 +327,30 @@ for T_D in T_D_LIST:
             V0 = gi["V0"]
             R_md = (math.pi**2 * g_star * T_D**4 / (30.0 * V0)) ** (1.0 / 3.0)
             omega, fpk, h2pk = gw_thermal_inflation(
-                freq, gi["beta_H"], V0, T_D,
-                g_star=g_star, v_w=1.0, kappa_phi=1.0,
-                shape=sh, efficiency=eff,
+                freq,
+                gi["beta_H"],
+                V0,
+                T_D,
+                g_star=g_star,
+                v_w=1.0,
+                kappa_phi=0.5,
+                shape=sh,
+                efficiency=eff,
             )
-            sig_coll[tag].append({**gi, "T_D": T_D, "R_md": R_md,
-                                  "omega": omega, "fpk": fpk, "h2pk": h2pk})
+            sig_coll[tag].append(
+                {
+                    **gi,
+                    "T_D": T_D,
+                    "R_md": R_md,
+                    "omega": omega,
+                    "fpk": fpk,
+                    "h2pk": h2pk,
+                }
+            )
 
             exp = int(round(math.log10(gv)))
             print(
-                f"  [{tag}] γ = 10^{exp}:  f_pk = {fpk:.2e} Hz,"
-                f"  h²Ω = {h2pk:.2e}"
+                f"  [{tag}] γ = 10^{exp}:  f_pk = {fpk:.2e} Hz," f"  h²Ω = {h2pk:.2e}"
             )
 
     # ──────────────────────────────────────────────────────────────
@@ -317,11 +366,24 @@ for T_D in T_D_LIST:
             (EPS_TURB_HI, sig_turb_hi),
         ]:
             omega, fpk, h2pk = gw_turbulence_thermal_inflation(
-                freq, gi["beta_H"], V0, T_D,
-                eps_turb=eps_t, g_star=g_star, v_w=1.0,
+                freq,
+                gi["beta_H"],
+                V0,
+                T_D,
+                eps_turb=eps_t,
+                g_star=g_star,
+                v_w=1.0,
             )
-            sig_list.append({**gi, "T_D": T_D, "omega": omega,
-                             "fpk": fpk, "h2pk": h2pk, "eps_turb": eps_t})
+            sig_list.append(
+                {
+                    **gi,
+                    "T_D": T_D,
+                    "omega": omega,
+                    "fpk": fpk,
+                    "h2pk": h2pk,
+                    "eps_turb": eps_t,
+                }
+            )
 
         exp = int(round(math.log10(gv)))
         print(
@@ -339,14 +401,19 @@ for T_D in T_D_LIST:
         V0 = gi["V0"]
         vwt = gi["vw_terminal"]
         omega, fpk, h2pk = gw_soundwave_thermal_inflation(
-            freq, gi["beta_H"], V0, gi["DV_wall"],
-            gi["Tn"], T_D, g_star=g_star, v_w=vwt,
+            freq,
+            gi["beta_H"],
+            V0,
+            gi["DV_wall"],
+            gi["Tn"],
+            T_D,
+            g_star=g_star,
+            v_w=vwt,
         )
-        sig_sw.append({**gi, "T_D": T_D, "omega": omega,
-                       "fpk": fpk, "h2pk": h2pk})
+        sig_sw.append({**gi, "T_D": T_D, "omega": omega, "fpk": fpk, "h2pk": h2pk})
 
         exp = int(round(math.log10(gv)))
-        alpha_w = gi["DV_wall"] / (math.pi**2 / 30.0 * g_star * gi["Tn"]**4)
+        alpha_w = gi["DV_wall"] / (math.pi**2 / 30.0 * g_star * gi["Tn"] ** 4)
         print(
             f"  [Sound wave] γ = 10^{exp}:  "
             f"α_wall = {alpha_w:.4f}, "
@@ -371,37 +438,56 @@ for T_D in T_D_LIST:
 
         for sh, eff, _, tag in SHAPE_DEFS:
             _, fp, hp = gw_thermal_inflation(
-                np.array([1.0]), bh_j, v0_j, T_D,
-                g_star=g_star, v_w=1.0, kappa_phi=1.0,
-                shape=sh, efficiency=eff,
+                np.array([1.0]),
+                bh_j,
+                v0_j,
+                T_D,
+                g_star=g_star,
+                v_w=1.0,
+                kappa_phi=1.0,
+                shape=sh,
+                efficiency=eff,
             )
             scan_fpk[tag][j] = fp
             scan_h2pk[tag][j] = hp
 
         _, _, hp_tlo = gw_turbulence_thermal_inflation(
-            np.array([1.0]), bh_j, v0_j, T_D,
-            eps_turb=EPS_TURB_LO, g_star=g_star, v_w=1.0,
+            np.array([1.0]),
+            bh_j,
+            v0_j,
+            T_D,
+            eps_turb=EPS_TURB_LO,
+            g_star=g_star,
+            v_w=1.0,
         )
         scan_h2pk_turb_lo[j] = hp_tlo
 
         _, _, hp_thi = gw_turbulence_thermal_inflation(
-            np.array([1.0]), bh_j, v0_j, T_D,
-            eps_turb=EPS_TURB_HI, g_star=g_star, v_w=1.0,
+            np.array([1.0]),
+            bh_j,
+            v0_j,
+            T_D,
+            eps_turb=EPS_TURB_HI,
+            g_star=g_star,
+            v_w=1.0,
         )
         scan_h2pk_turb_hi[j] = hp_thi
 
         _, _, hp_sw = gw_soundwave_thermal_inflation(
-            np.array([1.0]), bh_j, v0_j, dv_j,
-            Tn_j, T_D, g_star=g_star, v_w=vwt_j,
+            np.array([1.0]),
+            bh_j,
+            v0_j,
+            dv_j,
+            Tn_j,
+            T_D,
+            g_star=g_star,
+            v_w=vwt_j,
         )
         scan_h2pk_sw[j] = hp_sw
 
     g_sc = scan_base[:, 0]
     Tn_sc = scan_base[:, 1]
     beta_sc = scan_base[:, 2]
-    m_ok = g_sc >= GAMMA_CUT
-    m_ex = g_sc < GAMMA_CUT
-
     # ─── Plot 1: Collision + Turbulence spectrum — one per shape ─
     f_lisa = np.logspace(-5, -0.5, 500)
     f_decigo = np.logspace(-3, 2, 500)
@@ -415,37 +501,92 @@ for T_D in T_D_LIST:
         (f_et, sensitivity_ET, "brown", "ET", 5.0),
         (f_ligo, sensitivity_aLIGO, "green", "aLIGO", 50.0),
     ]
-    SIG_COLORS = ["navy", "crimson", "forestgreen"]
+    # Provide a much larger set of distinct colors for many gammas
+    import matplotlib.cm as cm
+
+    SIG_COLORS = [
+        "navy",
+        "crimson",
+        "forestgreen",
+        "darkorange",
+        "darkviolet",
+        "teal",
+        "saddlebrown",
+        "deeppink",
+        "olive",
+        "goldenrod",
+        "steelblue",
+        "darkred",
+        "indigo",
+        "seagreen",
+        "chocolate",
+    ]
 
     for _, _, shape_label, tag in SHAPE_DEFS:
         fig, ax = plt.subplots(figsize=(12, 8))
 
-        for i, (sc, stlo, sthi) in enumerate(
-            zip(sig_coll[tag], sig_turb_lo, sig_turb_hi)
+        for i, (sc, stlo, sthi, sw_data) in enumerate(
+            zip(sig_coll[tag], sig_turb_lo, sig_turb_hi, sig_sw)
         ):
             gv = sc["gamma"]
             exp = int(round(math.log10(gv)))
-            c = SIG_COLORS[i]
-            total_lo = sc["omega"] + stlo["omega"]
-            total_hi = sc["omega"] + sthi["omega"]
+            c = SIG_COLORS[i % len(SIG_COLORS)]
 
-            ax.loglog(freq, sc["omega"], color=c, lw=2.0, ls="-",
-                      label=rf"$\gamma = 10^{{{exp}}}$ — collision",
-                      zorder=5 + i)
-            ax.loglog(freq, sthi["omega"], color=c, lw=1.2, ls=":",
-                      zorder=4 + i)
-            ax.fill_between(freq, total_lo, total_hi,
-                            color=c, alpha=0.10, zorder=2)
-            ax.loglog(freq, total_hi, color=c, lw=2.5, ls="--",
-                      label=rf"$\gamma = 10^{{{exp}}}$ — coll+turb",
-                      zorder=6 + i)
+            is_ex = SHOW_NTI and gv < GAMMA_CUT
+            al_base = 0.35 if is_ex else 1.0
+
+            annot_str = rf"$\gamma=10^{{{exp}}}$"
+            if is_ex:
+                annot_str = rf"$\gamma={{10^{{{exp}}}}}^\dagger$"
+
+            ax.loglog(
+                freq,
+                sw_data["omega"],
+                color=c,
+                lw=1.5,
+                ls="-.",
+                alpha=0.8 * al_base,
+                zorder=5 + i,
+            )
+
+            total_lo = stlo["omega"] + sw_data["omega"]
+            total_hi = sthi["omega"] + sw_data["omega"]
+
+            ax.loglog(
+                freq,
+                sthi["omega"],
+                color=c,
+                lw=1.2,
+                ls=":",
+                alpha=al_base,
+                zorder=4 + i,
+            )
+            ax.fill_between(
+                freq, total_lo, total_hi, color=c, alpha=0.10 * al_base, zorder=2
+            )
+            ax.loglog(
+                freq,
+                total_hi,
+                color=c,
+                lw=2.5,
+                ls="-",
+                alpha=al_base,
+                zorder=6 + i,
+            )
+
+            idx_pk = np.argmax(total_hi)
+            f_pk_tot = freq[idx_pk]
+            o_pk_tot = total_hi[idx_pk]
 
             ax.annotate(
-                rf"$\gamma=10^{{{exp}}}$",
-                xy=(sc["fpk"], sc["h2pk"]),
-                xytext=(sc["fpk"] * 3, sc["h2pk"] * 5),
-                fontsize=10, color=c, fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color=c, lw=1.0),
+                annot_str,
+                xy=(f_pk_tot, o_pk_tot),
+                xytext=(f_pk_tot * 3, o_pk_tot * 3),
+                fontsize=10,
+                color=c,
+                alpha=al_base,
+                fontweight="bold",
+                arrowprops=dict(arrowstyle="->", color=c, lw=1.0, alpha=al_base),
                 zorder=10,
             )
 
@@ -458,11 +599,29 @@ for T_D in T_D_LIST:
         ax.set_ylabel(r"$h^2 \Omega_{\mathrm{GW}}$", fontsize=14)
         ax.set_xlim(1e-5, 1e5)
         ax.set_ylim(1e-25, 1e-5)
-        ax.legend(fontsize=9, loc="upper right", ncol=2)
+
+        custom_lines = [
+            mlines.Line2D([0], [0], color="black", lw=2.5, ls="-", label="Total"),
+            mlines.Line2D([0], [0], color="black", lw=1.5, ls="-.", label="Sound wave"),
+            mlines.Line2D([0], [0], color="black", lw=1.2, ls=":", label="Turbulence"),
+        ]
+        if SHOW_NTI:
+            custom_lines.append(
+                mlines.Line2D(
+                    [0],
+                    [0],
+                    color="gray",
+                    lw=2.0,
+                    ls="--",
+                    alpha=0.4,
+                    label=r"${}^\dagger$ excluded ($N_{\rm TI} \leq 10$)",
+                )
+            )
+        ax.legend(handles=custom_lines, fontsize=10, loc="upper right")
+
         ax.grid(True, which="both", alpha=0.25)
         ax.set_title(
-            rf"GW Spectrum — {shape_label} + Turbulence"
-            rf"  ($m = 1$ TeV, $T_d = {T_D:.0f}$ GeV)",
+            rf"GW Spectrum — Turb + SW" rf"  ($m = 1$ TeV, $T_d = {T_D:.0f}$ GeV)",
             fontsize=11,
         )
         fig.tight_layout()
@@ -474,27 +633,75 @@ for T_D in T_D_LIST:
     # ─── Plot 2: h²Ω_peak vs γ (both shapes) ──────────────────────
     fig3, ax3 = plt.subplots(figsize=(12, 8))
 
-    def _split(a, g, yy, color, fn, **kw):
-        fn(g[m_ok], yy[m_ok], color=color, ls=kw.get("ls", "-"),
-           lw=kw.get("lw", 2), zorder=kw.get("z", 5),
-           label=kw.get("label", None))
-        fn(g[m_ex], yy[m_ex], color=color, ls="--",
-           lw=max(kw.get("lw", 2) - 0.5, 1), alpha=0.4, zorder=4)
+    if SHOW_NTI:
+        m_ok = g_sc >= GAMMA_CUT
+        m_ex = g_sc < GAMMA_CUT
 
-    _split(ax3, g_sc, scan_h2pk["env"], "royalblue", ax3.loglog, lw=2.0,
-           label=r"Collision — envelope (HK 2008)")
-    _split(ax3, g_sc, scan_h2pk["jt"], "b", ax3.loglog, lw=2.5,
-           label=r"Collision — JT 2016")
-    _split(ax3, g_sc, scan_h2pk["jt"] + scan_h2pk_turb_hi, "r",
-           ax3.loglog, lw=2.5, z=6,
-           label=r"JT + Turb ($\epsilon=10\%$)")
-    ax3.fill_between(g_sc[m_ok],
-                     (scan_h2pk["jt"] + scan_h2pk_turb_lo)[m_ok],
-                     (scan_h2pk["jt"] + scan_h2pk_turb_hi)[m_ok],
-                     color="red", alpha=0.10, zorder=3,
-                     label=r"Turb band ($\epsilon=5$–$10\%$)")
-    _split(ax3, g_sc, scan_h2pk_sw, "g", ax3.loglog, lw=1.5,
-           label=r"Sound wave (ref.)")
+        def _split(a, g, yy, color, fn, **kw):
+            fn(
+                g[m_ok],
+                yy[m_ok],
+                color=color,
+                ls=kw.get("ls", "-"),
+                lw=kw.get("lw", 2),
+                zorder=kw.get("z", 5),
+                label=kw.get("label", None),
+            )
+            fn(
+                g[m_ex],
+                yy[m_ex],
+                color=color,
+                ls="--",
+                lw=max(kw.get("lw", 2) - 0.5, 1),
+                alpha=0.4,
+                zorder=4,
+            )
+
+        _split(
+            ax3,
+            g_sc,
+            scan_h2pk_sw + scan_h2pk_turb_hi,
+            "r",
+            ax3.loglog,
+            lw=2.5,
+            z=6,
+            label=r"SW + Turb ($\epsilon=10\%$)",
+        )
+        ax3.fill_between(
+            g_sc[m_ok],
+            (scan_h2pk_sw + scan_h2pk_turb_lo)[m_ok],
+            (scan_h2pk_sw + scan_h2pk_turb_hi)[m_ok],
+            color="red",
+            alpha=0.10,
+            zorder=3,
+            label=r"Turb band ($\epsilon=5$–$10\%$)",
+        )
+        _split(
+            ax3, g_sc, scan_h2pk_sw, "g", ax3.loglog, lw=1.5, label=r"Sound wave (ref.)"
+        )
+        ax3.axvline(GAMMA_CUT, color="gray", ls=":", lw=1, alpha=0.7)
+        ax3.axvspan(g_sc[0] * 0.5, GAMMA_CUT, color="gray", alpha=0.05, zorder=0)
+    else:
+        ax3.loglog(
+            g_sc,
+            scan_h2pk_sw + scan_h2pk_turb_hi,
+            color="r",
+            lw=2.5,
+            zorder=6,
+            label=r"SW + Turb ($\epsilon=10\%$)",
+        )
+        ax3.fill_between(
+            g_sc,
+            scan_h2pk_sw + scan_h2pk_turb_lo,
+            scan_h2pk_sw + scan_h2pk_turb_hi,
+            color="red",
+            alpha=0.10,
+            zorder=3,
+            label=r"Turb band ($\epsilon=5$–$10\%$)",
+        )
+        ax3.loglog(
+            g_sc, scan_h2pk_sw, color="g", lw=1.5, zorder=5, label=r"Sound wave (ref.)"
+        )
 
     for name, sens_fn, frange, col in [
         ("LISA", sensitivity_LISA, (-5, -0.5), "purple"),
@@ -504,17 +711,14 @@ for T_D in T_D_LIST:
         fv = np.logspace(*frange, 500)
         min_s = np.min(sens_fn(fv))
         ax3.axhline(min_s, color=col, ls=":", lw=1.2, alpha=0.6)
-        ax3.text(1e-1 * 0.6, min_s * 2, f"{name} floor",
-                 fontsize=9, color=col, ha="right")
-
-    ax3.axvline(GAMMA_CUT, color="gray", ls=":", lw=1, alpha=0.7)
-    ax3.axvspan(g_sc[0] * 0.5, GAMMA_CUT, color="gray", alpha=0.05, zorder=0)
+        ax3.text(
+            1e-1 * 0.6, min_s * 2, f"{name} floor", fontsize=9, color=col, ha="right"
+        )
 
     ax3.set_xlabel(r"$\gamma = \phi_0 / M_{\rm Pl}$", fontsize=14)
     ax3.set_ylabel(r"$h^2 \Omega_{\rm peak}$", fontsize=14)
     ax3.set_title(
-        r"Peak GW amplitude vs $\gamma$"
-        rf"  ($m = 1$ TeV, $T_d = {T_D:.0f}$ GeV)",
+        r"Peak GW amplitude vs $\gamma$" rf"  ($m = 1$ TeV, $T_d = {T_D:.0f}$ GeV)",
         fontsize=12,
     )
     ax3.legend(fontsize=9, loc="lower right")
@@ -535,76 +739,163 @@ for T_D in T_D_LIST:
     beta_sel = np.array([s["beta_H"] for s in sig_coll["jt"]])
     Tn_sel = np.array([s["Tn"] for s in sig_coll["jt"]])
 
-    def _plot_split(a, g, yy, color, fn, **kw):
-        fn(g[m_ok], yy[m_ok], color=color, ls=kw.get("ls", "-"),
-           lw=kw.get("lw", 2), zorder=3, label=kw.get("label", None))
-        fn(g[m_ex], yy[m_ex], color=color, ls="--",
-           lw=kw.get("lw", 1.5), alpha=0.45, zorder=2)
-        a.axvline(GAMMA_CUT, color="gray", ls=":", lw=1, alpha=0.7, zorder=1)
+    if SHOW_NTI:
+        m_ok3 = g_sc >= GAMMA_CUT
+        m_ex3 = g_sc < GAMMA_CUT
 
-    def _shade(a):
-        a.axvspan(g_sc[0] * 0.5, GAMMA_CUT, color="gray", alpha=0.07, zorder=0)
-        yl = a.get_ylim()
-        if a.get_yscale() == "log":
-            ytxt = math.exp((math.log(yl[0]) + math.log(yl[1])) / 2)
-        else:
-            ytxt = (yl[0] + yl[1]) / 2
-        a.text(
-            GAMMA_CUT * 0.012, ytxt,
-            r"excluded ($N_{\rm TI} \leq 10$)",
-            fontsize=8.5, color="gray", rotation=90, va="center", ha="center",
+        def _plot_split(a, g, yy, color, fn, **kw):
+            fn(
+                g[m_ok3],
+                yy[m_ok3],
+                color=color,
+                ls=kw.get("ls", "-"),
+                lw=kw.get("lw", 2),
+                zorder=3,
+                label=kw.get("label", None),
+            )
+            fn(
+                g[m_ex3],
+                yy[m_ex3],
+                color=color,
+                ls="--",
+                lw=kw.get("lw", 1.5),
+                alpha=0.45,
+                zorder=2,
+            )
+            a.axvline(GAMMA_CUT, color="gray", ls=":", lw=1, alpha=0.7, zorder=1)
+
+        def _shade(a):
+            a.axvspan(g_sc[0] * 0.5, GAMMA_CUT, color="gray", alpha=0.07, zorder=0)
+            yl = a.get_ylim()
+            if a.get_yscale() == "log":
+                ytxt = math.exp((math.log(yl[0]) + math.log(yl[1])) / 2)
+            else:
+                ytxt = (yl[0] + yl[1]) / 2
+            a.text(
+                GAMMA_CUT * 0.012,
+                ytxt,
+                r"excluded ($N_{\rm TI} \leq 10$)",
+                fontsize=8.5,
+                color="gray",
+                rotation=90,
+                va="center",
+                ha="center",
+            )
+
+        _plot_split(ax_fpk, g_sc, scan_fpk["jt"], "b", ax_fpk.loglog)
+        ax_fpk.loglog(g_sel, fpk_sel, "ro", ms=8, zorder=5)
+        ax_fpk.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_fpk.set_ylabel(r"$f_{\rm peak}$ [Hz]", fontsize=13)
+        ax_fpk.set_title("Peak frequency", fontsize=13)
+        ax_fpk.grid(True, which="both", alpha=0.3)
+        _shade(ax_fpk)
+
+        _plot_split(ax_opk, g_sc, scan_h2pk_sw, "g", ax_opk.loglog, label="Sound wave")
+        _plot_split(
+            ax_opk,
+            g_sc,
+            scan_h2pk_sw + scan_h2pk_turb_hi,
+            "r",
+            ax_opk.loglog,
+            lw=2.0,
+            label=r"SW+Turb ($\epsilon=10\%$)",
         )
+        ax_opk.loglog(g_sel, h2pk_sel, "ko", ms=8, zorder=5)
+        for name, sens_fn, frange, col in [
+            ("LISA", sensitivity_LISA, (-5, -0.5), "purple"),
+            ("DECIGO", sensitivity_DECIGO, (-3, 2), "orange"),
+            ("BBO", sensitivity_BBO, (-3, 2), "cyan"),
+        ]:
+            fv = np.logspace(*frange, 500)
+            min_s = np.min(sens_fn(fv))
+            ax_opk.axhline(min_s, color=col, ls="--", lw=1, alpha=0.6)
+            ax_opk.text(
+                g_sc[-1] * 0.6,
+                min_s * 2.5,
+                f"{name} floor",
+                fontsize=8,
+                color=col,
+                ha="right",
+            )
+        ax_opk.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_opk.set_ylabel(r"$h^2 \Omega_{\rm peak}$", fontsize=13)
+        ax_opk.set_title("Peak amplitude", fontsize=13)
+        ax_opk.grid(True, which="both", alpha=0.3)
+        ax_opk.legend(fontsize=8, loc="lower right")
+        _shade(ax_opk)
 
-    _plot_split(ax_fpk, g_sc, scan_fpk["jt"], "b", ax_fpk.loglog)
-    ax_fpk.loglog(g_sel, fpk_sel, "ro", ms=8, zorder=5)
-    ax_fpk.set_xlabel(r"$\gamma$", fontsize=13)
-    ax_fpk.set_ylabel(r"$f_{\rm peak}$ [Hz]", fontsize=13)
-    ax_fpk.set_title("Peak frequency", fontsize=13)
-    ax_fpk.grid(True, which="both", alpha=0.3)
-    _shade(ax_fpk)
+        _plot_split(ax_beta, g_sc, beta_sc, "g", ax_beta.loglog)
+        ax_beta.loglog(g_sel, beta_sel, "ko", ms=8, zorder=5)
+        ax_beta.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_beta.set_ylabel(r"$\beta / H$", fontsize=13)
+        ax_beta.set_title(r"$\beta/H$ at nucleation", fontsize=13)
+        ax_beta.grid(True, which="both", alpha=0.3)
+        _shade(ax_beta)
 
-    _plot_split(ax_opk, g_sc, scan_h2pk["env"], "royalblue", ax_opk.loglog,
-                lw=1.5, label="Env (HK 2008)")
-    _plot_split(ax_opk, g_sc, scan_h2pk["jt"], "b", ax_opk.loglog,
-                label="JT 2016")
-    _plot_split(ax_opk, g_sc, scan_h2pk["jt"] + scan_h2pk_turb_hi, "r",
-                ax_opk.loglog, lw=2.0,
-                label=r"JT+Turb ($\epsilon=10\%$)")
-    ax_opk.loglog(g_sel, h2pk_sel, "ko", ms=8, zorder=5)
-    for name, sens_fn, frange, col in [
-        ("LISA", sensitivity_LISA, (-5, -0.5), "purple"),
-        ("DECIGO", sensitivity_DECIGO, (-3, 2), "orange"),
-        ("BBO", sensitivity_BBO, (-3, 2), "cyan"),
-    ]:
-        fv = np.logspace(*frange, 500)
-        min_s = np.min(sens_fn(fv))
-        ax_opk.axhline(min_s, color=col, ls="--", lw=1, alpha=0.6)
-        ax_opk.text(g_sc[-1] * 0.6, min_s * 2.5,
-                    f"{name} floor", fontsize=8, color=col, ha="right")
-    ax_opk.set_xlabel(r"$\gamma$", fontsize=13)
-    ax_opk.set_ylabel(r"$h^2 \Omega_{\rm peak}$", fontsize=13)
-    ax_opk.set_title("Peak amplitude", fontsize=13)
-    ax_opk.grid(True, which="both", alpha=0.3)
-    ax_opk.legend(fontsize=8, loc="lower right")
-    _shade(ax_opk)
+        _plot_split(ax_tn, g_sc, Tn_sc / 1e3, "m", ax_tn.semilogx)
+        ax_tn.semilogx(g_sel, Tn_sel / 1e3, "ko", ms=8, zorder=5)
+        ax_tn.axhline(T_c2 / 1e3, color="gray", ls=":", lw=1, alpha=0.6)
+        ax_tn.text(g_sc[-1], T_c2 / 1e3 + 0.002, r"$T_{c2}$", fontsize=9, color="gray")
+        ax_tn.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_tn.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
+        ax_tn.set_title("Nucleation temperature", fontsize=13)
+        ax_tn.grid(True, which="both", alpha=0.3)
+        _shade(ax_tn)
+    else:
+        ax_fpk.loglog(g_sc, scan_fpk["jt"], "b-", lw=2, zorder=3)
+        ax_fpk.loglog(g_sel, fpk_sel, "ro", ms=8, zorder=5)
+        ax_fpk.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_fpk.set_ylabel(r"$f_{\rm peak}$ [Hz]", fontsize=13)
+        ax_fpk.set_title("Peak frequency", fontsize=13)
+        ax_fpk.grid(True, which="both", alpha=0.3)
 
-    _plot_split(ax_beta, g_sc, beta_sc, "g", ax_beta.loglog)
-    ax_beta.loglog(g_sel, beta_sel, "ko", ms=8, zorder=5)
-    ax_beta.set_xlabel(r"$\gamma$", fontsize=13)
-    ax_beta.set_ylabel(r"$\beta / H$", fontsize=13)
-    ax_beta.set_title(r"$\beta/H$ at nucleation", fontsize=13)
-    ax_beta.grid(True, which="both", alpha=0.3)
-    _shade(ax_beta)
+        ax_opk.loglog(g_sc, scan_h2pk_sw, "g-", lw=2, zorder=3, label="Sound wave")
+        ax_opk.loglog(
+            g_sc,
+            scan_h2pk_sw + scan_h2pk_turb_hi,
+            "r-",
+            lw=2.0,
+            zorder=3,
+            label=r"SW+Turb ($\epsilon=10\%$)",
+        )
+        ax_opk.loglog(g_sel, h2pk_sel, "ko", ms=8, zorder=5)
+        for name, sens_fn, frange, col in [
+            ("LISA", sensitivity_LISA, (-5, -0.5), "purple"),
+            ("DECIGO", sensitivity_DECIGO, (-3, 2), "orange"),
+            ("BBO", sensitivity_BBO, (-3, 2), "cyan"),
+        ]:
+            fv = np.logspace(*frange, 500)
+            min_s = np.min(sens_fn(fv))
+            ax_opk.axhline(min_s, color=col, ls="--", lw=1, alpha=0.6)
+            ax_opk.text(
+                g_sc[-1] * 0.6,
+                min_s * 2.5,
+                f"{name} floor",
+                fontsize=8,
+                color=col,
+                ha="right",
+            )
+        ax_opk.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_opk.set_ylabel(r"$h^2 \Omega_{\rm peak}$", fontsize=13)
+        ax_opk.set_title("Peak amplitude", fontsize=13)
+        ax_opk.grid(True, which="both", alpha=0.3)
+        ax_opk.legend(fontsize=8, loc="lower right")
 
-    _plot_split(ax_tn, g_sc, Tn_sc / 1e3, "m", ax_tn.semilogx)
-    ax_tn.semilogx(g_sel, Tn_sel / 1e3, "ko", ms=8, zorder=5)
-    ax_tn.axhline(T_c2 / 1e3, color="gray", ls=":", lw=1, alpha=0.6)
-    ax_tn.text(g_sc[-1], T_c2 / 1e3 + 0.002, r"$T_{c2}$", fontsize=9, color="gray")
-    ax_tn.set_xlabel(r"$\gamma$", fontsize=13)
-    ax_tn.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
-    ax_tn.set_title("Nucleation temperature", fontsize=13)
-    ax_tn.grid(True, which="both", alpha=0.3)
-    _shade(ax_tn)
+        ax_beta.loglog(g_sc, beta_sc, "g-", lw=2, zorder=3)
+        ax_beta.loglog(g_sel, beta_sel, "ko", ms=8, zorder=5)
+        ax_beta.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_beta.set_ylabel(r"$\beta / H$", fontsize=13)
+        ax_beta.set_title(r"$\beta/H$ at nucleation", fontsize=13)
+        ax_beta.grid(True, which="both", alpha=0.3)
+
+        ax_tn.semilogx(g_sc, Tn_sc / 1e3, "m-", lw=2, zorder=3)
+        ax_tn.semilogx(g_sel, Tn_sel / 1e3, "ko", ms=8, zorder=5)
+        ax_tn.axhline(T_c2 / 1e3, color="gray", ls=":", lw=1, alpha=0.6)
+        ax_tn.text(g_sc[-1], T_c2 / 1e3 + 0.002, r"$T_{c2}$", fontsize=9, color="gray")
+        ax_tn.set_xlabel(r"$\gamma$", fontsize=13)
+        ax_tn.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
+        ax_tn.set_title("Nucleation temperature", fontsize=13)
+        ax_tn.grid(True, which="both", alpha=0.3)
 
     fig2.suptitle(
         r"GW parameters vs $\gamma$" rf"  ($m = 1$ TeV, $T_d = {T_D:.0f}$ GeV)",
@@ -622,29 +913,51 @@ for T_D in T_D_LIST:
 print("\n" + "═" * 120)
 print("  SUMMARY: Collision (envelope vs JT 2016) + Turbulence")
 print("═" * 120)
-print(f"{'γ':>10}  {'Td':>6}  {'h²Ω(env)':>14}  {'h²Ω(JT)':>14}  "
-      f"{'h²Ω(turb 10%)':>15}  {'h²Ω(JT+turb)':>16}")
+print(
+    f"{'γ':>10}  {'Td':>6}  {'h²Ω(env)':>14}  {'h²Ω(JT)':>14}  "
+    f"{'h²Ω(turb 10%)':>15}  {'h²Ω(JT+turb)':>16}"
+)
 print("─" * 120)
 for i, gi in enumerate(gamma_info):
     exp = int(round(math.log10(gi["gamma"])))
     for T_D in T_D_LIST:
         _, _, h_env = gw_thermal_inflation(
-            np.array([1.0]), gi["beta_H"], gi["V0"], T_D,
-            g_star=g_star, v_w=1.0, kappa_phi=1.0,
-            shape="envelope", efficiency="envelope",
+            np.array([1.0]),
+            gi["beta_H"],
+            gi["V0"],
+            T_D,
+            g_star=g_star,
+            v_w=1.0,
+            kappa_phi=1.0,
+            shape="envelope",
+            efficiency="envelope",
         )
         _, _, h_jt = gw_thermal_inflation(
-            np.array([1.0]), gi["beta_H"], gi["V0"], T_D,
-            g_star=g_star, v_w=1.0, kappa_phi=1.0,
+            np.array([1.0]),
+            gi["beta_H"],
+            gi["V0"],
+            T_D,
+            g_star=g_star,
+            v_w=1.0,
+            kappa_phi=1.0,
         )
         _, _, h_thi = gw_turbulence_thermal_inflation(
-            np.array([1.0]), gi["beta_H"], gi["V0"], T_D,
-            eps_turb=EPS_TURB_HI, g_star=g_star, v_w=1.0,
+            np.array([1.0]),
+            gi["beta_H"],
+            gi["V0"],
+            T_D,
+            eps_turb=EPS_TURB_HI,
+            g_star=g_star,
+            v_w=1.0,
         )
-        print(f"  10^{exp:+d}  {T_D:5.0f}  {h_env:14.2e}  {h_jt:14.2e}  "
-              f"{h_thi:15.2e}  {h_jt + h_thi:16.2e}")
+        print(
+            f"  10^{exp:+d}  {T_D:5.0f}  {h_env:14.2e}  {h_jt:14.2e}  "
+            f"{h_thi:15.2e}  {h_jt + h_thi:16.2e}"
+        )
 
 print()
-print(f"  Turbulence range: ε_turb = {EPS_TURB_LO:.0%} (lower) to {EPS_TURB_HI:.0%} (upper)")
+print(
+    f"  Turbulence range: ε_turb = {EPS_TURB_LO:.0%} (lower) to {EPS_TURB_HI:.0%} (upper)"
+)
 print()
 print("Done.")

@@ -132,9 +132,10 @@ parser.add_argument(
     help="Thermal potential convention: V_p (2*Jb-Jf, default), V_correct (Jb+Jf), fermion_only (Jf only)",
 )
 parser.add_argument(
-    "--no_scale_factor",
-    action="store_true",
-    help="Disable scale factor in Langevin equation (inv_a2=1)",
+    "--nb",
+    type=int,
+    default=1,
+    help="Number of boson species (thermal multiplicity, default: 1)",
 )
 parser.add_argument(
     "--diag_energy",
@@ -142,28 +143,10 @@ parser.add_argument(
     help="Compute energy diagnostics (E_kin, E_grad, E_pot) at each save point",
 )
 parser.add_argument(
-    "--nb",
-    type=int,
-    default=1,
-    help="Number of boson species (thermal multiplicity, default: 1)",
-)
-parser.add_argument(
     "--nf",
     type=int,
     default=1,
     help="Number of fermion species (thermal multiplicity, default: 1)",
-)
-parser.add_argument(
-    "--dx_phys",
-    type=float,
-    default=1e-3,
-    help="Physical lattice spatial spacing",
-)
-parser.add_argument(
-    "--dt_phys",
-    type=float,
-    default=1e-4,
-    help="Physical lattice time spacing",
 )
 cli_args = parser.parse_args()
 
@@ -626,11 +609,9 @@ def comparison_plots():
 # Physical parameters
 # =====================================================
 Nx, Ny, Nz = cli_args.Nx, cli_args.Ny, cli_args.Nz
-dx_phys = cli_args.dx_phys
-dt_phys = cli_args.dt_phys
 
 dx_phys = 1 * 1e-3
-dt_phys = 1 * 1e-4
+dt_phys = 1 * 1e-4 * cli_args.dt_factor
 # dt_phys = 5 * 1e-5 * cli_args.dt_factor
 Nt = cli_args.Nt
 
@@ -2865,10 +2846,9 @@ coupling_tag = f"_gb_{bosonCoupling:g}_gf_{fermionCoupling:g}"
 integrator_tag = f"_{INTEGRATOR_NAME}"
 counterterm_tag = "_CT" if cli_args.counterterm else ""
 pot_type_tag = f"_{cli_args.potential_type}" if cli_args.potential_type != "V_p" else ""
-no_scale_factor_tag = "_noScaleFactor" if cli_args.no_scale_factor else ""
 save_path = (
     f"data/lattice/{param_set}/{Nx}x{Ny}x{Nz}_T0_{int(T0)}"
-    f"{dx_tag}{dtphys_tag}_interval_{steps}_3D{hubble_tag}{eta_tag}{coupling_tag}{overdamped_tag}{integrator_tag}{counterterm_tag}{pot_type_tag}{no_scale_factor_tag}{seed_tag}"
+    f"{dx_tag}{dtphys_tag}_interval_{steps}_3D{hubble_tag}{eta_tag}{coupling_tag}{overdamped_tag}{integrator_tag}{counterterm_tag}{pot_type_tag}{seed_tag}"
 )
 os.makedirs(save_path, exist_ok=True)
 
@@ -3618,16 +3598,8 @@ for n in range(n_start, Nt):
         T = T0 / a_current
         _T4 = T * T * T * T
         H_now = math.sqrt((_T4 * _hubble_inv_chig2 + DEL_V) * _hubble_inv_3mpl2)
-
-        if cli_args.no_scale_factor:
-            eta_eff = eta
-            inv_a2 = 1.0
-            inv_a3 = 1.0
-        else:
-            eta_eff = eta + 3.0 * H_now / mu
-            inv_a2 = 1.0 / (a_current * a_current)
-            inv_a3 = 1.0 / (a_current * a_current * a_current)
-
+        eta_eff = eta + 3.0 * H_now / mu
+        inv_a2 = 1.0 / (a_current * a_current)
         a_current += a_current * H_now * (dt / mu)
         T_mid = T0 / a_current
     else:
@@ -3635,7 +3607,6 @@ for n in range(n_start, Nt):
         T_mid = temperature(t + 0.5 * dt)
         eta_eff = eta
         inv_a2 = 1.0
-        inv_a3 = 1.0
 
     # Rebuild V'(phi) table when T changes or phi exceeds table range
     if USE_VPRIME_TABLE:
@@ -3666,7 +3637,7 @@ for n in range(n_start, Nt):
         if DISABLE_THERMAL_NOISE:
             _od_ns = 0.0
         else:
-            _od_ns = np.sqrt(2.0 * T * dt * inv_a3 / (eta_eff * mu**2 * dx_phys**3))
+            _od_ns = np.sqrt(2.0 * T * dt / (eta_eff * mu**2 * dx_phys**3))
         overdamped_euler_step_table(
             phi,
             dt,
@@ -3685,7 +3656,7 @@ for n in range(n_start, Nt):
         if DISABLE_THERMAL_NOISE:
             _baoab_ns = 0.0
         else:
-            _baoab_ns = np.sqrt(T * inv_a3 / (mu**2 * dx_phys**3))
+            _baoab_ns = np.sqrt(T / (mu**2 * dx_phys**3))
         baoab_step_table(
             phi,
             pi,
@@ -3705,7 +3676,7 @@ for n in range(n_start, Nt):
         _ns_val = (
             0.0
             if DISABLE_THERMAL_NOISE
-            else np.sqrt(2.0 * eta_eff * T * dt * inv_a3 / (mu**2 * dx_phys**3))
+            else np.sqrt(2.0 * eta_eff * T * dt / (mu**2 * dx_phys**3))
         )
 
         if USE_SINGLE_PASS_RK2 and not USE_VPRIME_TABLE:
@@ -4098,9 +4069,6 @@ else:
     print(f"  Field precision: {field_dtype.__name__}")
     print(f"  Spline resolution (N_Y): {N_Y}")
     print(f"  Numba threads: {nb.get_num_threads()}")
-    print(
-        f"  Scale factor in Langevin eq: {'Disabled' if cli_args.no_scale_factor else 'Enabled (1/a^2)'}"
-    )
 
     print("\nOutput:")
     print(f"  Snapshots saved: {save_path}")
@@ -4145,7 +4113,6 @@ else:
         integrator=INTEGRATOR_NAME,
         counterterm=cli_args.counterterm,
         potential_type=cli_args.potential_type,
-        no_scale_factor=cli_args.no_scale_factor,
     )
     print(f"\nMetadata saved to: {metadata_file}")
     print(f"Field states saved to: {state_path}/")
