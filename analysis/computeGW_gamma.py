@@ -46,6 +46,7 @@ from gwSpectrum import (
     sensitivity_BBO,
     sensitivity_ET,
     sensitivity_aLIGO,
+    sensitivity_LVK_O3,
     _annotate_detector,
     M_PL,
     G_STAR_DEFAULT,
@@ -236,7 +237,7 @@ def terminal_vw(Tn, V0, phi0):
 # ═══════════════════════════════════════════════════════════════════
 #  GW spectra for γ = 10⁻², 10⁻³, 10⁻⁴
 # ═══════════════════════════════════════════════════════════════════
-GAMMA_LIST = [1e-3, 1e-5, 1e-7, 1e-9, 1e-11, 1e-13, 1e-15, 1e-17]
+GAMMA_LIST = [1e-3, 1e-5, 1e-7, 1e-9, 1e-11, 1e-13]
 T_D_LIST = [100.0, 500.0]
 g_star = G_STAR_DEFAULT
 freq = np.logspace(-5, 5, 3000)
@@ -494,12 +495,14 @@ for T_D in T_D_LIST:
     f_bbo = np.logspace(-3, 2, 500)
     f_et = np.logspace(0.3, 3.5, 500)
     f_ligo = np.logspace(0.7, 3.7, 500)
+    f_lvk = np.logspace(0.7, 3.0, 500)
     det_list = [
         (f_lisa, sensitivity_LISA, "purple", "LISA", 3e-3),
         (f_decigo, sensitivity_DECIGO, "orange", "DECIGO", 0.2),
         (f_bbo, sensitivity_BBO, "cyan", "BBO", 0.05),
         (f_et, sensitivity_ET, "brown", "ET", 5.0),
         (f_ligo, sensitivity_aLIGO, "green", "aLIGO", 50.0),
+        (f_lvk, sensitivity_LVK_O3, "red", "LVK O3", 30.0),
     ]
     # Provide a much larger set of distinct colors for many gammas
     import matplotlib.cm as cm

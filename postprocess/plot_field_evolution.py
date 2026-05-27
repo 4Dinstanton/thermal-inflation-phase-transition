@@ -54,24 +54,23 @@ def main():
     parser.add_argument("sim_dir", help="Simulation directory")
     parser.add_argument(
         "--x_axis",
-        choices=["step", "time", "time_phys"],
+        choices=["step", "time", "time_phys", "temp"],
         default="step",
-        help="X-axis: step number, rescaled time, or physical time (default: step)",
+        help="X-axis: step number, rescaled time, physical time, or temperature (default: step)",
     )
     parser.add_argument(
-        "--normalize", action="store_true", help="Normalize by VEV"
+        "--T_perc",
+        type=float,
+        default=None,
+        help="Percolation temperature [GeV] — draws a red dashed vertical line",
     )
+    parser.add_argument("--normalize", action="store_true", help="Normalize by VEV")
+    parser.add_argument("--show_temp", action="store_true", help="Overlay temperature")
+    parser.add_argument("--show_mean", action="store_true", help="Also plot |<phi>|")
+    parser.add_argument("--show_max", action="store_true", help="Also plot max|phi|")
     parser.add_argument(
-        "--show_temp", action="store_true", help="Overlay temperature"
-    )
-    parser.add_argument(
-        "--show_mean", action="store_true", help="Also plot |<phi>|"
-    )
-    parser.add_argument(
-        "--show_max", action="store_true", help="Also plot max|phi|"
-    )
-    parser.add_argument(
-        "--show_energy", action="store_true",
+        "--show_energy",
+        action="store_true",
         help="Plot energy diagnostics (requires --diag_energy in simulation)",
     )
     parser.add_argument("--step_min", type=int, default=None)
@@ -97,6 +96,7 @@ def main():
 
     state_files = sorted(glob.glob(os.path.join(state_dir, "state_step_*.npz")))
     state_files = [f for f in state_files if "_NaN_debug" not in f]
+    state_files = state_files[:190]
 
     if args.step_min is not None or args.step_max is not None:
         filtered = []
@@ -135,7 +135,7 @@ def main():
         steps_arr.append(int(d["step"]))
         times_arr.append(float(d["time"]))
         temps_arr.append(float(d["temperature"]))
-        phi_rms_arr.append(np.sqrt(np.mean(phi ** 2)))
+        phi_rms_arr.append(np.sqrt(np.mean(phi**2)))
         phi_mean_arr.append(np.abs(np.mean(phi)))
         phi_absmax_arr.append(np.max(np.abs(phi)))
 
@@ -168,6 +168,9 @@ def main():
     elif args.x_axis == "time":
         x = times_arr
         xlabel = r"$\tilde{t}$ (rescaled)"
+    elif args.x_axis == "temp":
+        x = temps_arr / 1000.0
+        xlabel = r"$T$ [TeV]"
     else:
         x = times_arr / mu
         xlabel = r"$t_{\rm phys}$ [GeV$^{-1}$]"
@@ -176,11 +179,11 @@ def main():
     norm_label = r" / $v$" if args.normalize else ""
 
     # --- Figure ---
-    fig, ax1 = plt.subplots(figsize=(8, 5))
+    fig, ax1 = plt.subplots(figsize=(10, 4))
 
     ax1.plot(
         x,
-        phi_rms / norm,
+        phi_rms / norm / 1000,
         color="navy",
         lw=2,
         label=r"$\sqrt{\langle\phi^2_{\rm lat}\rangle}$",
@@ -213,27 +216,41 @@ def main():
             color="red",
             ls="dotted",
             lw=2,
-            label=r"$v = \phi_{\rm VEV}$" + (f" = {vev:.2e}" if not args.normalize else ""),
+            label=r"$v = \phi_{\rm VEV}$"
+            + (f" = {vev:.2e}" if not args.normalize else ""),
         )
 
     ax1.set_xlabel(xlabel, fontsize=13)
     if args.normalize:
-        ax1.set_ylabel(
-            r"$\sqrt{\langle\phi^2_{\rm lat}\rangle}\,/\,v$", fontsize=13
-        )
+        ax1.set_ylabel(r"$\sqrt{\langle\phi^2_{\rm lat}\rangle}\,/\,v$", fontsize=13)
         ax1.set_ylim(-0.05, 1.15)
         ax1.yaxis.get_major_formatter().set_useOffset(False)
         ax1.yaxis.get_major_formatter().set_scientific(False)
     else:
-        ax1.set_ylabel(
-            r"$\sqrt{\langle\phi^2_{\rm lat}\rangle}$ [GeV]", fontsize=13
-        )
+        ax1.set_ylabel(r"$\sqrt{\langle\phi^2_{\rm lat}\rangle}$ [TeV]", fontsize=13)
 
-    if args.show_temp:
+    if args.x_axis == "temp":
+        ax1.invert_xaxis()
+
+    if args.show_temp and args.x_axis != "temp":
         ax2 = ax1.twinx()
         ax2.plot(x, temps_arr, color="orangered", lw=1.2, ls="-.", alpha=0.6)
         ax2.set_ylabel(r"$T$ [GeV]", fontsize=12, color="orangered")
         ax2.tick_params(axis="y", labelcolor="orangered")
+
+    if args.T_perc is not None:
+        T_perc_plot = args.T_perc / 1000.0 if args.x_axis == "temp" else None
+        if args.x_axis == "temp":
+            ax1.axvline(
+                T_perc_plot, color="red", ls="--", lw=1.5,
+                label=rf"$T_p = {args.T_perc:.0f}$ GeV",
+            )
+        else:
+            idx_perc = np.argmin(np.abs(temps_arr - args.T_perc))
+            ax1.axvline(
+                x[idx_perc], color="red", ls="--", lw=1.5,
+                label=rf"$T_p = {args.T_perc:.0f}$ GeV",
+            )
 
     ax1.legend(loc="best", fontsize=11, framealpha=0.9)
 
@@ -242,7 +259,7 @@ def main():
     info = f"{step_range_str}   |   {T_range_str}"
     if metadata and "integrator" in metadata:
         info += f"   |   {metadata['integrator']}"
-    ax1.set_title(info, fontsize=10, color="gray")
+    # ax1.set_title(info, fontsize=10, color="gray")
 
     ax1.tick_params(labelsize=11)
     fig.tight_layout()
@@ -271,7 +288,7 @@ def main():
                 else 0.001
             )
 
-            fig_e, (ax_e1, ax_e2) = plt.subplots(2, 1, figsize=(9, 8), sharex=True)
+            fig_e, (ax_e1, ax_e2) = plt.subplots(2, 1, figsize=(10, 4), sharex=True)
 
             e_tot = e_kin + e_grad + e_pot
             ax_e1.plot(x, e_kin, color="red", lw=1.5, label=r"$E_{\rm kin}$")
@@ -282,14 +299,12 @@ def main():
             ax_e1.legend(fontsize=10, ncol=2)
             ax_e1.set_title("Energy diagnostics", fontsize=11, color="gray")
 
-            e_kin_expect = mu ** 2 * temps_arr / (2.0 * dx_phys ** 3)
+            e_kin_expect = mu**2 * temps_arr / (2.0 * dx_phys**3)
             equip_ratio = np.where(e_kin_expect > 0, e_kin / e_kin_expect, np.nan)
             ax_e2.plot(x, equip_ratio, color="navy", lw=2)
             ax_e2.axhline(1.0, color="red", ls="dotted", lw=1.5, label="Equipartition")
             ax_e2.set_xlabel(xlabel, fontsize=13)
-            ax_e2.set_ylabel(
-                r"$E_{\rm kin}\,/\,(\mu^2 T / 2\Delta x^3)$", fontsize=12
-            )
+            ax_e2.set_ylabel(r"$E_{\rm kin}\,/\,(\mu^2 T / 2\Delta x^3)$", fontsize=12)
             ax_e2.legend(fontsize=10)
             ax_e2.set_ylim(0, max(2.0, np.nanmax(equip_ratio) * 1.1))
 

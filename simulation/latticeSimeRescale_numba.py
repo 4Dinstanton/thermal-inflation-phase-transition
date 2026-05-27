@@ -137,6 +137,11 @@ parser.add_argument(
     help="Disable scale factor in Langevin equation (inv_a2=1)",
 )
 parser.add_argument(
+    "--no_hubble",
+    action="store_true",
+    help="Disable Hubble expansion entirely: constant T=T0, a=1, no 3H damping",
+)
+parser.add_argument(
     "--diag_energy",
     action="store_true",
     help="Compute energy diagnostics (E_kin, E_grad, E_pot) at each save point",
@@ -416,7 +421,7 @@ GF_WALL_MARGIN = 2.0  # Relax only within margin * wall_width of the bubble wall
 # When enabled, the EOM becomes:
 #   phi_tt = (1/a^2) * laplacian(phi) - (eta + 3H) * phi_t - V'(phi)/mu^2
 # and temperature tracks the scale factor: T = T0 * a0 / a(t)
-HUBBLE_EXPANSION = True
+HUBBLE_EXPANSION = not cli_args.no_hubble
 G_STAR = 106.75  # SM relativistic degrees of freedom
 M_PL = 2.4e18  # Reduced Planck mass (GeV)
 DEL_V = 1e36 / 4  # Vacuum energy V0 for inflation background (GeV^4)
@@ -3631,8 +3636,12 @@ for n in range(n_start, Nt):
         a_current += a_current * H_now * (dt / mu)
         T_mid = T0 / a_current
     else:
-        T = temperature(t)
-        T_mid = temperature(t + 0.5 * dt)
+        if cli_args.no_hubble:
+            T = T0
+            T_mid = T0
+        else:
+            T = temperature(t)
+            T_mid = temperature(t + 0.5 * dt)
         eta_eff = eta
         inv_a2 = 1.0
         inv_a3 = 1.0
@@ -4101,6 +4110,10 @@ else:
     print(
         f"  Scale factor in Langevin eq: {'Disabled' if cli_args.no_scale_factor else 'Enabled (1/a^2)'}"
     )
+    if cli_args.no_hubble:
+        print(f"  Hubble expansion: DISABLED (constant T={T0:.1f} GeV, a=1, no 3H)")
+    else:
+        print(f"  Hubble expansion: ENABLED")
 
     print("\nOutput:")
     print(f"  Snapshots saved: {save_path}")
@@ -4146,6 +4159,7 @@ else:
         counterterm=cli_args.counterterm,
         potential_type=cli_args.potential_type,
         no_scale_factor=cli_args.no_scale_factor,
+        no_hubble=cli_args.no_hubble,
     )
     print(f"\nMetadata saved to: {metadata_file}")
     print(f"Field states saved to: {state_path}/")

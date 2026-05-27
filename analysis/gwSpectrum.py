@@ -763,6 +763,25 @@ def sensitivity_aLIGO(f):
     return _h2omega_from_Sh(f, Sh)
 
 
+def sensitivity_LVK_O3(f):
+    """LIGO/Virgo/KAGRA O3 observational upper limit (PI curve).
+
+    Based on the isotropic stochastic search from O1+O2+O3
+    (KAGRA, LIGO, Virgo, arXiv:2101.12130).
+    Upper limit: Omega_GW h^2 < 5.8e-9 at 25 Hz (flat spectrum, 95% CL).
+    The PI curve is approximated by the envelope of power-law bounds.
+    """
+    f = np.asarray(f, dtype=float)
+    f_ref = 25.0
+    Omega_flat = 5.8e-9
+    # PI curve: envelope over spectral indices alpha = 0, 2/3, 3
+    omega_0 = Omega_flat * np.ones_like(f)
+    omega_23 = 3.4e-9 * (f / f_ref) ** (2.0 / 3.0)
+    omega_3 = 3.9e-10 * (f / f_ref) ** 3
+    # The PI curve is the minimum envelope (tightest constraint at each f)
+    return np.minimum(np.minimum(omega_0, omega_23), omega_3)
+
+
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
