@@ -1,6 +1,8 @@
 data/lattice/set6/*/field_states/*
+data/lattice/
 __pycache__/
 logs/
 figs/
 data
 .DS_Store
+paper/

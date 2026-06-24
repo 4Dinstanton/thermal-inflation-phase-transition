@@ -14,10 +14,22 @@ import glob
 import math
 import pandas as pd
 import numpy as np
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from scipy.optimize import curve_fit
 from scipy.integrate import quad
+
+plt.rcParams.update(
+    {
+        "mathtext.fontset": "cm",
+        "font.family": "serif",
+        "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
+        "axes.unicode_minus": False,
+    }
+)
 
 
 # =============================================================================
@@ -235,30 +247,31 @@ def get_plot_style(coup):
     if is_highlight:
         return {
             "color": "red",
-            "linewidth": 3.0,
+            "linewidth": 4.0,
             "zorder": 10,
-            "label": rf"$y$={coup:.2f} ★",
+            "label": rf"$y = {coup:.2f}$ (ref)",
         }
     else:
         idx = couplings.index(coup)
         return {
             "color": colors[idx],
-            "linewidth": 1.2,
+            "linewidth": 2.0,
             "zorder": 1,
-            "label": rf"$y$={coup:.2f}",
+            "label": rf"$y = {coup:.2f}$",
         }
 
 
 # Figure 1: S_3 (Bounce Action)
-fig1, ax1 = plt.subplots(figsize=(10, 7))
+fig1, ax1 = plt.subplots(figsize=(12, 8))
 for coup in couplings:
     df = plot_data[coup]
     style = get_plot_style(coup)
     ax1.plot(df["T"] / 1000, df["S3/T"], **style)
-ax1.set_xlabel("T (TeV)", fontsize=12)
-ax1.set_ylabel(r"$S_3/T$", fontsize=12)
-ax1.set_title(r"Bounce Action $S_3/T$ vs Temperature", fontsize=14)
-ax1.legend(fontsize=8, loc="best", ncol=2)
+ax1.set_xlabel("T (TeV)", fontsize=22)
+ax1.set_ylabel(r"$S_3/T$", fontsize=22)
+ax1.set_title(r"Bounce Action $S_3/T$ vs Temperature", fontsize=24)
+ax1.legend(fontsize=14, loc="best", ncol=2)
+ax1.tick_params(labelsize=18)
 ax1.grid(True, alpha=0.3)
 ax1.set_xlim([T_overlap_min / 1000, T_overlap_max / 1000])
 plt.tight_layout()
@@ -266,15 +279,16 @@ plt.savefig(f"{output_dir}/S3_T_comparison.png", dpi=200)
 print(f"Saved: {output_dir}/S3_T_comparison.png")
 
 # Figure 2: beta/H
-fig2, ax2 = plt.subplots(figsize=(10, 7))
+fig2, ax2 = plt.subplots(figsize=(12, 8))
 for coup in couplings:
     df = plot_data[coup]
     style = get_plot_style(coup)
     ax2.plot(df["T"] / 1000, df["beta_H"], **style)
-ax2.set_xlabel("T (TeV)", fontsize=12)
-ax2.set_ylabel(r"$\beta/H$", fontsize=12)
-ax2.set_title(r"Nucleation Rate $\beta/H$ vs Temperature", fontsize=14)
-ax2.legend(fontsize=8, loc="best", ncol=2)
+ax2.set_xlabel("T (TeV)", fontsize=22)
+ax2.set_ylabel(r"$\beta/H$", fontsize=22)
+ax2.set_title(r"Nucleation Rate $\beta/H$ vs Temperature", fontsize=24)
+ax2.legend(fontsize=14, loc="best", ncol=2)
+ax2.tick_params(labelsize=18)
 ax2.grid(True, alpha=0.3)
 ax2.set_xlim([T_overlap_min / 1000, T_overlap_max / 1000])
 plt.tight_layout()
@@ -282,16 +296,17 @@ plt.savefig(f"{output_dir}/beta_H_comparison.png", dpi=200)
 print(f"Saved: {output_dir}/beta_H_comparison.png")
 
 # Figure 3: r_c (Critical Bubble Radius)
-fig3, ax3 = plt.subplots(figsize=(10, 7))
+fig3, ax3 = plt.subplots(figsize=(12, 8))
 for coup in couplings:
     df = plot_data[coup]
     if "r_c" in df.columns:
         style = get_plot_style(coup)
         ax3.plot(df["T"] / 1000, df["r_c"], **style)
-ax3.set_xlabel("T (TeV)", fontsize=12)
-ax3.set_ylabel(r"$r_c\;(\mathrm{GeV}^{-1})$", fontsize=12)
-ax3.set_title(r"Critical Bubble Radius $r_c$ vs Temperature", fontsize=14)
-ax3.legend(fontsize=8, loc="best", ncol=2)
+ax3.set_xlabel("T (TeV)", fontsize=22)
+ax3.set_ylabel(r"$r_c\;(\mathrm{GeV}^{-1})$", fontsize=22)
+ax3.set_title(r"Critical Bubble Radius $r_c$ vs Temperature", fontsize=24)
+ax3.legend(fontsize=14, loc="best", ncol=2)
+ax3.tick_params(labelsize=18)
 ax3.grid(True, alpha=0.3)
 ax3.set_yscale("log")
 ax3.set_xlim([T_overlap_min / 1000, T_overlap_max / 1000])
@@ -305,16 +320,17 @@ plt.savefig(f"{output_dir}/r_c_comparison.png", dpi=200)
 print(f"Saved: {output_dir}/r_c_comparison.png")
 
 # Figure 4: phi_esc (Escape Point)
-fig4, ax4 = plt.subplots(figsize=(10, 7))
+fig4, ax4 = plt.subplots(figsize=(12, 8))
 for coup in couplings:
     df = plot_data[coup]
     if "phi_esc" in df.columns:
         style = get_plot_style(coup)
         ax4.plot(df["T"] / 1000, df["phi_esc"], **style)
-ax4.set_xlabel("T (TeV)", fontsize=12)
-ax4.set_ylabel(r"$\phi_{esc}$", fontsize=12)
-ax4.set_title(r"Escape Point $\phi_{esc}$ vs Temperature", fontsize=14)
-ax4.legend(fontsize=8, loc="best", ncol=2)
+ax4.set_xlabel("T (TeV)", fontsize=22)
+ax4.set_ylabel(r"$\phi_{esc}$", fontsize=22)
+ax4.set_title(r"Escape Point $\phi_{esc}$ vs Temperature", fontsize=24)
+ax4.legend(fontsize=14, loc="best", ncol=2)
+ax4.tick_params(labelsize=18)
 ax4.grid(True, alpha=0.3)
 ax4.set_xlim([T_overlap_min / 1000, T_overlap_max / 1000])
 plt.tight_layout()
@@ -322,30 +338,30 @@ plt.savefig(f"{output_dir}/phi_esc_comparison.png", dpi=200)
 print(f"Saved: {output_dir}/phi_esc_comparison.png")
 
 # Figure 5: Combined 2x2 plot
-fig5, axes = plt.subplots(2, 2, figsize=(14, 12))
+fig5, axes = plt.subplots(2, 2, figsize=(18, 14))
 
 # S_3/T
 for coup in couplings:
     df = plot_data[coup]
     style = get_plot_style(coup)
-    style["linewidth"] = style["linewidth"] * 0.8  # Thinner for combined
     axes[0, 0].plot(df["T"] / 1000, df["S3/T"], **style)
-axes[0, 0].set_xlabel("T (TeV)")
-axes[0, 0].set_ylabel(r"$S_3/T$")
-axes[0, 0].set_title(r"Bounce Action $S_3/T$")
-axes[0, 0].legend(fontsize=6, loc="best", ncol=2)
+axes[0, 0].set_xlabel("T (TeV)", fontsize=20)
+axes[0, 0].set_ylabel(r"$S_3/T$", fontsize=20)
+axes[0, 0].set_title(r"Bounce Action $S_3/T$", fontsize=22)
+axes[0, 0].legend(fontsize=12, loc="best", ncol=2)
+axes[0, 0].tick_params(labelsize=16)
 axes[0, 0].grid(True, alpha=0.3)
 
 # beta/H
 for coup in couplings:
     df = plot_data[coup]
     style = get_plot_style(coup)
-    style["linewidth"] = style["linewidth"] * 0.8
     axes[0, 1].plot(df["T"] / 1000, df["beta_H"], **style)
-axes[0, 1].set_xlabel("T (TeV)")
-axes[0, 1].set_ylabel(r"$\beta/H$")
-axes[0, 1].set_title(r"Nucleation Rate $\beta/H$")
-axes[0, 1].legend(fontsize=6, loc="best", ncol=2)
+axes[0, 1].set_xlabel("T (TeV)", fontsize=20)
+axes[0, 1].set_ylabel(r"$\beta/H$", fontsize=20)
+axes[0, 1].set_title(r"Nucleation Rate $\beta/H$", fontsize=22)
+axes[0, 1].legend(fontsize=12, loc="best", ncol=2)
+axes[0, 1].tick_params(labelsize=16)
 axes[0, 1].grid(True, alpha=0.3)
 
 # r_c
@@ -353,12 +369,12 @@ for coup in couplings:
     df = plot_data[coup]
     if "r_c" in df.columns:
         style = get_plot_style(coup)
-        style["linewidth"] = style["linewidth"] * 0.8
         axes[1, 0].plot(df["T"] / 1000, df["r_c"] * 1000, **style)
-axes[1, 0].set_xlabel("T (TeV)")
-axes[1, 0].set_ylabel(r"$r_c\;(\mathrm{TeV}^{-1})$")
-axes[1, 0].set_title(r"Critical Bubble Radius $r_c$")
-axes[1, 0].legend(fontsize=6, loc="best", ncol=2)
+axes[1, 0].set_xlabel("T (TeV)", fontsize=20)
+axes[1, 0].set_ylabel(r"$r_c\;(\mathrm{TeV}^{-1})$", fontsize=20)
+axes[1, 0].set_title(r"Critical Bubble Radius $r_c$", fontsize=22)
+axes[1, 0].legend(fontsize=12, loc="best", ncol=2)
+axes[1, 0].tick_params(labelsize=16)
 axes[1, 0].grid(True, alpha=0.3)
 axes[1, 0].set_yscale("log")
 axes[1, 0].yaxis.set_major_formatter(mticker.ScalarFormatter())
@@ -372,20 +388,20 @@ for coup in couplings:
     df = plot_data[coup]
     if "phi_esc" in df.columns:
         style = get_plot_style(coup)
-        style["linewidth"] = style["linewidth"] * 0.8
         axes[1, 1].plot(df["T"] / 1000, df["phi_esc"] / 1000, **style)
-axes[1, 1].set_xlabel("T (TeV)")
-axes[1, 1].set_ylabel(r"$\phi_{esc}(\mathrm{TeV})$")
-axes[1, 1].set_title(r"Escape Point $\phi_{esc}$")
-axes[1, 1].legend(fontsize=6, loc="best", ncol=2)
+axes[1, 1].set_xlabel("T (TeV)", fontsize=20)
+axes[1, 1].set_ylabel(r"$\phi_{esc}\;(\mathrm{TeV})$", fontsize=20)
+axes[1, 1].set_title(r"Escape Point $\phi_{esc}$", fontsize=22)
+axes[1, 1].legend(fontsize=12, loc="best", ncol=2)
+axes[1, 1].tick_params(labelsize=16)
 axes[1, 1].grid(True, alpha=0.3)
 
-plt.suptitle(
-    rf"Coupling Comparison ($y$ = {COUPLING_MIN} to {COUPLING_MAX}), "
-    rf"★ = $y$ = {HIGHLIGHT_COUPLING}",
-    fontsize=14,
-    y=1.02,
-)
+# plt.suptitle(
+#    rf"Coupling Comparison ($y = {COUPLING_MIN}$ to ${COUPLING_MAX}$), "
+#    rf"ref $= y = {HIGHLIGHT_COUPLING}$",
+#    fontsize=22,
+#    y=1.02,
+# )
 plt.tight_layout()
 plt.savefig(f"{output_dir}/all_comparison.png", dpi=200)
 print(f"Saved: {output_dir}/all_comparison.png")
@@ -613,7 +629,7 @@ for coup in list(nucleation_data.keys()):
 
 # Create 2x2 subplot figure
 print("\nCreating nucleation & percolation plots...")
-fig6, axes6 = plt.subplots(2, 2, figsize=(14, 12))
+fig6, axes6 = plt.subplots(2, 2, figsize=(18, 14))
 
 # Y-axis range (log scale): 10⁻⁴ to 10⁴
 Y_MIN = 1e-4
@@ -630,8 +646,6 @@ for coup in couplings:
         continue
     data = nucleation_data[coup]
     style = get_plot_style(coup)
-    style["linewidth"] = style["linewidth"] * 0.8
-    # Use full-range smooth curve if available
     if data.get("n_smooth_full") is not None:
         n_s = data["n_smooth_full"]
         valid = (n_s > 0) & (n_s >= Y_MIN * 0.1)
@@ -644,15 +658,16 @@ for coup in couplings:
         n_raw = data["n_arr"]
         valid = ~np.isnan(n_raw) & (n_raw > 0)
         ax_n.plot(data["t_sparse"][valid] / 1000, n_raw[valid], **style)
-ax_n.axhline(1, linestyle="--", color="black", linewidth=1, alpha=0.7)
-ax_n.set_xlabel("T (TeV)", fontsize=11)
-ax_n.set_ylabel(r"$n(T)$", fontsize=12)
-ax_n.set_title(r"Number of Bubbles per Hubble Volume $n(T)$", fontsize=12)
+ax_n.axhline(1, linestyle="--", color="black", linewidth=1.5, alpha=0.7)
+ax_n.set_xlabel("T (TeV)", fontsize=20)
+ax_n.set_ylabel(r"$n(T)$", fontsize=20)
+ax_n.set_title(r"Number of Bubbles per Hubble Volume $n(T)$", fontsize=22)
 ax_n.set_yscale("log")
 ax_n.set_ylim([Y_MIN, Y_MAX])
 ax_n.set_xlim([X_MIN, X_MAX])
+ax_n.tick_params(labelsize=16)
 ax_n.grid(True, alpha=0.3)
-ax_n.legend(fontsize=6, loc="best", ncol=2)
+ax_n.legend(fontsize=12, loc="best", ncol=2)
 
 # Plot Γ/H⁴ - use full common range
 ax_G = axes6[0, 1]
@@ -661,19 +676,19 @@ for coup in couplings:
         continue
     data = nucleation_data[coup]
     style = get_plot_style(coup)
-    style["linewidth"] = style["linewidth"] * 0.8
     # Use full-range Gamma_H4
     G_H4 = data["Gamma_H4_full"]
     valid = (G_H4 > 0) & (G_H4 >= Y_MIN * 0.1)
     ax_G.plot(data["t_common"][valid] / 1000, G_H4[valid], **style)
-ax_G.set_xlabel("T (TeV)", fontsize=11)
-ax_G.set_ylabel(r"$\Gamma/H^4$", fontsize=12)
-ax_G.set_title(r"Nucleation Rate $\Gamma(T)/H^4$", fontsize=12)
+ax_G.set_xlabel("T (TeV)", fontsize=20)
+ax_G.set_ylabel(r"$\Gamma/H^4$", fontsize=20)
+ax_G.set_title(r"Nucleation Rate $\Gamma(T)/H^4$", fontsize=22)
 ax_G.set_yscale("log")
 ax_G.set_ylim([Y_MIN, Y_MAX])
 ax_G.set_xlim([X_MIN, X_MAX])
+ax_G.tick_params(labelsize=16)
 ax_G.grid(True, alpha=0.3)
-ax_G.legend(fontsize=6, loc="best", ncol=2)
+ax_G.legend(fontsize=12, loc="best", ncol=2)
 
 # Plot I/0.34 - use fitted smooth curve for full range
 ax_I = axes6[1, 0]
@@ -682,8 +697,6 @@ for coup in couplings:
         continue
     data = nucleation_data[coup]
     style = get_plot_style(coup)
-    style["linewidth"] = style["linewidth"] * 0.8
-    # Use full-range smooth curve if available
     if data.get("I_smooth_full") is not None:
         I_norm = data["I_smooth_full"] / 0.34
         valid = (I_norm > 0) & (I_norm >= Y_MIN * 0.1)
@@ -697,15 +710,16 @@ for coup in couplings:
         t_plot = data["t_sparse"][valid] / 1000
         I_plot = data["I_arr"][valid] / 0.34
         ax_I.plot(t_plot, I_plot, **style)
-ax_I.axhline(1, linestyle="--", color="black", linewidth=1, alpha=0.7)
-ax_I.set_xlabel("T (TeV)", fontsize=11)
-ax_I.set_ylabel(r"$I/0.34$", fontsize=12)
-ax_I.set_title(r"Percolation Integral $I(T)/0.34$", fontsize=12)
+ax_I.axhline(1, linestyle="--", color="black", linewidth=1.5, alpha=0.7)
+ax_I.set_xlabel("T (TeV)", fontsize=20)
+ax_I.set_ylabel(r"$I/0.34$", fontsize=20)
+ax_I.set_title(r"Percolation Integral $I(T)/0.34$", fontsize=22)
 ax_I.set_yscale("log")
 ax_I.set_ylim([Y_MIN, Y_MAX])
 ax_I.set_xlim([X_MIN, X_MAX])
+ax_I.tick_params(labelsize=16)
 ax_I.grid(True, alpha=0.3)
-ax_I.legend(fontsize=6, loc="best", ncol=2)
+ax_I.legend(fontsize=12, loc="best", ncol=2)
 
 # Plot P/0.7 - use fitted smooth curve for full range
 ax_P = axes6[1, 1]
@@ -714,8 +728,6 @@ for coup in couplings:
         continue
     data = nucleation_data[coup]
     style = get_plot_style(coup)
-    style["linewidth"] = style["linewidth"] * 0.8
-    # Use full-range smooth curve if available
     if data.get("P_smooth_full") is not None:
         P_norm = data["P_smooth_full"] / 0.7
         valid = (P_norm > 0) & (P_norm >= Y_MIN * 0.1)
@@ -729,21 +741,22 @@ for coup in couplings:
         t_plot = data["t_sparse"][valid] / 1000
         P_plot = data["P_arr"][valid] / 0.7
         ax_P.plot(t_plot, P_plot, **style)
-ax_P.axhline(1, linestyle="--", color="black", linewidth=1, alpha=0.7)
-ax_P.set_xlabel("T (TeV)", fontsize=11)
-ax_P.set_ylabel(r"$P/0.7$", fontsize=12)
-ax_P.set_title(r"Survival Probability $P(T)/0.7$", fontsize=12)
+ax_P.axhline(1, linestyle="--", color="black", linewidth=1.5, alpha=0.7)
+ax_P.set_xlabel("T (TeV)", fontsize=20)
+ax_P.set_ylabel(r"$P/0.7$", fontsize=20)
+ax_P.set_title(r"Survival Probability $P(T)/0.7$", fontsize=22)
 ax_P.set_yscale("log")
 ax_P.set_ylim([Y_MIN, Y_MAX])
 ax_P.set_xlim([X_MIN, X_MAX])
+ax_P.tick_params(labelsize=16)
 ax_P.grid(True, alpha=0.3)
-ax_P.legend(fontsize=6, loc="best", ncol=2)
+ax_P.legend(fontsize=12, loc="best", ncol=2)
 
-plt.suptitle(
-    rf"Nucleation & Percolation ($y$ = {COUPLING_MIN:.2f}" rf" to {COUPLING_MAX:.2f})",
-    fontsize=14,
-    y=1.02,
-)
+# plt.suptitle(
+#    rf"Nucleation & Percolation ($y$ = {COUPLING_MIN:.2f}" rf" to {COUPLING_MAX:.2f})",
+#    fontsize=22,
+#    y=1.02,
+# )
 plt.tight_layout()
 plt.savefig(f"{output_dir}/nucleation_percolation.png", dpi=200)
 print(f"Saved: {output_dir}/nucleation_percolation.png")

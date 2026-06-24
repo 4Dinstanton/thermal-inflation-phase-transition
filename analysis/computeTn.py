@@ -29,6 +29,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+plt.rcParams.update({
+    "mathtext.fontset": "cm",
+    "font.family": "serif",
+    "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
+    "axes.unicode_minus": False,
+})
+
 # ═══════════════════════════════════════════════════════════════════
 #  Physical constants & model parameters
 # ═══════════════════════════════════════════════════════════════════
@@ -614,17 +621,17 @@ OUT = f"figs/Tn/nf{n_f}_nb{n_b}_y{y}"
 os.makedirs(OUT, exist_ok=True)
 
 # ─── Plot 1: T_n vs γ ────────────────────────────────────────────
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
 
 m_bf = ~np.isnan(Tn_bf)
 m_sa = ~np.isnan(Tn_sa)
 
-ax1.plot(gamma_arr[m_bf], Tn_bf[m_bf] / 1e3, "b-", lw=2, label="Brute force")
+ax1.plot(gamma_arr[m_bf], Tn_bf[m_bf] / 1e3, "b-", lw=2.5, label="Brute force")
 ax1.plot(
     gamma_arr[m_sa],
     Tn_sa[m_sa] / 1e3,
     "r--",
-    lw=1.5,
+    lw=2.0,
     label="Semi-analytical (Eqs. 67-71)",
 )
 m_p2 = ~np.isnan(Tn_p2)
@@ -632,14 +639,14 @@ ax1.plot(
     gamma_arr[m_p2],
     Tn_p2[m_p2] / 1e3,
     "c--",
-    lw=1.2,
+    lw=1.8,
     label=rf"Pert. 2nd analytic ($R^2$={r2_p2:.6f})",
 )
 ax1.plot(
     gamma_arr[m_p2],
     Tn_p3[m_p2] / 1e3,
     "m-",
-    lw=1.2,
+    lw=1.8,
     label=rf"Pert. 3rd analytic ($R^2$={r2_p3:.6f})",
 )
 ax1.plot(
@@ -647,44 +654,44 @@ ax1.plot(
     Tn_nq / 1e3,
     color="orange",
     ls="-.",
-    lw=1.5,
+    lw=2.0,
     label=rf"Num. pert. fit ($R^2$={r2_nq:.6f})",
 )
 ax1.plot(
     gamma_arr[mask],
     np.polyval(p3, np.log(gamma_arr[mask])) / 1e3,
     "g:",
-    lw=1.8,
+    lw=2.2,
     label=f"BF cubic fit ($R^2$={r2_f3:.6f})",
 )
-ax1.axvline(GAMMA_REF, color="gray", ls=":", lw=0.8, alpha=0.5)
+ax1.axvline(GAMMA_REF, color="gray", ls=":", lw=1.0, alpha=0.5)
 ax1.annotate(
     r"$\gamma_{\mathrm{ref}}$",
     xy=(GAMMA_REF, ax1.get_ylim()[0]),
-    fontsize=9,
+    fontsize=16,
     color="gray",
     ha="center",
 )
 ax1.set_xscale("log")
-ax1.set_xlabel(r"$\gamma = \varphi_0 / M_{\mathrm{Pl}}$", fontsize=13)
-ax1.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
-ax1.set_title(r"$T_n(\gamma)$  with $m = 1$ TeV", fontsize=14)
-ax1.legend(fontsize=9)
+ax1.set_xlabel(r"$\gamma = \varphi_0 / M_{\mathrm{Pl}}$", fontsize=22)
+ax1.set_ylabel(r"$T_n$ [TeV]", fontsize=22)
+ax1.set_title(r"$T_n(\gamma)$  with $m = 1$ TeV", fontsize=24)
+ax1.legend(fontsize=14)
+ax1.tick_params(labelsize=18)
 ax1.grid(True, alpha=0.3)
 
-# T_n vs log10(γ) — compare semi-analytic vs numerical fit
 ax2.plot(
     np.log10(gamma_arr[m_bf]),
     Tn_bf[m_bf] / 1e3,
     "b-",
-    lw=2,
+    lw=2.5,
     label="Brute force",
 )
 ax2.plot(
     np.log10(gamma_arr[m_p2]),
     Tn_p3[m_p2] / 1e3,
     "m-",
-    lw=1.2,
+    lw=1.8,
     label="Pert. 3rd (analytic)",
 )
 ax2.plot(
@@ -692,20 +699,21 @@ ax2.plot(
     Tn_nq / 1e3,
     color="orange",
     ls="-.",
-    lw=1.5,
+    lw=2.0,
     label="Num. pert. (fitted a,b)",
 )
 ax2.plot(
     np.log10(gamma_arr[mask]),
     np.polyval(p3, np.log(gamma_arr[mask])) / 1e3,
     "g--",
-    lw=1.5,
+    lw=2.0,
     label="BF cubic fit",
 )
-ax2.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
-ax2.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
-ax2.set_title(r"$T_n$ vs $\log_{10}\gamma$", fontsize=14)
-ax2.legend(fontsize=9)
+ax2.set_xlabel(r"$\log_{10}\gamma$", fontsize=22)
+ax2.set_ylabel(r"$T_n$ [TeV]", fontsize=22)
+ax2.set_title(r"$T_n$ vs $\log_{10}\gamma$", fontsize=24)
+ax2.legend(fontsize=14)
+ax2.tick_params(labelsize=18)
 ax2.grid(True, alpha=0.3)
 
 fig.tight_layout()
@@ -714,11 +722,11 @@ plt.close(fig)
 print(f"\nSaved: {OUT}/Tn_vs_gamma.png")
 
 # ─── Plot 2: S₃/T and nucleation lines for several γ ────────────
-fig2, ax3 = plt.subplots(figsize=(10, 7))
+fig2, ax3 = plt.subplots(figsize=(12, 8))
 T_plot = _T_GRID[_valid]
 S_plot = _S_GRID[_valid]
 
-ax3.plot(T_plot / 1e3, S_plot, "k-", lw=2.5, label=r"$S_3/T$")
+ax3.plot(T_plot / 1e3, S_plot, "k-", lw=3.0, label=r"$S_3/T$")
 
 cmap = plt.cm.coolwarm
 gamma_show = [-9, -8, -7, -6, -5, -4, -3, -2]
@@ -731,24 +739,25 @@ for j, ge in enumerate(gamma_show):
         nuc_line,
         "--",
         color=colour,
-        lw=1.2,
+        lw=1.8,
         label=rf"$\gamma=10^{{{ge}}}$",
     )
     tn = find_Tn(gv)
     if not np.isnan(tn):
         s3tn = float(_S3T_spl(tn))
-        ax3.plot(tn / 1e3, s3tn, "o", color=colour, ms=7, zorder=5)
+        ax3.plot(tn / 1e3, s3tn, "o", color=colour, ms=9, zorder=5)
 
-ax3.set_xlabel(r"$T$ [TeV]", fontsize=13)
-ax3.set_ylabel(r"$S_3/T$", fontsize=13)
+ax3.set_xlabel(r"$T$ [TeV]", fontsize=22)
+ax3.set_ylabel(r"$S_3/T$", fontsize=22)
 ax3.set_title(
     r"Nucleation Condition: $S_3/T ="
     r" 4\ln\!\left(\frac{2\sqrt{3}\,T}{m\gamma}\right)$",
-    fontsize=14,
+    fontsize=24,
 )
 ax3.set_xlim([T_c2 / 1e3 - 0.01, 1.35])
 ax3.set_ylim([0, 125])
-ax3.legend(fontsize=8.5, ncol=2, loc="upper left")
+ax3.legend(fontsize=14, ncol=2, loc="upper left")
+ax3.tick_params(labelsize=18)
 ax3.grid(True, alpha=0.3)
 fig2.tight_layout()
 fig2.savefig(f"{OUT}/nucleation_condition.png", dpi=200)
@@ -756,29 +765,29 @@ plt.close(fig2)
 print(f"Saved: {OUT}/nucleation_condition.png")
 
 # ─── Plot 3: fit residuals ───────────────────────────────────────
-fig3, ax4 = plt.subplots(figsize=(10, 5))
+fig3, ax4 = plt.subplots(figsize=(12, 6))
 ax4.plot(
     np.log10(gamma_arr[mask]),
     Tv - Tv_f2,
     "b.-",
-    ms=3,
-    lw=0.8,
+    ms=5,
+    lw=1.5,
     label="Quadratic",
 )
 ax4.plot(
     np.log10(gamma_arr[mask]),
     Tv - Tv_f3,
     "r.-",
-    ms=3,
-    lw=0.8,
+    ms=5,
+    lw=1.5,
     label="Cubic",
 )
 ax4.plot(
     np.log10(gamma_arr[mask]),
     Tv - Tv_p1,
     "c.-",
-    ms=3,
-    lw=0.8,
+    ms=5,
+    lw=1.5,
     label="Pert. 1st",
 )
 ax4.plot(
@@ -786,8 +795,8 @@ ax4.plot(
     Tv - Tv_p2,
     color="orange",
     marker=".",
-    ms=3,
-    lw=0.8,
+    ms=5,
+    lw=1.5,
     label="Pert. 2nd",
 )
 if pw_ok:
@@ -795,15 +804,16 @@ if pw_ok:
         np.log10(gamma_arr[mask]),
         Tv - Tv_pw,
         "g.-",
-        ms=3,
-        lw=0.8,
+        ms=5,
+        lw=1.5,
         label="Power law",
     )
-ax4.axhline(0, color="k", lw=0.5)
-ax4.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
-ax4.set_ylabel(r"$T_n^{\rm brute} - T_n^{\rm fit}$ [GeV]", fontsize=13)
-ax4.set_title("Fit residuals", fontsize=14)
-ax4.legend(fontsize=10)
+ax4.axhline(0, color="k", lw=0.8)
+ax4.set_xlabel(r"$\log_{10}\gamma$", fontsize=22)
+ax4.set_ylabel(r"$T_n^{\rm brute} - T_n^{\rm fit}$ [GeV]", fontsize=22)
+ax4.set_title("Fit residuals", fontsize=24)
+ax4.legend(fontsize=14)
+ax4.tick_params(labelsize=18)
 ax4.grid(True, alpha=0.3)
 fig3.tight_layout()
 fig3.savefig(f"{OUT}/fit_residuals.png", dpi=200)
@@ -811,24 +821,25 @@ plt.close(fig3)
 print(f"Saved: {OUT}/fit_residuals.png")
 
 # ─── Plot 4: brute-force vs semi-analytical comparison ───────────
-fig4, ax5 = plt.subplots(figsize=(10, 5))
+fig4, ax5 = plt.subplots(figsize=(12, 6))
 both_ok = m_bf & m_sa
 if np.any(both_ok):
     ax5.plot(
         np.log10(gamma_arr[both_ok]),
         (Tn_bf[both_ok] - Tn_sa[both_ok]),
         "b.-",
-        ms=3,
-        lw=0.8,
+        ms=5,
+        lw=1.5,
     )
-    ax5.axhline(0, color="k", lw=0.5)
-    ax5.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
-    ax5.set_ylabel(r"$T_n^{\rm BF} - T_n^{\rm SA}$ [GeV]", fontsize=13)
+    ax5.axhline(0, color="k", lw=0.8)
+    ax5.set_xlabel(r"$\log_{10}\gamma$", fontsize=22)
+    ax5.set_ylabel(r"$T_n^{\rm BF} - T_n^{\rm SA}$ [GeV]", fontsize=22)
     ax5.set_title(
-        "Brute force − Semi-analytical   "
+        "Brute force - Semi-analytical   "
         rf"(expansion around $\alpha_n$ = {alpha_ref:.2f})",
-        fontsize=12,
+        fontsize=22,
     )
+    ax5.tick_params(labelsize=18)
     ax5.grid(True, alpha=0.3)
 fig4.tight_layout()
 fig4.savefig(f"{OUT}/bf_vs_semi.png", dpi=200)
@@ -836,12 +847,11 @@ plt.close(fig4)
 print(f"Saved: {OUT}/bf_vs_semi.png")
 
 # ─── Plot 5: relative error of perturbative vs brute force ───────
-fig5, (ax6, ax7) = plt.subplots(1, 2, figsize=(15, 5.5))
+fig5, (ax6, ax7) = plt.subplots(1, 2, figsize=(18, 7))
 
 lg10 = np.log10(gamma_arr[m_bf])
 Tn_valid = Tn_bf[m_bf]
 
-# Errors for each method
 _lg_bf = np.log(gamma_arr[m_bf])
 err_p1 = np.abs(Tn_p1[m_bf] - Tn_valid)
 err_p2 = np.abs(Tn_p2[m_bf] - Tn_valid)
@@ -852,37 +862,37 @@ err_qf = np.abs(np.polyval(p2, _lg_bf) - Tn_valid)
 err_cf = np.abs(np.polyval(p3, _lg_bf) - Tn_valid)
 
 _methods = [
-    (err_p1, "c-", 1.5, "Pert. 1st (analytic)"),
-    (err_p2, "c--", 1.2, "Pert. 2nd (analytic)"),
-    (err_p3, "m-", 1.5, "Pert. 3rd (analytic)"),
-    (err_nq, "orange", 1.8, "Num. pert. (fitted a,b)"),
-    (err_qf, "b-", 1.5, "Brute-force quad. fit"),
-    (err_cf, "g-.", 1.2, "Brute-force cubic fit"),
+    (err_p1, "c-", 2.0, "Pert. 1st (analytic)"),
+    (err_p2, "c--", 1.8, "Pert. 2nd (analytic)"),
+    (err_p3, "m-", 2.0, "Pert. 3rd (analytic)"),
+    (err_nq, "orange", 2.2, "Num. pert. (fitted a,b)"),
+    (err_qf, "b-", 2.0, "Brute-force quad. fit"),
+    (err_cf, "g-.", 1.8, "Brute-force cubic fit"),
 ]
 
-# Left: absolute error
 for err, style, lw, lab in _methods:
     if isinstance(style, str) and len(style) <= 3:
         ax6.semilogy(lg10, err, style, lw=lw, label=lab)
     else:
         ax6.semilogy(lg10, err, color=style, lw=lw, label=lab)
-ax6.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
-ax6.set_ylabel(r"$|T_n^{\rm method} - T_n^{\rm BF}|$ [GeV]", fontsize=13)
-ax6.set_title("Absolute error vs brute force", fontsize=14)
-ax6.legend(fontsize=8.5, loc="upper left")
+ax6.set_xlabel(r"$\log_{10}\gamma$", fontsize=22)
+ax6.set_ylabel(r"$|T_n^{\rm method} - T_n^{\rm BF}|$ [GeV]", fontsize=22)
+ax6.set_title("Absolute error vs brute force", fontsize=24)
+ax6.legend(fontsize=14, loc="upper left")
+ax6.tick_params(labelsize=18)
 ax6.grid(True, alpha=0.3, which="both")
 
-# Right: relative error (%)
 for err, style, lw, lab in _methods:
     rel = err / Tn_valid * 100
     if isinstance(style, str) and len(style) <= 3:
         ax7.semilogy(lg10, rel, style, lw=lw, label=lab)
     else:
         ax7.semilogy(lg10, rel, color=style, lw=lw, label=lab)
-ax7.set_xlabel(r"$\log_{10}\gamma$", fontsize=13)
-ax7.set_ylabel("Relative error [%]", fontsize=13)
-ax7.set_title("Relative error vs brute force", fontsize=14)
-ax7.legend(fontsize=8.5, loc="upper left")
+ax7.set_xlabel(r"$\log_{10}\gamma$", fontsize=22)
+ax7.set_ylabel("Relative error [%]", fontsize=22)
+ax7.set_title("Relative error vs brute force", fontsize=24)
+ax7.legend(fontsize=14, loc="upper left")
+ax7.tick_params(labelsize=18)
 ax7.grid(True, alpha=0.3, which="both")
 
 fig5.tight_layout()
@@ -891,17 +901,12 @@ plt.close(fig5)
 print(f"Saved: {OUT}/perturbative_error.png")
 
 # ─── Plot 6: numerical quadratic fit  with annotated coefficients ─────
-fig6, (ax8, ax9) = plt.subplots(1, 2, figsize=(15, 6))
+fig6, (ax8, ax9) = plt.subplots(1, 2, figsize=(18, 7))
 
 lg10_v = np.log10(gamma_arr[mask])
-lng_v = lng  # ln γ  (natural log, same as used for fits)
+lng_v = lng
 
-# Three quadratic descriptions to compare:
-#   1) Pert. 2nd analytic:  A₀ + A₁ lnγ + A₂ (lnγ)²   coefficients from F', F''
-#   2) Num. pert. (fitted): implied polynomial from fitted a_eff, b_eff
-#   3) BF quadratic fit:   np.polyfit degree 2
-
-_c2_ana = -16.0 * pt_a / pt_b**3  # analytic A₂ (2nd order, no A₃)
+_c2_ana = -16.0 * pt_a / pt_b**3
 _c1_ana = -4.0 / pt_b + 32.0 * pt_a * lng0 / pt_b**3
 _c0_ana = Tn_ref + 4.0 / pt_b * lng0 - 16.0 * pt_a / pt_b**3 * lng0**2
 Tn_ana_q = _c0_ana + _c1_ana * lng_v + _c2_ana * lng_v**2
@@ -912,20 +917,19 @@ quads = [
     ("BF quadratic fit", p2[2], p2[1], p2[0], Tv_f2, "b", ":"),
 ]
 
-# Left panel: T_n vs lnγ with all three quadratics
-ax8.plot(lng_v, Tv / 1e3, "k-", lw=2.5, label="Brute force", zorder=5)
+ax8.plot(lng_v, Tv / 1e3, "k-", lw=3.0, label="Brute force", zorder=5)
 for lab, c0, c1, c2, Tn_q, col, ls in quads:
-    ax8.plot(lng_v, Tn_q / 1e3, color=col, ls=ls, lw=1.8, label=lab)
-ax8.set_xlabel(r"$\ln\gamma$", fontsize=13)
-ax8.set_ylabel(r"$T_n$ [TeV]", fontsize=13)
+    ax8.plot(lng_v, Tn_q / 1e3, color=col, ls=ls, lw=2.2, label=lab)
+ax8.set_xlabel(r"$\ln\gamma$", fontsize=22)
+ax8.set_ylabel(r"$T_n$ [TeV]", fontsize=22)
 ax8.set_title(
     r"Quadratic fits:  $T_n = A_0 + A_1\,\ln\gamma + A_2\,(\ln\gamma)^2$",
-    fontsize=13,
+    fontsize=22,
 )
-ax8.legend(fontsize=10, loc="upper right")
+ax8.legend(fontsize=14, loc="upper right")
+ax8.tick_params(labelsize=18)
 ax8.grid(True, alpha=0.3)
 
-# Text box with coefficient values
 _lines = []
 for lab, c0, c1, c2, _, _, _ in quads:
     _lines.append(f"{lab}")
@@ -936,30 +940,29 @@ ax8.text(
     0.03,
     txt,
     transform=ax8.transAxes,
-    fontsize=8.5,
+    fontsize=13,
     verticalalignment="bottom",
     fontfamily="monospace",
     bbox=dict(boxstyle="round,pad=0.4", fc="wheat", alpha=0.85),
 )
 
-# Right panel: residuals of each quadratic vs brute force
 for lab, c0, c1, c2, Tn_q, col, ls in quads:
     ax9.plot(
         lng_v,
         (Tn_q - Tv),
         color=col,
         ls=ls,
-        lw=1.8,
+        lw=2.2,
         label=lab,
     )
-ax9.axhline(0, color="k", lw=0.5)
-ax9.set_xlabel(r"$\ln\gamma$", fontsize=13)
-ax9.set_ylabel(r"$T_n^{\rm fit} - T_n^{\rm BF}$  [GeV]", fontsize=13)
-ax9.set_title("Quadratic fit residuals", fontsize=13)
-ax9.legend(fontsize=10)
+ax9.axhline(0, color="k", lw=0.8)
+ax9.set_xlabel(r"$\ln\gamma$", fontsize=22)
+ax9.set_ylabel(r"$T_n^{\rm fit} - T_n^{\rm BF}$  [GeV]", fontsize=22)
+ax9.set_title("Quadratic fit residuals", fontsize=22)
+ax9.legend(fontsize=14)
+ax9.tick_params(labelsize=18)
 ax9.grid(True, alpha=0.3)
 
-# Annotate R² on residual panel
 _r2_ana_q = 1 - np.sum((Tv - Tn_ana_q) ** 2) / ss_tot
 ax9.text(
     0.03,
@@ -968,7 +971,7 @@ ax9.text(
     f"$R^2$  Num. pert. fitted  = {r2_nq:.10f}\n"
     f"$R^2$  BF quadratic fit   = {r2_f2:.10f}",
     transform=ax9.transAxes,
-    fontsize=9,
+    fontsize=14,
     verticalalignment="top",
     fontfamily="monospace",
     bbox=dict(boxstyle="round,pad=0.4", fc="lightyellow", alpha=0.85),

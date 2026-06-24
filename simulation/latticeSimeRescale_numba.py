@@ -149,13 +149,13 @@ parser.add_argument(
 parser.add_argument(
     "--nb",
     type=int,
-    default=1,
+    default=20,
     help="Number of boson species (thermal multiplicity, default: 1)",
 )
 parser.add_argument(
     "--nf",
     type=int,
-    default=1,
+    default=20,
     help="Number of fermion species (thermal multiplicity, default: 1)",
 )
 parser.add_argument(
@@ -230,7 +230,7 @@ if REPLAY_MODE:
 # Multiplied by nb / nf (species multiplicities)
 n_b = cli_args.nb
 n_f = cli_args.nf
-_POT_COEFFS = np.array([2.0, -1.0], dtype=np.float64)
+_POT_COEFFS = np.array([1.0, 1.0], dtype=np.float64)
 if cli_args.potential_type == "V_correct":
     _POT_COEFFS[0] = 1.0
     _POT_COEFFS[1] = 1.0
@@ -634,8 +634,8 @@ Nx, Ny, Nz = cli_args.Nx, cli_args.Ny, cli_args.Nz
 dx_phys = cli_args.dx_phys
 dt_phys = cli_args.dt_phys
 
-dx_phys = 1 * 1e-3
-dt_phys = 1 * 1e-4
+# dx_phys = 1 * 1e-3
+# dt_phys = 1 * 1e-4
 # dt_phys = 5 * 1e-5 * cli_args.dt_factor
 Nt = cli_args.Nt
 
@@ -1303,7 +1303,7 @@ elif not resuming:
 # =====================================================
 # Numba utilities: periodic Laplacian, cubic eval, V' kernel, RK2 step
 # =====================================================
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def _find_span(t, k, x):
     n = t.size - k - 1
     if x <= t[k]:
@@ -1321,7 +1321,7 @@ def _find_span(t, k, x):
     return lo
 
 
-@nb.njit(fastmath=True, cache=True)
+@nb.njit(fastmath=True, cache=False)
 def bspline_de_boor(t, c, k, x):
     # Clamp x to knot domain to avoid NaNs
     if x <= t[k]:
@@ -1345,7 +1345,7 @@ def bspline_de_boor(t, c, k, x):
     return d[k]
 
 
-@nb.njit(parallel=True, cache=True)
+@nb.njit(parallel=True, cache=False)
 def generate_noise_field(noise, scale, seed):
     """Generate Gaussian noise field in-kernel using Numba's RNG (3D)."""
     nx, ny, nz = noise.shape
@@ -1361,7 +1361,7 @@ def generate_noise_field(noise, scale, seed):
                 noise[i, j, k] = scale * z0
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def laplacian_periodic(out, a, dx):
     nx, ny, nz = a.shape
     inv_dx2 = 1.0 / (dx * dx)
@@ -1385,7 +1385,7 @@ def laplacian_periodic(out, a, dx):
                 ) * inv_dx2
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def gradient_flow_update(phi, lap, Vp, dt_gf, mu_val, weight):
     """
     Apply one gradient flow update with smooth spatial weighting:
@@ -1412,7 +1412,7 @@ def gradient_flow_update(phi, lap, Vp, dt_gf, mu_val, weight):
                 )
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def cubic_eval_uniform(x, x_min, h, nseg, c0, c1, c2, c3):
     # map x to segment index
     t = (x - x_min) / h
@@ -1426,7 +1426,7 @@ def cubic_eval_uniform(x, x_min, h, nseg, c0, c1, c2, c3):
     return ((c0[i] * dx + c1[i]) * dx + c2[i]) * dx + c3[i]
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def Vprime_field(
     out,
     phi,
@@ -1485,7 +1485,7 @@ def Vprime_field(
                 out[i, j, k] = dV
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def rk2_step(
     phi,
     pi,
@@ -1549,7 +1549,7 @@ def rk2_step(
     pi += dt * k2_pi + noise
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def rk2_step_fused(
     phi,
     pi,
@@ -1656,7 +1656,7 @@ def rk2_step_fused(
     pi += half_dt * k2_pi + half_noise
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def _vprime_at_site(
     ph, T_val, T2, pref, lam_val, mphi_sq, bms, gb2, gf2, gg2, gfg2, coef_b
 ):
@@ -1705,7 +1705,7 @@ def _vprime_at_site(
     return dV
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def rk2_fused_table(
     phi,
     pi,
@@ -1872,7 +1872,7 @@ def rk2_fused_table(
                 pi[i, j, k] += half_dt * k_pi + 0.5 * noise[i, j, k]
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def rk2_step_table(
     phi,
     pi,
@@ -1970,7 +1970,7 @@ BAOAB_TILE_J = 16
 BAOAB_TILE_K = 16
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def baoab_step_table(
     phi,
     pi,
@@ -2111,7 +2111,7 @@ OVERDAMPED_TILE_J = 16
 OVERDAMPED_TILE_K = 16
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def overdamped_euler_step_table(
     phi,
     dt,
@@ -2197,7 +2197,7 @@ RK2_INLINE_TILE_J = 16
 RK2_INLINE_TILE_K = 16
 
 
-@nb.njit(cache=True, fastmath=True)
+@nb.njit(cache=False, fastmath=True)
 def _vprime_inline(
     ph,
     T_val,
@@ -2267,7 +2267,7 @@ def _vprime_inline(
     return dV
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def compute_energy_densities(phi, pi, dx, inv_a2, lam_val, mphi_val, mu):
     """Compute kinetic, gradient, and tree-level potential energy densities.
 
@@ -2319,7 +2319,7 @@ def compute_energy_densities(phi, pi, dx, inv_a2, lam_val, mphi_val, mu):
     return sum_kin / n_sites, sum_grad / n_sites, sum_pot / n_sites
 
 
-@nb.njit(cache=True, fastmath=True)
+@nb.njit(cache=False, fastmath=True)
 def _hash_rng_pair(seed):
     """Fast hash-based RNG: returns two uniform [0,1) values from a uint64 seed."""
     x = nb.uint64(seed)
@@ -2336,7 +2336,7 @@ def _hash_rng_pair(seed):
     return u1, u2
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def rk2_fused_single_pass(
     phi,
     pi,
@@ -2651,7 +2651,7 @@ RK2_NF_TILE_J = 16
 RK2_NF_TILE_K = 16
 
 
-@nb.njit(parallel=True, fastmath=True, cache=True)
+@nb.njit(parallel=True, fastmath=True, cache=False)
 def rk2_step_inline(
     phi,
     pi,
@@ -2866,7 +2866,7 @@ else:
     seed_tag = ""
 dx_tag = f"_dx_{dx_phys:g}"
 dtphys_tag = f"_dtphys_{dt_phys:g}"
-coupling_tag = f"_gb_{bosonCoupling:g}_gf_{fermionCoupling:g}"
+coupling_tag = f"_gb_{bosonCoupling:g}_gf_{fermionCoupling:g}_nb_{n_b}_nf_{n_f}"
 integrator_tag = f"_{INTEGRATOR_NAME}"
 counterterm_tag = "_CT" if cli_args.counterterm else ""
 pot_type_tag = f"_{cli_args.potential_type}" if cli_args.potential_type != "V_p" else ""
@@ -4136,6 +4136,10 @@ else:
         mphi=mphi,
         lam=lam,
         eta_phys=eta_phys,
+        nb=n_b,
+        nf=n_f,
+        bosonCoupling=bosonCoupling,
+        fermionCoupling=fermionCoupling,
         # Temperature parameters
         T0=T0,
         cooling_rate=cooling_rate,

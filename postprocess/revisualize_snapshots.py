@@ -789,9 +789,9 @@ def revisualize_3d(
             tot_vol = sum(b["volume"] for b in bubbles)
             vol_frac = tot_vol / lattice_volume
 
-            if vol_frac > 0.9999 and not t_perc_found:
+            if vol_frac > 0.99999 and not t_perc_found:
                 print(
-                    f"\n  *** Volume fraction exceeded 99.99% at T={state['temperature']:.2f} (frac={vol_frac:.2f}) ***\n"
+                    f"\n  *** Volume fraction exceeded 99.999% at T={state['temperature']:.2f} (frac={vol_frac:.2f}) ***\n"
                 )
                 T_perc = state["temperature"]
                 t_perc_found = True

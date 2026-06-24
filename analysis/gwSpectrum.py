@@ -550,13 +550,12 @@ def gw_soundwave_thermal_inflation(
 ):
     r"""GW spectrum from sound waves during thermal inflation.
 
-    Accounts for the non-standard cosmological history:
-      vacuum domination → flaton matter domination → radiation at T_d.
+    Uses the Hindmarsh et al. (2017) formula [as in Eq. (85) of the paper]
+    adapted for non-standard TI cosmology (vacuum → matter → radiation).
 
-    The available energy for sound waves is DV_wall (energy released at the
-    bubble wall), NOT V_TI.  The field only crosses the thermal barrier at the
-    wall (φ: 0 → φ_escape ~ T), and the bulk of V_TI is released later
-    through coherent field rolling (matter-dominated era).
+    The amplitude formula is:
+      dΩ_GW h² / d ln f = 2.061 × F_GW,0 h² × Γ² × Ū_f⁴ × (HR_*) ×
+                           Ω̃_GW × Υ × R_md × S_sw(f/f_peak)
 
     Parameters
     ----------
@@ -594,28 +593,30 @@ def gw_soundwave_thermal_inflation(
 
     rho_rad = math.pi**2 / 30.0 * g_star * T_n**4
 
-    # User requested to use V0 directly. In this context V0 = V_TI.
     alpha_total = V_TI / rho_rad
     kv = kappa_v(alpha_total, v_w)
 
     K = kv * alpha_total / (1.0 + alpha_total)
     Uf = math.sqrt(max(0.75 * K, 1e-300))
 
-    c_s = 1.0 / math.sqrt(3.0)
-    z_p = 10.0
     HR_star = (8.0 * math.pi) ** (1.0 / 3.0) / beta_H
-    f_peak_star = z_p * beta_H * H_TI / ((8.0 * math.pi) ** (1.0 / 3.0) * c_s)
+
+    z_p = 10.0
+    c_s = 1.0 / math.sqrt(3.0)
+    f_peak_star = z_p / (c_s * HR_star) * H_TI
     f_peak = f_peak_star * R_md * a_d_over_a0 * GEV_TO_HZ
 
     Gamma = 4.0 / 3.0
     Omega_tilde = 0.01
-    Omega_sw_star = 3.0 * Gamma**2 * K**2 * (1.0 / beta_H) * Omega_tilde
+    F_GW0 = 3.5e-5 * (100.0 / g_star) ** (1.0 / 3.0)
 
     Upsilon = min(1.0, HR_star / Uf) if Uf > 0 else 1.0
-    Omega_sw_star *= Upsilon
 
-    F_GW = 1.67e-5 * (100.0 / g_star) ** (1.0 / 3.0)
-    h2_omega_peak = F_GW * Omega_sw_star * R_md
+    h2_omega_peak = (
+        2.061 * F_GW0 * H_PARAM**2
+        * Gamma**2 * Uf**4 * HR_star * Omega_tilde
+        * Upsilon * R_md
+    )
 
     x = freq / f_peak
     S_sw = x**3 * (7.0 / (4.0 + 3.0 * x**2)) ** 3.5
@@ -701,13 +702,18 @@ def gw_turbulence_thermal_inflation(
 
 # ---------------------------------------------------------------------------
 # Detector sensitivity curves  h^2 Omega_sens(f)
+#
+# Raw noise PSD → h²Ω conversion (internal helpers, prefixed with _noise_).
+# Public sensitivity_*() functions return Power-Law Integrated Sensitivity
+# Curves (PLISC) following Schmitz (2020) [arXiv:2002.04615], which is what
+# the professor uses in the paper (ref [45]).
 # ---------------------------------------------------------------------------
 def _h2omega_from_Sh(f, Sh):
     H0 = 100.0 * H_PARAM * 1.0e3 / 3.086e22  # Hz
     return (2.0 * math.pi**2 / 3.0) * f**3 * Sh / H0**2 * H_PARAM**2
 
 
-def sensitivity_LISA(f):
+def _noise_LISA(f):
     f = np.asarray(f, dtype=float)
     L = 2.5e9
     f_star = 3.0e8 / (2.0 * math.pi * L)
@@ -725,7 +731,7 @@ def sensitivity_LISA(f):
     return _h2omega_from_Sh(f, Sc)
 
 
-def sensitivity_DECIGO(f):
+def _noise_DECIGO(f):
     f = np.asarray(f, dtype=float)
     Sh = (
         7.05e-48 * (1.0 + (f / 7.36) ** 2)
@@ -735,11 +741,11 @@ def sensitivity_DECIGO(f):
     return _h2omega_from_Sh(f, Sh)
 
 
-def sensitivity_BBO(f):
-    return sensitivity_DECIGO(f) / 100.0
+def _noise_BBO(f):
+    return _noise_DECIGO(f) / 100.0
 
 
-def sensitivity_ET(f):
+def _noise_ET(f):
     f = np.asarray(f, dtype=float)
     x = f / 100.0
     Sh = (
@@ -750,7 +756,7 @@ def sensitivity_ET(f):
     return _h2omega_from_Sh(f, Sh)
 
 
-def sensitivity_aLIGO(f):
+def _noise_aLIGO(f):
     f = np.asarray(f, dtype=float)
     f0 = 215.0
     x = f / f0
@@ -761,6 +767,84 @@ def sensitivity_aLIGO(f):
     )
     Sh = np.abs(Sh)
     return _h2omega_from_Sh(f, Sh)
+
+
+# ---------------------------------------------------------------------------
+# Power-Law Integrated Sensitivity Curves (PLISC)
+#   Schmitz (2020) [arXiv:2002.04615], Thrane & Romano (2013)
+#
+#   For a power-law signal h²Ω(f) = A*(f/f_ref)^n_t, the SNR after
+#   observation time T is:
+#     SNR² = 2T ∫ df [h²Ω_signal / h²Ω_noise]²
+#   The PLISC at each frequency is the envelope (minimum) over spectral
+#   indices of the minimum detectable power-law amplitude.
+# ---------------------------------------------------------------------------
+_PLISC_CACHE = {}
+
+
+def _compute_plisc(noise_func, f_min, f_max, n_freq=2000,
+                   n_slopes=400, T_obs_years=1.0, snr_thr=1.0):
+    """Compute the Power-Law Integrated Sensitivity Curve."""
+    cache_key = (noise_func.__name__, f_min, f_max, n_freq,
+                 n_slopes, T_obs_years, snr_thr)
+    if cache_key in _PLISC_CACHE:
+        return _PLISC_CACHE[cache_key]
+
+    f_grid = np.logspace(np.log10(f_min), np.log10(f_max), n_freq)
+    omega_n = noise_func(f_grid)
+
+    omega_n = np.maximum(omega_n, 1e-300)
+
+    f_ref = np.sqrt(f_min * f_max)
+    T_obs = T_obs_years * 365.25 * 24.0 * 3600.0
+
+    n_t_arr = np.linspace(-8, 8, n_slopes)
+    plisc = np.full_like(f_grid, np.inf)
+
+    for n_t in n_t_arr:
+        template = (f_grid / f_ref) ** n_t
+        integrand = (template / omega_n) ** 2
+        integral = np.trapz(integrand, f_grid)
+        if integral <= 0:
+            continue
+        A_min = snr_thr / np.sqrt(2.0 * T_obs * integral)
+        curve = A_min * template
+        plisc = np.minimum(plisc, curve)
+
+    plisc = np.where(np.isfinite(plisc), plisc, 1e10)
+    _PLISC_CACHE[cache_key] = (f_grid, plisc)
+    return f_grid, plisc
+
+
+def _plisc_interp(noise_func, f_min, f_max, f_query,
+                  T_obs_years=1.0, snr_thr=1.0):
+    """Return PLISC values interpolated to arbitrary frequencies."""
+    f_grid, plisc_grid = _compute_plisc(
+        noise_func, f_min, f_max,
+        T_obs_years=T_obs_years, snr_thr=snr_thr)
+    f_query = np.asarray(f_query, dtype=float)
+    return np.interp(f_query, f_grid, plisc_grid,
+                     left=np.inf, right=np.inf)
+
+
+def sensitivity_LISA(f):
+    return _plisc_interp(_noise_LISA, 1e-5, 0.5, f)
+
+
+def sensitivity_DECIGO(f):
+    return _plisc_interp(_noise_DECIGO, 1e-3, 100.0, f)
+
+
+def sensitivity_BBO(f):
+    return _plisc_interp(_noise_BBO, 1e-3, 100.0, f)
+
+
+def sensitivity_ET(f):
+    return _plisc_interp(_noise_ET, 1.0, 1e4, f)
+
+
+def sensitivity_aLIGO(f):
+    return _plisc_interp(_noise_aLIGO, 5.0, 5e3, f)
 
 
 def sensitivity_LVK_O3(f):
@@ -774,11 +858,9 @@ def sensitivity_LVK_O3(f):
     f = np.asarray(f, dtype=float)
     f_ref = 25.0
     Omega_flat = 5.8e-9
-    # PI curve: envelope over spectral indices alpha = 0, 2/3, 3
     omega_0 = Omega_flat * np.ones_like(f)
     omega_23 = 3.4e-9 * (f / f_ref) ** (2.0 / 3.0)
     omega_3 = 3.9e-10 * (f / f_ref) ** 3
-    # The PI curve is the minimum envelope (tightest constraint at each f)
     return np.minimum(np.minimum(omega_0, omega_23), omega_3)
 
 

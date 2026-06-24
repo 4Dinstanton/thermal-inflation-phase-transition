@@ -374,7 +374,7 @@ if __name__ == "__main__":
 
     lam = 1e-24
     v = 1e6
-    mphi = 1000
+    mphi = 100
     epsil = 0
     lambdaSix = 0
     T = 0.6
@@ -391,7 +391,7 @@ if __name__ == "__main__":
     fermionGaugeCoupling = 1.05
     nb = 20
     nf = 20
-    param_set = "set8"
+    param_set = "set11"
 
     param = {
         param_set: {

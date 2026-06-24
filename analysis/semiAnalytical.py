@@ -23,7 +23,7 @@ _p.add_argument("--yf", type=float, default=1.09, help="fermion Yukawa coupling"
 _p.add_argument("--yb", type=float, default=1.09, help="boson Yukawa coupling")
 _p.add_argument("--gf", type=float, default=1.05, help="fermion gauge coupling")
 _p.add_argument("--gb", type=float, default=1.05, help="boson gauge coupling")
-_p.add_argument("--gamma", type=float, default=2.75e-5, help="phi0/Mpl")
+_p.add_argument("--gamma", type=float, default=4.1667e-8, help="phi0/Mpl")
 _p.add_argument("--Tmin", type=float, default=1.13, help="scan start [TeV]")
 _p.add_argument("--Tmax", type=float, default=1.28, help="scan end [TeV]")
 _p.add_argument("--dT", type=float, default=0.01, help="scan step [TeV]")
@@ -291,7 +291,7 @@ def F_nucleation(T):
     _, _, s3t = S3_over_T(T)
     if s3t is None:
         return None
-    return s3t - RHS_nucleation(T)
+    return s3t - RHS_nucleation(T) + 3 / 2 * np.log(s3t / (2 * np.pi))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -317,6 +317,7 @@ print(hdr)
 print("-" * len(hdr))
 
 rows = []
+c_list = []
 for T in Ts:
     alpha_f, alpha_b, s3t = S3_over_T(T)
     rhs = RHS_nucleation(T)
@@ -325,13 +326,15 @@ for T in Ts:
         print(f"{T:10.2f}  {'—':>12}  {'—':>12}  {'—':>14}  {rhs:14.5f}  {'—':>14}")
         rows.append(dict(T=T, alpha_f=None, alpha_b=None, S3T=None, RHS=rhs, C=None))
     else:
-        C = s3t - rhs
+        C = s3t - rhs + 3 / 2 * np.log(s3t / (2 * np.pi))
         print(
             f"{T:10.2f}  {alpha_f:12.5f}  {alpha_b:12.5f}  "
             f"{s3t:14.5f}  {rhs:14.5f}  {C:14.5f}"
         )
+        c_list.append(round(C, 5))
         rows.append(dict(T=T, alpha_f=alpha_f, alpha_b=alpha_b, S3T=s3t, RHS=rhs, C=C))
 
+print(c_list)
 # ═══════════════════════════════════════════════════════════════════
 #  Find T_n
 # ═══════════════════════════════════════════════════════════════════
@@ -347,6 +350,8 @@ Tn_lo = args.Tn_lo
 Tn_hi = args.Tn_hi
 if Tn_lo is None and sign_changes:
     Tn_lo, Tn_hi = sign_changes[0]
+
+print(Tn_lo, Tn_hi)
 
 if Tn_lo is not None and Tn_hi is not None:
     try:
