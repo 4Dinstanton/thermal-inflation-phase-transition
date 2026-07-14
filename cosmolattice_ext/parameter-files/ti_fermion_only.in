@@ -1,0 +1,53 @@
+# Thermal-inflation: fermion-only (Set C), CosmoLattice input file.
+# Generated/overridden by simulation/run_cosmolattice.py.
+
+#Output
+outputfile = ./output/ti_fermion_only/
+
+#Evolution
+expansion = true
+evolver = stochasticrk
+
+#Lattice
+N = 64
+dt = 0.1
+kIR = 0.09817477
+
+#Times
+tOutputFreq = 10
+tOutputInfreq = 100
+tMax = 20000
+
+#IC
+kCutOff = 4
+baseSeed = 1
+initial_amplitudes = 0.0
+initial_momenta = 0.0
+
+#Spectra / GWs
+PS_type = 1
+PS_version = 1
+withGWs = false
+
+#---- Thermal-inflation model parameters ----
+potential_type = fermion_only  # nb forced to 0
+mphi = 1000.0
+gamma = 4.1667e-4
+boson_coupling = 1.09
+boson_gauge_coupling = 1.05
+fermion_coupling = 1.09
+fermion_gauge_coupling = 1.05
+boson_mass_squared = 1.0e6
+nb = 0
+nf = 20
+g_star_pot = 100.0
+g_star_hubble = 106.75
+
+#---- Temperature / Langevin ----
+T0 = 7350.0
+eta_phys = 7350.0
+dx_phys = 1.0e-3
+include_cw = 1
+thermal_noise = 1
+noise_seed = 1
+thermal_table = ../../data/thermal_splines/thermal_tables.bin

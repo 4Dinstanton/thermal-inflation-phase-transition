@@ -1,0 +1,60 @@
+# Thermal-inflation: boson + fermion (Set B), CosmoLattice input file.
+# Generated/overridden by simulation/run_cosmolattice.py. Values below are a
+# self-consistent 64^3 example (dx_phys=1e-3, dt_phys=1e-4, mphi=1000).
+
+#Output
+outputfile = ./output/ti_boson_fermion/
+
+#Evolution
+expansion = true
+evolver = stochasticrk        # custom Langevin evolver (see cosmolattice_ext/README.md)
+
+#Lattice                       # dx_tilde = omegaStar*dx_phys = mphi*dx_phys = 1.0
+N = 64
+dt = 0.1                       # program time step = mphi*dt_phys = 1000*1e-4
+kIR = 0.09817477              # 2*pi / (N * dx_tilde) = 2*pi/64
+
+#Times (program units)
+tOutputFreq = 10
+tOutputInfreq = 100
+tMax = 20000
+
+#Field snapshots (optional; set by run_cosmolattice.py --steps)
+#save_snapshots = 1
+#snapshot_steps = 4000
+#phi_threshold = 50000
+#snapshot_steps_dense = 20
+
+#IC
+kCutOff = 4
+baseSeed = 1
+initial_amplitudes = 0.0       # false vacuum at the origin (GeV)
+initial_momenta = 0.0          # (GeV^2)
+
+#Spectra / GWs
+PS_type = 1
+PS_version = 1
+withGWs = false
+
+#---- Thermal-inflation model parameters ----
+potential_type = V_correct     # boson + fermion
+mphi = 1000.0                  # GeV  (= omegaStar = mu)
+gamma = 4.1667e-4             # phi0 = gamma*M_Pl ; lambda = mphi^2/phi0^2 ; delV = lam/4 phi0^4
+boson_coupling = 1.09          # y_b
+boson_gauge_coupling = 1.05    # g_b
+fermion_coupling = 1.09        # y_f
+fermion_gauge_coupling = 1.05  # g_f
+boson_mass_squared = 1.0e6     # GeV^2
+nb = 20
+nf = 20
+g_star_pot = 100.0             # radiation free-energy multiplicity (Potential.py literal)
+g_star_hubble = 106.75         # g_* in Friedmann radiation term
+
+#---- Temperature / Langevin ----
+T0 = 7350.0                    # initial temperature (GeV); T(t) = T0/a
+eta_phys = 7350.0             # thermal friction (GeV); numba default eta = T0
+dx_phys = 1.0e-3              # physical lattice spacing (GeV^-1), for FDT noise scale
+include_cw = 1                 # include Coleman-Weinberg force (set 0 for numba parity)
+thermal_noise = 1             # enable FDT noise (set 0 for deterministic run)
+noise_seed = 1
+thermal_table = ../../data/thermal_splines/thermal_tables.bin

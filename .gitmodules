@@ -1,0 +1,3 @@
+[submodule "external/cosmolattice"]
+	path = external/cosmolattice
+	url = https://github.com/cosmolattice/cosmolattice.git

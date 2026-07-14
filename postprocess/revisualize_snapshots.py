@@ -16,10 +16,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – registers 3D projection
 from scipy.ndimage import label as ndimage_label
+import scipy.ndimage as ndimage
 import glob
 import os
 import re
 import sys
+
+# Fixed φ colorbar range used by latticeSimeRescale_numba.py inline snapshots.
+NUMBA_PHI_VMIN = -2e11
+NUMBA_PHI_VMAX = 2e11
 
 
 def load_metadata(sim_dir):
@@ -363,25 +368,71 @@ def _identify_strings(winding, threshold=0.5):
     if n_loops == 0:
         return labelled, []
 
+    # Vectorized stats — O(N). Do NOT loop with argwhere per label (kills 256^3).
+    labels = np.arange(1, n_loops + 1)
+    counts = np.bincount(labelled.ravel(), minlength=n_loops + 1)[1:]
+    centers = ndimage.center_of_mass(mask, labelled, labels)
+    means = ndimage.mean(winding, labelled, labels)
+    maxes = ndimage.maximum(np.abs(winding), labelled, labels)
+
     strings = []
-    for lid in range(1, n_loops + 1):
-        coords = np.argwhere(labelled == lid)
-        n_vox = len(coords)
-        centroid = coords.mean(axis=0)
-        w_vals = winding[labelled == lid]
-        sign = 1 if np.mean(w_vals) >= 0 else -1
+    for i, lid in enumerate(labels):
+        centroid = np.asarray(centers[i], dtype=np.float64)
         strings.append(
             dict(
-                loop_id=lid,
-                n_voxels=n_vox,
+                loop_id=int(lid),
+                n_voxels=int(counts[i]),
                 centroid=centroid,
-                winding_sign=sign,
-                max_winding=float(np.max(np.abs(w_vals))),
+                winding_sign=1 if float(means[i]) >= 0 else -1,
+                max_winding=float(maxes[i]),
             )
         )
 
     strings.sort(key=lambda s: s["n_voxels"], reverse=True)
     return labelled, strings
+
+
+def _plot_strings_2d_dense(state, metadata, output_file, n_string_vox):
+    """Fast 2D panels when winding is too dense for per-loop labeling."""
+    rho = np.asarray(state["rho"], dtype=np.float64)
+    theta = np.asarray(state["theta"], dtype=np.float64)
+    winding = np.asarray(state["winding"], dtype=np.float64)
+    step = state["step"]
+    T_val = state["temperature"]
+
+    mu = 1000.0
+    if metadata is not None:
+        if "mu" in metadata:
+            mu = float(metadata["mu"])
+        elif "mphi" in metadata:
+            mu = float(metadata["mphi"])
+    time_phys = state["time"] / mu
+    zmid = rho.shape[2] // 2
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    im0 = axes[0].imshow(rho[:, :, zmid].T, origin="lower", cmap="viridis")
+    axes[0].set_title(r"$\rho = |\Phi|$")
+    fig.colorbar(im0, ax=axes[0], shrink=0.8)
+    im1 = axes[1].imshow(
+        theta[:, :, zmid].T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
+    )
+    axes[1].set_title(r"$\theta = \arg(\Phi)$")
+    fig.colorbar(im1, ax=axes[1], shrink=0.8)
+    wind_sl = winding[:, :, zmid]
+    wmax = max(float(np.max(np.abs(wind_sl))), 0.1)
+    im2 = axes[2].imshow(
+        wind_sl.T, origin="lower", cmap="RdBu_r", vmin=-wmax, vmax=wmax
+    )
+    axes[2].set_title(f"Winding (dense: {n_string_vox} voxels)")
+    fig.colorbar(im2, ax=axes[2], shrink=0.8)
+    fig.suptitle(
+        f"Step {step:,} | t={time_phys:.4e} | T={T_val:.1f} | "
+        f"winding too dense for loop labeling",
+        fontsize=11,
+    )
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=120)
+    plt.close(fig)
 
 
 def plot_strings_2d(state, metadata, output_file):
@@ -436,17 +487,14 @@ def plot_strings_2d(state, metadata, output_file):
     axes[0, 2].set_title(f"Winding  (|W|>0.5 total: {n_total_vox})")
     fig.colorbar(im2, ax=axes[0, 2], shrink=0.8)
 
-    # Panel 3: string loops colored by ID (z-midplane)
+    # Panel 3: string loops colored by ID (z-midplane) — vectorized
     loop_sl = labelled[:, :, zmid]
     loop_display = np.zeros((nx, ny, 4), dtype=np.float32)
     if n_loops > 0:
-        loop_cmap = plt.cm.get_cmap("tab20", max(n_loops, 1))
-        for si, s_info in enumerate(strings):
-            lid = s_info["loop_id"]
-            mask_2d = loop_sl == lid
-            if np.any(mask_2d):
-                c = loop_cmap(si % 20)
-                loop_display[mask_2d] = c
+        mask = loop_sl > 0
+        if np.any(mask):
+            lids = loop_sl[mask]
+            loop_display[mask] = plt.cm.tab20((lids.astype(np.float64) - 1.0) % 20 / 20.0)
     axes[1, 0].imshow(
         np.zeros((nx, ny)), origin="lower", cmap="gray_r", vmin=0, vmax=1, alpha=0.3
     )
@@ -496,7 +544,8 @@ def plot_strings_2d(state, metadata, output_file):
 
 
 def plot_strings_3d(
-    state, metadata, output_file, elev=25, azim=135, max_points=300_000
+    state, metadata, output_file, elev=25, azim=135, max_points=300_000,
+    labelled=None, strings=None,
 ):
     """3D scatter plot of cosmic string voxels, colored by loop ID."""
     winding = np.asarray(state["winding"], dtype=np.float64)
@@ -512,7 +561,8 @@ def plot_strings_3d(
     time_phys = state["time"] / mu
 
     nx, ny, nz = winding.shape
-    labelled, strings = _identify_strings(winding)
+    if labelled is None or strings is None:
+        labelled, strings = _identify_strings(winding)
     n_loops = len(strings)
     n_total_vox = int(np.sum(np.abs(winding) > 0.5))
 
@@ -520,37 +570,27 @@ def plot_strings_3d(
         print(f"    [3d-strings] No strings at step {step}")
         return strings
 
-    loop_cmap = plt.cm.get_cmap("tab20", max(n_loops, 1))
+    # Single scatter (not one call per loop — thousands of loops was unusable).
+    coords = np.argwhere(labelled > 0)
+    if len(coords) > max_points:
+        idx = np.random.choice(len(coords), max_points, replace=False)
+        coords = coords[idx]
+    lids = labelled[coords[:, 0], coords[:, 1], coords[:, 2]]
+    colors = plt.cm.tab20((lids.astype(np.float64) - 1.0) % 20 / 20.0)
+    ms = max(1.0, min(8.0, 5000.0 / max(1, n_total_vox)))
 
     fig = plt.figure(figsize=(12, 10), facecolor="white")
     ax = fig.add_subplot(111, projection="3d")
-
-    total_pts_plotted = 0
-    for si, s_info in enumerate(strings):
-        lid = s_info["loop_id"]
-        coords = np.argwhere(labelled == lid)
-        n_vox = len(coords)
-
-        if total_pts_plotted + n_vox > max_points and total_pts_plotted > 0:
-            frac = max(0.1, (max_points - total_pts_plotted) / n_vox)
-            idx = np.random.choice(n_vox, int(n_vox * frac), replace=False)
-            coords = coords[idx]
-
-        col = loop_cmap(si % 20)
-        ms = max(1.0, min(8.0, 5000.0 / max(1, n_total_vox)))
-        sign_str = "+" if s_info["winding_sign"] > 0 else "−"
-        ax.scatter(
-            coords[:, 0],
-            coords[:, 1],
-            coords[:, 2],
-            c=[col],
-            s=ms,
-            alpha=0.8,
-            linewidths=0,
-            depthshade=True,
-            label=f"#{lid} ({sign_str}, {n_vox} vox)" if si < 10 else None,
-        )
-        total_pts_plotted += len(coords)
+    ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        coords[:, 2],
+        c=colors,
+        s=ms,
+        alpha=0.8,
+        linewidths=0,
+        depthshade=True,
+    )
 
     ax.set_xlim(0, nx)
     ax.set_ylim(0, ny)
@@ -565,12 +605,10 @@ def plot_strings_3d(
         fontsize=11,
         pad=12,
     )
-    if n_loops <= 10:
-        ax.legend(loc="upper right", fontsize=7, markerscale=4)
 
     ax.view_init(elev=elev, azim=azim)
     fig.tight_layout()
-    fig.savefig(output_file, dpi=180, bbox_inches="tight")
+    fig.savefig(output_file, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     return strings
@@ -642,11 +680,26 @@ def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None
 
         # 2D panel
         out_2d = os.path.join(output_dir, f"strings_step_{step:010d}.png")
-        strings = plot_strings_2d(state, metadata, out_2d)
-        n_loops = len(strings)
+        # Dense false-vacuum winding: skip expensive multi-loop labeling
+        if n_string_vox > 500_000:
+            strings = [
+                dict(
+                    loop_id=1,
+                    n_voxels=n_string_vox,
+                    centroid=np.array(winding.shape, dtype=np.float64) * 0.5,
+                    winding_sign=1,
+                    max_winding=float(np.max(np.abs(winding))),
+                )
+            ]
+            # Lightweight 2D: rho / theta / winding only (no per-loop coloring)
+            _plot_strings_2d_dense(state, metadata, out_2d, n_string_vox)
+            n_loops = -1  # flag: too dense to count loops
+        else:
+            strings = plot_strings_2d(state, metadata, out_2d)
+            n_loops = len(strings)
 
-        # 3D view (only if strings exist)
-        if n_loops > 0:
+        # 3D view only when string density is manageable (skip false-vacuum noise)
+        if n_loops > 0 and n_string_vox <= 80_000:
             out_3d = os.path.join(output_3d, f"strings3d_step_{step:010d}.png")
             plot_strings_3d(state, metadata, out_3d, elev=elev, azim=azim)
 
@@ -659,17 +712,28 @@ def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None
             _write_string_csv(
                 csv_path, strings, step, state["time"], state["temperature"]
             )
+        elif n_loops > 0 and n_string_vox <= 500_000:
+            csv_path = os.path.join(csv_dir, f"strings_step_{step:010d}.csv")
+            mu = 1000.0
+            if metadata is not None and "mu" in metadata:
+                mu = float(metadata["mu"])
+            elif metadata is not None and "mphi" in metadata:
+                mu = float(metadata["mphi"])
+            _write_string_csv(
+                csv_path, strings, step, state["time"], state["temperature"]
+            )
 
-        top_lens = [s["n_voxels"] for s in strings[:3]] if strings else []
+        top_lens = [s["n_voxels"] for s in strings[:3]] if strings and n_loops > 0 else []
         top_str = ", ".join(str(v) for v in top_lens) if top_lens else "-"
+        loop_out = n_loops if n_loops >= 0 else "dense"
         summary_rows.append(
             f"{step},{state['time']:.8e},{state['temperature']:.2f},"
-            f"{n_loops},{n_string_vox},{top_str}\n"
+            f"{loop_out},{n_string_vox},{top_str}\n"
         )
 
         print(
             f"  [{i+1}/{len(state_files)}] step {step:>10,}  "
-            f"loops={n_loops:>4d}  voxels={n_string_vox:>7d}"
+            f"loops={str(loop_out):>5s}  voxels={n_string_vox:>7d}"
         )
 
     with open(summary_path, "w") as f:
@@ -928,9 +992,10 @@ def plot_snapshot_fixed(
             ax.set_ylabel(ylabel, fontsize=10)
 
         esc_str = f" | esc={escape_phi:.0f}" if escape_phi is not None else ""
+        qty = r"$\rho$" if (state_info.get("complex") or colorbar_mode == "rho") else r"$\phi$"
         fig.suptitle(
             f"Step {step:,} | t={t_fmt} | T={T_val:.1f} | "
-            f"$\\phi$: [{phi.min():.2e}, {phi.max():.2e}]{esc_str}",
+            f"{qty}: [{phi.min():.2e}, {phi.max():.2e}]{esc_str}",
             fontsize=12,
         )
     else:
@@ -946,9 +1011,10 @@ def plot_snapshot_fixed(
             escape_phi=escape_phi,
             phi_raw=phi,
         )
+        qty = r"$\rho$" if (state_info.get("complex") or colorbar_mode == "rho") else r"$\phi$"
         ax.set_title(
             f"Step {step:,} | t={t_fmt} | T={T_val:.1f}\n"
-            f"$\\phi$ range: [{phi.min():.2e}, {phi.max():.2e}]",
+            f"{qty} range: [{phi.min():.2e}, {phi.max():.2e}]",
             fontsize=10,
         )
         ax.set_xlabel("x", fontsize=10)
@@ -961,7 +1027,7 @@ def plot_snapshot_fixed(
 
 def revisualize_all(
     sim_dir,
-    colorbar_mode="normalized",
+    colorbar_mode="numba",
     cmap="coolwarm",
     escape_phi=None,
     step_min=None,
@@ -1030,14 +1096,30 @@ def revisualize_all(
         f"\nCalculating GLOBAL colorbar range for all {len(state_files)} snapshots..."
     )
 
-    if colorbar_mode == "normalized":
-        # Fixed range based on physics (φ/v)
+    if colorbar_mode == "numba":
+        # Match latticeSimeRescale_numba.py inline snapshot plots (raw φ in GeV).
+        vmin, vmax = NUMBA_PHI_VMIN, NUMBA_PHI_VMAX
+        cbar_label = r"$\phi$"
+        print(f"  Mode: Numba (raw φ in GeV)")
+        print(f"  Range: [{vmin:.2e}, {vmax:.2e}] (FIXED)")
+
+    elif colorbar_mode == "normalized":
+        # Fixed range based on physics (φ/v) — real-scalar bubble contrast only.
+        # Do NOT use for complex runs (use --mode rho).
         vmin, vmax = -1.5, 1.5
         cbar_label = r"$\phi / v$"
         print(f"  Mode: Normalized (φ/v)")
         print(f"  Range: [{vmin}, {vmax}] (FIXED)")
         print(f"  → False vacuum (φ≈0) appears as φ/v≈0 (green)")
         print(f"  → True vacuum (φ≈±v) appears as φ/v≈±1 (red/blue)")
+
+    elif colorbar_mode == "rho":
+        # Complex-field amplitude |Φ| in GeV. Fixed [0, 1.2 v] — NOT φ/v.
+        vmin, vmax = 0.0, 1.2 * vev
+        cbar_label = r"$\rho = |\Phi|$ [GeV]"
+        print(f"  Mode: rho (|Φ| in GeV)")
+        print(f"  Range: [{vmin:.2e}, {vmax:.2e}] (FIXED, 1.2×VEV)")
+        print(f"  → False vacuum ρ≈0; broken phase ρ→v={vev:.2e} GeV")
 
     elif colorbar_mode == "vev_based":
         # Fixed range based on VEV
@@ -1182,6 +1264,7 @@ def compare_colorbar_modes(sim_dir, step_to_plot=None):
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
     modes = [
+        ("numba", NUMBA_PHI_VMIN, NUMBA_PHI_VMAX, r"$\phi$", phi_2d),
         ("normalized", -1.5, 1.5, r"$\phi / v$", phi_2d / vev),
         ("vev_based", -1.2 * vev, 1.2 * vev, r"$\phi$", phi_2d),
         (
@@ -1221,23 +1304,25 @@ def compare_colorbar_modes(sim_dir, step_to_plot=None):
     print(f"Comparison saved to: {output_file}")
     print(f"{'='*70}")
     print(f"\nRecommendation for bubble nucleation:")
-    print(f"  → Use 'normalized' mode (φ/v with [-1.5, 1.5])")
+    print(f"  → Use 'numba' mode (raw φ with ±2e11 GeV) to match inline numba snapshots")
+    print(f"  → Use 'normalized' mode (φ/v with [-1.5, 1.5]) for bubble contrast only")
     print(f"  → False vacuum appears as 0 (green)")
-    print(f"  → True vacuum appears as ±1 (red/blue)")
-    print(f"  → Bubbles will be VERY visible!")
+    print(f"  → True vacuum appears as ±1 (red/blue) in normalized mode")
+    print(f"  → Bubbles will be VERY visible in normalized mode!")
 
 
 def print_usage():
     """Print usage information."""
     print(__doc__)
     print("\nColorbar modes:")
-    print("  normalized  - φ/v scale (RECOMMENDED for bubble detection!)")
+    print("  numba       - Raw φ in GeV, fixed ±2e11 (matches numba inline snapshots)")
+    print("  normalized  - φ/v scale ±1.5 (high contrast for bubble detection)")
     print("  vev_based   - Fixed range ±1.2*VEV")
     print("  auto        - Global data range from all snapshots")
     print("  symmetric   - Global percentile-based")
-    print("  fixed       - Fixed [-1000, 1000] (not recommended)")
+    print("  fixed       - Fixed [-1e7, 1e7] (legacy)")
     print("\nExamples:")
-    print("  # Revisualize with normalized colorbar (RECOMMENDED)")
+    print("  # Revisualize with numba-matching colorbar (default)")
     print("  python postprocess/revisualize_snapshots.py data/lattice/set6/T0_7350_...")
     print("")
     print("  # Use VEV-based scaling")
@@ -1294,7 +1379,7 @@ def main():
         sys.exit(1)
 
     # Parse arguments
-    mode = "auto"
+    mode = "numba"
     cmap = "coolwarm"
     compare_mode = False
     escape_phi = None

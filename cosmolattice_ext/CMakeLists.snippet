@@ -1,0 +1,31 @@
+# CMake integration notes for the thermal-inflation extension.
+#
+# CosmoLattice's top-level CMakeLists.txt selects a model via -DMODEL=<name> and
+# compiles src/models/<name>.h (set through -DMODELINCLUDE=models/<name>.h).
+# A per-model "<name>.cmake" in src/models/ is optional.
+#
+# The thermal-inflation model needs three headers visible from src/models/:
+#   thermal_inflation.h, thermal_tables.hpp, thermal_force.h
+# and the custom evolver header in src/include/CosmoInterface/evolvers/:
+#   stochasticrk.h
+#
+# The recommended, submodule-friendly way is to symlink them in (done by
+# `python simulation/run_cosmolattice.py --install`). If you instead prefer to
+# keep them in cosmolattice_ext/ and add include paths, append the following to
+# CosmoLattice's CMakeLists.txt (after the MODEL block, ~line 104):
+#
+#   include_directories(${CMAKE_SOURCE_DIR}/../../cosmolattice_ext/models)
+#   include_directories(${CMAKE_SOURCE_DIR}/../../cosmolattice_ext/evolvers)
+#
+# and set the model include explicitly:
+#
+#   -DMODEL=thermal_inflation \
+#   -DMODELINCLUDE=thermal_inflation.h   (if the header is on the include path)
+#
+# Optional model cmake (src/models/thermal_inflation.cmake) — not required, but
+# you may use it to enforce C++14 or extra flags for this model:
+#
+#   set(CMAKE_CXX_STANDARD 14)
+#
+# No external libraries beyond CosmoLattice's own requirements (CMake>=3, g++>=5,
+# FFTW3) are needed; thermal_tables.hpp is header-only and depends only on the STL.

@@ -18,7 +18,9 @@ from cosmoTransitions.tunneling1D import SingleFieldInstanton
 # =====================================================
 # CLI arguments (override defaults for Nx, Ny, Nt, T0, steps)
 # =====================================================
-parser = argparse.ArgumentParser(description="Complex scalar field lattice simulation (cosmic strings + domain walls)")
+parser = argparse.ArgumentParser(
+    description="Complex scalar field lattice simulation (cosmic strings + domain walls)"
+)
 parser.add_argument(
     "--Nx", type=int, default=256, help="Lattice size in x (default: 256)"
 )
@@ -222,7 +224,9 @@ elif cli_args.potential_type == "fermion_only":
 # Z_N breaking parameters (Numba reads at runtime from global array)
 # =====================================================
 # _ZN_PARAMS[0] = N (order), _ZN_PARAMS[1] = delta_V (strength), _ZN_PARAMS[2] = active flag
-_ZN_PARAMS = np.array([float(cli_args.zn_order), cli_args.zn_strength, 0.0], dtype=np.float64)
+_ZN_PARAMS = np.array(
+    [float(cli_args.zn_order), cli_args.zn_strength, 0.0], dtype=np.float64
+)
 if cli_args.zn_order > 0 and cli_args.zn_turn_on_T <= 0.0:
     _ZN_PARAMS[2] = 1.0  # always on
 
@@ -274,7 +278,9 @@ print(
 )
 print(f"Complex field simulation (two-component: phi1 + i*phi2)")
 if cli_args.zn_order > 0:
-    print(f"Z_{cli_args.zn_order} breaking: delta_V={cli_args.zn_strength:.2e}, turn_on_T={cli_args.zn_turn_on_T:.1f}")
+    print(
+        f"Z_{cli_args.zn_order} breaking: delta_V={cli_args.zn_strength:.2e}, turn_on_T={cli_args.zn_turn_on_T:.1f}"
+    )
 else:
     print("Pure U(1) symmetry (no Z_N breaking)")
 print("-" * 70)
@@ -1444,8 +1450,10 @@ def cubic_eval_uniform(x, x_min, h, nseg, c0, c1, c2, c3):
 
 @nb.njit(parallel=True, fastmath=True, cache=True)
 def Vprime_field(
-    out1, out2,
-    phi1_arr, phi2_arr,
+    out1,
+    out2,
+    phi1_arr,
+    phi2_arr,
     T,
     lam,
     mphi,
@@ -1475,7 +1483,9 @@ def Vprime_field(
                 rho_safe = max(rho, 1e-30)
                 inv_rho = 1.0 / rho_safe
                 dV = lam * rho_safe * rho_safe * rho_safe - mphi_sq * rho_safe
-                xb_sq = bosonMassSquared + 0.5 * gb2 * rho_safe * rho_safe + coef_b_T * T2
+                xb_sq = (
+                    bosonMassSquared + 0.5 * gb2 * rho_safe * rho_safe + coef_b_T * T2
+                )
                 xb = 0.0
                 if xb_sq > 0.0:
                     xb = math.sqrt(xb_sq) / T
@@ -1493,14 +1503,22 @@ def Vprime_field(
                     xf_clamped = x_min
                 elif xf_clamped > x_min + h_y * nseg:
                     xf_clamped = x_min + h_y * nseg - 1e-12
-                dJb = cubic_eval_uniform(xb_clamped, x_min, h_y, nseg, c0_b, c1_b, c2_b, c3_b)
-                dJf = cubic_eval_uniform(xf_clamped, x_min, h_y, nseg, c0_f, c1_f, c2_f, c3_f)
+                dJb = cubic_eval_uniform(
+                    xb_clamped, x_min, h_y, nseg, c0_b, c1_b, c2_b, c3_b
+                )
+                dJf = cubic_eval_uniform(
+                    xf_clamped, x_min, h_y, nseg, c0_f, c1_f, c2_f, c3_f
+                )
                 dxb_dphi = 0.5 * gb2 * rho_safe / (T2 * max(xb, 1e-20))
                 dxf_dphi = 0.5 * gf2 * rho_safe / (T2 * max(xf, 1e-20))
-                dV += pref * (_POT_COEFFS[0] * dJb * dxb_dphi + _POT_COEFFS[1] * dJf * dxf_dphi)
+                dV += pref * (
+                    _POT_COEFFS[0] * dJb * dxb_dphi + _POT_COEFFS[1] * dJf * dxf_dphi
+                )
                 dV1 = dV * p1 * inv_rho
                 dV2 = dV * p2 * inv_rho
-                zn_n = _ZN_PARAMS[0]; zn_dv = _ZN_PARAMS[1]; zn_active = _ZN_PARAMS[2]
+                zn_n = _ZN_PARAMS[0]
+                zn_dv = _ZN_PARAMS[1]
+                zn_active = _ZN_PARAMS[2]
                 if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
                     theta = math.atan2(p2, p1)
                     sin_ntheta = math.sin(zn_n * theta)
@@ -1513,29 +1531,73 @@ def Vprime_field(
 
 @nb.njit(cache=True)
 def rk2_step(
-    phi1, phi2, pi1, pi2,
-    dt, dx, eta_eff, T, mu, lam, mphi,
-    bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-    fermionCoupling, fermionGaugeCoupling,
-    noise1, noise2, lap1, lap2, Vp1, Vp2,
-    phi1_mid_buf, phi2_mid_buf, pi1_mid_buf, pi2_mid_buf,
+    phi1,
+    phi2,
+    pi1,
+    pi2,
+    dt,
+    dx,
+    eta_eff,
+    T,
+    mu,
+    lam,
+    mphi,
+    bosonMassSquared,
+    bosonCoupling,
+    bosonGaugeCoupling,
+    fermionCoupling,
+    fermionGaugeCoupling,
+    noise1,
+    noise2,
+    lap1,
+    lap2,
+    Vp1,
+    Vp2,
+    phi1_mid_buf,
+    phi2_mid_buf,
+    pi1_mid_buf,
+    pi2_mid_buf,
     inv_a2,
 ):
     mu2 = mu * mu
     laplacian_periodic(lap1, phi1, dx)
     laplacian_periodic(lap2, phi2, dx)
-    Vprime_field(Vp1, Vp2, phi1, phi2, T, lam, mphi, bosonMassSquared,
-                 bosonCoupling, bosonGaugeCoupling, fermionCoupling, fermionGaugeCoupling)
+    Vprime_field(
+        Vp1,
+        Vp2,
+        phi1,
+        phi2,
+        T,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     k1_pi1 = inv_a2 * lap1 - eta_eff * pi1 - Vp1 / mu2
     k1_pi2 = inv_a2 * lap2 - eta_eff * pi2 - Vp2 / mu2
-    phi1_mid_buf[:,:,:] = phi1 + 0.5 * dt * pi1
-    phi2_mid_buf[:,:,:] = phi2 + 0.5 * dt * pi2
-    pi1_mid_buf[:,:,:] = pi1 + 0.5 * dt * k1_pi1
-    pi2_mid_buf[:,:,:] = pi2 + 0.5 * dt * k1_pi2
+    phi1_mid_buf[:, :, :] = phi1 + 0.5 * dt * pi1
+    phi2_mid_buf[:, :, :] = phi2 + 0.5 * dt * pi2
+    pi1_mid_buf[:, :, :] = pi1 + 0.5 * dt * k1_pi1
+    pi2_mid_buf[:, :, :] = pi2 + 0.5 * dt * k1_pi2
     laplacian_periodic(lap1, phi1_mid_buf, dx)
     laplacian_periodic(lap2, phi2_mid_buf, dx)
-    Vprime_field(Vp1, Vp2, phi1_mid_buf, phi2_mid_buf, T, lam, mphi, bosonMassSquared,
-                 bosonCoupling, bosonGaugeCoupling, fermionCoupling, fermionGaugeCoupling)
+    Vprime_field(
+        Vp1,
+        Vp2,
+        phi1_mid_buf,
+        phi2_mid_buf,
+        T,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     k2_pi1 = inv_a2 * lap1 - eta_eff * pi1_mid_buf - Vp1 / mu2
     k2_pi2 = inv_a2 * lap2 - eta_eff * pi2_mid_buf - Vp2 / mu2
     phi1 += dt * pi1_mid_buf
@@ -1546,50 +1608,132 @@ def rk2_step(
 
 @nb.njit(cache=True)
 def rk2_step_fused(
-    phi1, phi2, pi1, pi2,
-    dt, dx, eta_eff, T, T_mid, mu, lam, mphi,
-    bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-    fermionCoupling, fermionGaugeCoupling,
-    noise1, noise2, lap1, lap2, Vp1, Vp2,
-    phi1_mid_buf, phi2_mid_buf, pi1_mid_buf, pi2_mid_buf,
+    phi1,
+    phi2,
+    pi1,
+    pi2,
+    dt,
+    dx,
+    eta_eff,
+    T,
+    T_mid,
+    mu,
+    lam,
+    mphi,
+    bosonMassSquared,
+    bosonCoupling,
+    bosonGaugeCoupling,
+    fermionCoupling,
+    fermionGaugeCoupling,
+    noise1,
+    noise2,
+    lap1,
+    lap2,
+    Vp1,
+    Vp2,
+    phi1_mid_buf,
+    phi2_mid_buf,
+    pi1_mid_buf,
+    pi2_mid_buf,
     inv_a2,
 ):
     """Fused RK2 for complex field: two half-steps."""
     half_dt = 0.5 * dt
-    half_noise1 = 0.5 * noise1; half_noise2 = 0.5 * noise2
+    half_noise1 = 0.5 * noise1
+    half_noise2 = 0.5 * noise2
     mu2 = mu * mu
     # First half: k1
-    laplacian_periodic(lap1, phi1, dx); laplacian_periodic(lap2, phi2, dx)
-    Vprime_field(Vp1, Vp2, phi1, phi2, T, lam, mphi, bosonMassSquared,
-                 bosonCoupling, bosonGaugeCoupling, fermionCoupling, fermionGaugeCoupling)
+    laplacian_periodic(lap1, phi1, dx)
+    laplacian_periodic(lap2, phi2, dx)
+    Vprime_field(
+        Vp1,
+        Vp2,
+        phi1,
+        phi2,
+        T,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     k1_pi1 = inv_a2 * lap1 - eta_eff * pi1 - Vp1 / mu2
     k1_pi2 = inv_a2 * lap2 - eta_eff * pi2 - Vp2 / mu2
-    phi1_t = phi1 + half_dt * pi1; phi2_t = phi2 + half_dt * pi2
-    pi1_t = pi1 + half_dt * k1_pi1; pi2_t = pi2 + half_dt * k1_pi2
+    phi1_t = phi1 + half_dt * pi1
+    phi2_t = phi2 + half_dt * pi2
+    pi1_t = pi1 + half_dt * k1_pi1
+    pi2_t = pi2 + half_dt * k1_pi2
     # First half: k2
-    laplacian_periodic(lap1, phi1_t, dx); laplacian_periodic(lap2, phi2_t, dx)
-    Vprime_field(Vp1, Vp2, phi1_t, phi2_t, T, lam, mphi, bosonMassSquared,
-                 bosonCoupling, bosonGaugeCoupling, fermionCoupling, fermionGaugeCoupling)
+    laplacian_periodic(lap1, phi1_t, dx)
+    laplacian_periodic(lap2, phi2_t, dx)
+    Vprime_field(
+        Vp1,
+        Vp2,
+        phi1_t,
+        phi2_t,
+        T,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     k2_pi1 = inv_a2 * lap1 - eta_eff * pi1_t - Vp1 / mu2
     k2_pi2 = inv_a2 * lap2 - eta_eff * pi2_t - Vp2 / mu2
-    phi1 += half_dt * pi1_t; phi2 += half_dt * pi2_t
-    pi1 += half_dt * k2_pi1 + half_noise1; pi2 += half_dt * k2_pi2 + half_noise2
+    phi1 += half_dt * pi1_t
+    phi2 += half_dt * pi2_t
+    pi1 += half_dt * k2_pi1 + half_noise1
+    pi2 += half_dt * k2_pi2 + half_noise2
     # Second half: k1
-    laplacian_periodic(lap1, phi1, dx); laplacian_periodic(lap2, phi2, dx)
-    Vprime_field(Vp1, Vp2, phi1, phi2, T_mid, lam, mphi, bosonMassSquared,
-                 bosonCoupling, bosonGaugeCoupling, fermionCoupling, fermionGaugeCoupling)
+    laplacian_periodic(lap1, phi1, dx)
+    laplacian_periodic(lap2, phi2, dx)
+    Vprime_field(
+        Vp1,
+        Vp2,
+        phi1,
+        phi2,
+        T_mid,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     k1_pi1 = inv_a2 * lap1 - eta_eff * pi1 - Vp1 / mu2
     k1_pi2 = inv_a2 * lap2 - eta_eff * pi2 - Vp2 / mu2
-    phi1_mid_buf[:,:,:] = phi1 + half_dt * pi1; phi2_mid_buf[:,:,:] = phi2 + half_dt * pi2
-    pi1_mid_buf[:,:,:] = pi1 + half_dt * k1_pi1; pi2_mid_buf[:,:,:] = pi2 + half_dt * k1_pi2
+    phi1_mid_buf[:, :, :] = phi1 + half_dt * pi1
+    phi2_mid_buf[:, :, :] = phi2 + half_dt * pi2
+    pi1_mid_buf[:, :, :] = pi1 + half_dt * k1_pi1
+    pi2_mid_buf[:, :, :] = pi2 + half_dt * k1_pi2
     # Second half: k2
-    laplacian_periodic(lap1, phi1_mid_buf, dx); laplacian_periodic(lap2, phi2_mid_buf, dx)
-    Vprime_field(Vp1, Vp2, phi1_mid_buf, phi2_mid_buf, T_mid, lam, mphi, bosonMassSquared,
-                 bosonCoupling, bosonGaugeCoupling, fermionCoupling, fermionGaugeCoupling)
+    laplacian_periodic(lap1, phi1_mid_buf, dx)
+    laplacian_periodic(lap2, phi2_mid_buf, dx)
+    Vprime_field(
+        Vp1,
+        Vp2,
+        phi1_mid_buf,
+        phi2_mid_buf,
+        T_mid,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     k2_pi1 = inv_a2 * lap1 - eta_eff * pi1_mid_buf - Vp1 / mu2
     k2_pi2 = inv_a2 * lap2 - eta_eff * pi2_mid_buf - Vp2 / mu2
-    phi1 += half_dt * pi1_mid_buf; phi2 += half_dt * pi2_mid_buf
-    pi1 += half_dt * k2_pi1 + half_noise1; pi2 += half_dt * k2_pi2 + half_noise2
+    phi1 += half_dt * pi1_mid_buf
+    phi2 += half_dt * pi2_mid_buf
+    pi1 += half_dt * k2_pi1 + half_noise1
+    pi2 += half_dt * k2_pi2 + half_noise2
 
 
 @nb.njit(cache=True)
@@ -1700,13 +1844,21 @@ def rk2_fused_table(
                 pv1 = pi1[i, j, k]
                 pv2 = pi2[i, j, k]
                 lap1 = (
-                    phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                    + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                    phi1[ip, j, k]
+                    + phi1[im, j, k]
+                    + phi1[i, jp, k]
+                    + phi1[i, jm, k]
+                    + phi1[i, j, kp]
+                    + phi1[i, j, km]
                     - 6.0 * p1
                 ) * inv_dx2
                 lap2 = (
-                    phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                    + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                    phi2[ip, j, k]
+                    + phi2[im, j, k]
+                    + phi2[i, jp, k]
+                    + phi2[i, jm, k]
+                    + phi2[i, j, kp]
+                    + phi2[i, j, km]
                     - 6.0 * p2
                 ) * inv_dx2
                 fidx = (rho - vp_tmin_T) * vp_dinv_T
@@ -1716,7 +1868,9 @@ def rk2_fused_table(
                 elif idx > last_T:
                     idx = last_T
                 frac = fidx - idx
-                dV_drho = vp_table_T[idx] + frac * (vp_table_T[idx + 1] - vp_table_T[idx])
+                dV_drho = vp_table_T[idx] + frac * (
+                    vp_table_T[idx + 1] - vp_table_T[idx]
+                )
                 dV1 = dV_drho * p1 / rho_safe
                 dV2 = dV_drho * p2 / rho_safe
                 if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -1749,13 +1903,21 @@ def rk2_fused_table(
                 pv1 = pi1_tmp[i, j, k]
                 pv2 = pi2_tmp[i, j, k]
                 lap1 = (
-                    phi1_tmp[ip, j, k] + phi1_tmp[im, j, k] + phi1_tmp[i, jp, k]
-                    + phi1_tmp[i, jm, k] + phi1_tmp[i, j, kp] + phi1_tmp[i, j, km]
+                    phi1_tmp[ip, j, k]
+                    + phi1_tmp[im, j, k]
+                    + phi1_tmp[i, jp, k]
+                    + phi1_tmp[i, jm, k]
+                    + phi1_tmp[i, j, kp]
+                    + phi1_tmp[i, j, km]
                     - 6.0 * p1
                 ) * inv_dx2
                 lap2 = (
-                    phi2_tmp[ip, j, k] + phi2_tmp[im, j, k] + phi2_tmp[i, jp, k]
-                    + phi2_tmp[i, jm, k] + phi2_tmp[i, j, kp] + phi2_tmp[i, j, km]
+                    phi2_tmp[ip, j, k]
+                    + phi2_tmp[im, j, k]
+                    + phi2_tmp[i, jp, k]
+                    + phi2_tmp[i, jm, k]
+                    + phi2_tmp[i, j, kp]
+                    + phi2_tmp[i, j, km]
                     - 6.0 * p2
                 ) * inv_dx2
                 fidx = (rho - vp_tmin_T) * vp_dinv_T
@@ -1765,7 +1927,9 @@ def rk2_fused_table(
                 elif idx > last_T:
                     idx = last_T
                 frac = fidx - idx
-                dV_drho = vp_table_T[idx] + frac * (vp_table_T[idx + 1] - vp_table_T[idx])
+                dV_drho = vp_table_T[idx] + frac * (
+                    vp_table_T[idx + 1] - vp_table_T[idx]
+                )
                 dV1 = dV_drho * p1 / rho_safe
                 dV2 = dV_drho * p2 / rho_safe
                 if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -1798,13 +1962,21 @@ def rk2_fused_table(
                 pv1 = pi1[i, j, k]
                 pv2 = pi2[i, j, k]
                 lap1 = (
-                    phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                    + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                    phi1[ip, j, k]
+                    + phi1[im, j, k]
+                    + phi1[i, jp, k]
+                    + phi1[i, jm, k]
+                    + phi1[i, j, kp]
+                    + phi1[i, j, km]
                     - 6.0 * p1
                 ) * inv_dx2
                 lap2 = (
-                    phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                    + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                    phi2[ip, j, k]
+                    + phi2[im, j, k]
+                    + phi2[i, jp, k]
+                    + phi2[i, jm, k]
+                    + phi2[i, j, kp]
+                    + phi2[i, j, km]
                     - 6.0 * p2
                 ) * inv_dx2
                 fidx = (rho - vp_tmin_Tm) * vp_dinv_Tm
@@ -1814,7 +1986,9 @@ def rk2_fused_table(
                 elif idx > last_Tm:
                     idx = last_Tm
                 frac = fidx - idx
-                dV_drho = vp_table_Tm[idx] + frac * (vp_table_Tm[idx + 1] - vp_table_Tm[idx])
+                dV_drho = vp_table_Tm[idx] + frac * (
+                    vp_table_Tm[idx + 1] - vp_table_Tm[idx]
+                )
                 dV1 = dV_drho * p1 / rho_safe
                 dV2 = dV_drho * p2 / rho_safe
                 if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -1847,13 +2021,21 @@ def rk2_fused_table(
                 pv1 = pi1_tmp[i, j, k]
                 pv2 = pi2_tmp[i, j, k]
                 lap1 = (
-                    phi1_tmp[ip, j, k] + phi1_tmp[im, j, k] + phi1_tmp[i, jp, k]
-                    + phi1_tmp[i, jm, k] + phi1_tmp[i, j, kp] + phi1_tmp[i, j, km]
+                    phi1_tmp[ip, j, k]
+                    + phi1_tmp[im, j, k]
+                    + phi1_tmp[i, jp, k]
+                    + phi1_tmp[i, jm, k]
+                    + phi1_tmp[i, j, kp]
+                    + phi1_tmp[i, j, km]
                     - 6.0 * p1
                 ) * inv_dx2
                 lap2 = (
-                    phi2_tmp[ip, j, k] + phi2_tmp[im, j, k] + phi2_tmp[i, jp, k]
-                    + phi2_tmp[i, jm, k] + phi2_tmp[i, j, kp] + phi2_tmp[i, j, km]
+                    phi2_tmp[ip, j, k]
+                    + phi2_tmp[im, j, k]
+                    + phi2_tmp[i, jp, k]
+                    + phi2_tmp[i, jm, k]
+                    + phi2_tmp[i, j, kp]
+                    + phi2_tmp[i, j, km]
                     - 6.0 * p2
                 ) * inv_dx2
                 fidx = (rho - vp_tmin_Tm) * vp_dinv_Tm
@@ -1863,7 +2045,9 @@ def rk2_fused_table(
                 elif idx > last_Tm:
                     idx = last_Tm
                 frac = fidx - idx
-                dV_drho = vp_table_Tm[idx] + frac * (vp_table_Tm[idx + 1] - vp_table_Tm[idx])
+                dV_drho = vp_table_Tm[idx] + frac * (
+                    vp_table_Tm[idx + 1] - vp_table_Tm[idx]
+                )
                 dV1 = dV_drho * p1 / rho_safe
                 dV2 = dV_drho * p2 / rho_safe
                 if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -1933,13 +2117,21 @@ def rk2_step_table(
                 pv1 = pi1[i, j, k]
                 pv2 = pi2[i, j, k]
                 lap1 = (
-                    phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                    + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                    phi1[ip, j, k]
+                    + phi1[im, j, k]
+                    + phi1[i, jp, k]
+                    + phi1[i, jm, k]
+                    + phi1[i, j, kp]
+                    + phi1[i, j, km]
                     - 6.0 * p1
                 ) * inv_dx2
                 lap2 = (
-                    phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                    + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                    phi2[ip, j, k]
+                    + phi2[im, j, k]
+                    + phi2[i, jp, k]
+                    + phi2[i, jm, k]
+                    + phi2[i, j, kp]
+                    + phi2[i, j, km]
                     - 6.0 * p2
                 ) * inv_dx2
                 fidx = (rho - vp_tmin) * vp_dinv
@@ -1982,13 +2174,21 @@ def rk2_step_table(
                 pv1 = pi1_tmp[i, j, k]
                 pv2 = pi2_tmp[i, j, k]
                 lap1 = (
-                    phi1_tmp[ip, j, k] + phi1_tmp[im, j, k] + phi1_tmp[i, jp, k]
-                    + phi1_tmp[i, jm, k] + phi1_tmp[i, j, kp] + phi1_tmp[i, j, km]
+                    phi1_tmp[ip, j, k]
+                    + phi1_tmp[im, j, k]
+                    + phi1_tmp[i, jp, k]
+                    + phi1_tmp[i, jm, k]
+                    + phi1_tmp[i, j, kp]
+                    + phi1_tmp[i, j, km]
                     - 6.0 * p1
                 ) * inv_dx2
                 lap2 = (
-                    phi2_tmp[ip, j, k] + phi2_tmp[im, j, k] + phi2_tmp[i, jp, k]
-                    + phi2_tmp[i, jm, k] + phi2_tmp[i, j, kp] + phi2_tmp[i, j, km]
+                    phi2_tmp[ip, j, k]
+                    + phi2_tmp[im, j, k]
+                    + phi2_tmp[i, jp, k]
+                    + phi2_tmp[i, jm, k]
+                    + phi2_tmp[i, j, kp]
+                    + phi2_tmp[i, j, km]
                     - 6.0 * p2
                 ) * inv_dx2
                 fidx = (rho - vp_tmin) * vp_dinv
@@ -2088,13 +2288,21 @@ def baoab_step_table(
                         rho = math.sqrt(p1 * p1 + p2 * p2)
                         rho_safe = max(rho, 1e-30)
                         lap1 = (
-                            phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                            + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                            phi1[ip, j, k]
+                            + phi1[im, j, k]
+                            + phi1[i, jp, k]
+                            + phi1[i, jm, k]
+                            + phi1[i, j, kp]
+                            + phi1[i, j, km]
                             - 6.0 * p1
                         ) * inv_dx2
                         lap2 = (
-                            phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                            + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                            phi2[ip, j, k]
+                            + phi2[im, j, k]
+                            + phi2[i, jp, k]
+                            + phi2[i, jm, k]
+                            + phi2[i, j, kp]
+                            + phi2[i, j, km]
                             - 6.0 * p2
                         ) * inv_dx2
                         fidx = (rho - vp_tmin) * vp_dinv
@@ -2104,7 +2312,9 @@ def baoab_step_table(
                         elif idx > last:
                             idx = last
                         frac = fidx - idx
-                        dV_drho = vp_table[idx] + frac * (vp_table[idx + 1] - vp_table[idx])
+                        dV_drho = vp_table[idx] + frac * (
+                            vp_table[idx + 1] - vp_table[idx]
+                        )
                         dV1 = dV_drho * p1 / rho_safe
                         dV2 = dV_drho * p2 / rho_safe
                         if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -2163,13 +2373,21 @@ def baoab_step_table(
                         rho = math.sqrt(p1 * p1 + p2 * p2)
                         rho_safe = max(rho, 1e-30)
                         lap1 = (
-                            phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                            + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                            phi1[ip, j, k]
+                            + phi1[im, j, k]
+                            + phi1[i, jp, k]
+                            + phi1[i, jm, k]
+                            + phi1[i, j, kp]
+                            + phi1[i, j, km]
                             - 6.0 * p1
                         ) * inv_dx2
                         lap2 = (
-                            phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                            + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                            phi2[ip, j, k]
+                            + phi2[im, j, k]
+                            + phi2[i, jp, k]
+                            + phi2[i, jm, k]
+                            + phi2[i, j, kp]
+                            + phi2[i, j, km]
                             - 6.0 * p2
                         ) * inv_dx2
                         fidx = (rho - vp_tmin) * vp_dinv
@@ -2179,7 +2397,9 @@ def baoab_step_table(
                         elif idx > last:
                             idx = last
                         frac = fidx - idx
-                        dV_drho = vp_table[idx] + frac * (vp_table[idx + 1] - vp_table[idx])
+                        dV_drho = vp_table[idx] + frac * (
+                            vp_table[idx + 1] - vp_table[idx]
+                        )
                         dV1 = dV_drho * p1 / rho_safe
                         dV2 = dV_drho * p2 / rho_safe
                         if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -2257,13 +2477,21 @@ def overdamped_euler_step_table(
                         rho = math.sqrt(p1 * p1 + p2 * p2)
                         rho_safe = max(rho, 1e-30)
                         lap1 = (
-                            phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                            + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                            phi1[ip, j, k]
+                            + phi1[im, j, k]
+                            + phi1[i, jp, k]
+                            + phi1[i, jm, k]
+                            + phi1[i, j, kp]
+                            + phi1[i, j, km]
                             - 6.0 * p1
                         ) * inv_dx2
                         lap2 = (
-                            phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                            + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                            phi2[ip, j, k]
+                            + phi2[im, j, k]
+                            + phi2[i, jp, k]
+                            + phi2[i, jm, k]
+                            + phi2[i, j, kp]
+                            + phi2[i, j, km]
                             - 6.0 * p2
                         ) * inv_dx2
                         fidx = (rho - vp_tmin) * vp_dinv
@@ -2273,7 +2501,9 @@ def overdamped_euler_step_table(
                         elif idx > last:
                             idx = last
                         frac = fidx - idx
-                        dV_drho = vp_table[idx] + frac * (vp_table[idx + 1] - vp_table[idx])
+                        dV_drho = vp_table[idx] + frac * (
+                            vp_table[idx + 1] - vp_table[idx]
+                        )
                         dV1 = dV_drho * p1 / rho_safe
                         dV2 = dV_drho * p2 / rho_safe
                         if zn_active > 0.5 and zn_n > 0.5 and rho > 1e-20:
@@ -2288,8 +2518,12 @@ def overdamped_euler_step_table(
                         u2 = np.random.random()
                         if u1 < 1e-12:
                             u1 = 1e-12
-                        z1 = math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2)
-                        z2 = math.sqrt(-2.0 * math.log(u1)) * math.sin(2.0 * math.pi * u2)
+                        z1 = math.sqrt(-2.0 * math.log(u1)) * math.cos(
+                            2.0 * math.pi * u2
+                        )
+                        z2 = math.sqrt(-2.0 * math.log(u1)) * math.sin(
+                            2.0 * math.pi * u2
+                        )
                         phi1[i, j, k] = p1 + dt_over_eta * force1 + noise_scale * z1
                         phi2[i, j, k] = p2 + dt_over_eta * force2 + noise_scale * z2
 
@@ -2370,23 +2604,63 @@ def _vprime_inline(
 
 @nb.njit(cache=True, fastmath=True)
 def _vprime_complex_inline(
-    ph1, ph2,
-    T_val, T2, pref, lam_val, mphi_sq, bms,
-    gb2, gf2, gg2, gfg2, coef_b,
-    _x_min, _h_y, _inv_hy, _xhi, _nseg,
-    _c0_b, _c1_b, _c2_b, _c3_b,
-    _c0_f, _c1_f, _c2_f, _c3_f,
+    ph1,
+    ph2,
+    T_val,
+    T2,
+    pref,
+    lam_val,
+    mphi_sq,
+    bms,
+    gb2,
+    gf2,
+    gg2,
+    gfg2,
+    coef_b,
+    _x_min,
+    _h_y,
+    _inv_hy,
+    _xhi,
+    _nseg,
+    _c0_b,
+    _c1_b,
+    _c2_b,
+    _c3_b,
+    _c0_f,
+    _c1_f,
+    _c2_f,
+    _c3_f,
 ):
     """V'(phi1, phi2) for complex field: radial V'(rho) projected + optional Z_N breaking."""
     rho = math.sqrt(ph1 * ph1 + ph2 * ph2)
     rho_safe = max(rho, 1e-30)
 
     dV_drho = _vprime_inline(
-        rho_safe, T_val, T2, pref, lam_val, mphi_sq, bms,
-        gb2, gf2, gg2, gfg2, coef_b,
-        _x_min, _h_y, _inv_hy, _xhi, _nseg,
-        _c0_b, _c1_b, _c2_b, _c3_b,
-        _c0_f, _c1_f, _c2_f, _c3_f,
+        rho_safe,
+        T_val,
+        T2,
+        pref,
+        lam_val,
+        mphi_sq,
+        bms,
+        gb2,
+        gf2,
+        gg2,
+        gfg2,
+        coef_b,
+        _x_min,
+        _h_y,
+        _inv_hy,
+        _xhi,
+        _nseg,
+        _c0_b,
+        _c1_b,
+        _c2_b,
+        _c3_b,
+        _c0_f,
+        _c1_f,
+        _c2_f,
+        _c3_f,
     )
 
     inv_rho = 1.0 / rho_safe
@@ -2489,12 +2763,29 @@ def _hash_rng_pair(seed):
 
 @nb.njit(parallel=True, fastmath=True, cache=True)
 def rk2_fused_single_pass(
-    phi1, phi2, pi1, pi2,
-    dt, dx, eta_eff, T, T_mid, mu, lam, mphi,
-    bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-    fermionCoupling, fermionGaugeCoupling,
-    noise_scale, noise_seed,
-    phi1_tmp, phi2_tmp, pi1_tmp, pi2_tmp,
+    phi1,
+    phi2,
+    pi1,
+    pi2,
+    dt,
+    dx,
+    eta_eff,
+    T,
+    T_mid,
+    mu,
+    lam,
+    mphi,
+    bosonMassSquared,
+    bosonCoupling,
+    bosonGaugeCoupling,
+    fermionCoupling,
+    fermionGaugeCoupling,
+    noise_scale,
+    noise_seed,
+    phi1_tmp,
+    phi2_tmp,
+    pi1_tmp,
+    pi2_tmp,
     inv_a2,
 ):
     """Fully fused RK2 for complex field with inline noise generation."""
@@ -2508,9 +2799,19 @@ def rk2_fused_single_pass(
     gf2 = fermionCoupling * fermionCoupling
     gfg2 = fermionGaugeCoupling * fermionGaugeCoupling
     coef_b = 0.25 * gb2 + (2.0 / 3.0) * gg2
-    _xm = x_min; _hy = h_y; _ihy = inv_hy; _xhi = xhi_clamp; _ns = nseg
-    _c0b = c0_b; _c1b = c1_b; _c2b = c2_b; _c3b = c3_b
-    _c0f = c0_f; _c1f = c1_f; _c2f = c2_f; _c3f = c3_f
+    _xm = x_min
+    _hy = h_y
+    _ihy = inv_hy
+    _xhi = xhi_clamp
+    _ns = nseg
+    _c0b = c0_b
+    _c1b = c1_b
+    _c2b = c2_b
+    _c3b = c3_b
+    _c0f = c0_f
+    _c1f = c1_f
+    _c2f = c2_f
+    _c3f = c3_f
     T2 = T * T
     pref = T2 * T2 / (2.0 * math.pi * math.pi)
     tile_j = RK2_INLINE_TILE_J
@@ -2531,21 +2832,62 @@ def rk2_fused_single_pass(
                     for k in range(kk, k_end):
                         kp = k + 1 if k + 1 < nz else 0
                         km = k - 1 if k - 1 >= 0 else nz - 1
-                        p1 = phi1[i, j, k]; p2 = phi2[i, j, k]
-                        pv1 = pi1[i, j, k]; pv2 = pi2[i, j, k]
-                        lap1 = (phi1[ip,j,k]+phi1[im,j,k]+phi1[i,jp,k]+phi1[i,jm,k]+phi1[i,j,kp]+phi1[i,j,km]-6.0*p1)*inv_dx2
-                        lap2 = (phi2[ip,j,k]+phi2[im,j,k]+phi2[i,jp,k]+phi2[i,jm,k]+phi2[i,j,kp]+phi2[i,j,km]-6.0*p2)*inv_dx2
+                        p1 = phi1[i, j, k]
+                        p2 = phi2[i, j, k]
+                        pv1 = pi1[i, j, k]
+                        pv2 = pi2[i, j, k]
+                        lap1 = (
+                            phi1[ip, j, k]
+                            + phi1[im, j, k]
+                            + phi1[i, jp, k]
+                            + phi1[i, jm, k]
+                            + phi1[i, j, kp]
+                            + phi1[i, j, km]
+                            - 6.0 * p1
+                        ) * inv_dx2
+                        lap2 = (
+                            phi2[ip, j, k]
+                            + phi2[im, j, k]
+                            + phi2[i, jp, k]
+                            + phi2[i, jm, k]
+                            + phi2[i, j, kp]
+                            + phi2[i, j, km]
+                            - 6.0 * p2
+                        ) * inv_dx2
                         dV1, dV2 = _vprime_complex_inline(
-                            p1, p2, T, T2, pref, lam, mphi_sq, bosonMassSquared,
-                            gb2, gf2, gg2, gfg2, coef_b,
-                            _xm, _hy, _ihy, _xhi, _ns,
-                            _c0b, _c1b, _c2b, _c3b, _c0f, _c1f, _c2f, _c3f)
+                            p1,
+                            p2,
+                            T,
+                            T2,
+                            pref,
+                            lam,
+                            mphi_sq,
+                            bosonMassSquared,
+                            gb2,
+                            gf2,
+                            gg2,
+                            gfg2,
+                            coef_b,
+                            _xm,
+                            _hy,
+                            _ihy,
+                            _xhi,
+                            _ns,
+                            _c0b,
+                            _c1b,
+                            _c2b,
+                            _c3b,
+                            _c0f,
+                            _c1f,
+                            _c2f,
+                            _c3f,
+                        )
                         kp1 = inv_a2 * lap1 - eta_eff * pv1 - dV1 * inv_mu2
                         kp2 = inv_a2 * lap2 - eta_eff * pv2 - dV2 * inv_mu2
-                        phi1_tmp[i,j,k] = p1 + half_dt * pv1
-                        phi2_tmp[i,j,k] = p2 + half_dt * pv2
-                        pi1_tmp[i,j,k] = pv1 + half_dt * kp1
-                        pi2_tmp[i,j,k] = pv2 + half_dt * kp2
+                        phi1_tmp[i, j, k] = p1 + half_dt * pv1
+                        phi2_tmp[i, j, k] = p2 + half_dt * pv2
+                        pi1_tmp[i, j, k] = pv1 + half_dt * kp1
+                        pi2_tmp[i, j, k] = pv2 + half_dt * kp2
 
     # ---- Pass 2: first half-step, k2 at (phi_tmp, T) + inline noise ----
     for i in nb.prange(nx):
@@ -2561,26 +2903,75 @@ def rk2_fused_single_pass(
                     for k in range(kk, k_end):
                         kp = k + 1 if k + 1 < nz else 0
                         km = k - 1 if k - 1 >= 0 else nz - 1
-                        p1 = phi1_tmp[i,j,k]; p2 = phi2_tmp[i,j,k]
-                        pv1 = pi1_tmp[i,j,k]; pv2 = pi2_tmp[i,j,k]
-                        lap1 = (phi1_tmp[ip,j,k]+phi1_tmp[im,j,k]+phi1_tmp[i,jp,k]+phi1_tmp[i,jm,k]+phi1_tmp[i,j,kp]+phi1_tmp[i,j,km]-6.0*p1)*inv_dx2
-                        lap2 = (phi2_tmp[ip,j,k]+phi2_tmp[im,j,k]+phi2_tmp[i,jp,k]+phi2_tmp[i,jm,k]+phi2_tmp[i,j,kp]+phi2_tmp[i,j,km]-6.0*p2)*inv_dx2
+                        p1 = phi1_tmp[i, j, k]
+                        p2 = phi2_tmp[i, j, k]
+                        pv1 = pi1_tmp[i, j, k]
+                        pv2 = pi2_tmp[i, j, k]
+                        lap1 = (
+                            phi1_tmp[ip, j, k]
+                            + phi1_tmp[im, j, k]
+                            + phi1_tmp[i, jp, k]
+                            + phi1_tmp[i, jm, k]
+                            + phi1_tmp[i, j, kp]
+                            + phi1_tmp[i, j, km]
+                            - 6.0 * p1
+                        ) * inv_dx2
+                        lap2 = (
+                            phi2_tmp[ip, j, k]
+                            + phi2_tmp[im, j, k]
+                            + phi2_tmp[i, jp, k]
+                            + phi2_tmp[i, jm, k]
+                            + phi2_tmp[i, j, kp]
+                            + phi2_tmp[i, j, km]
+                            - 6.0 * p2
+                        ) * inv_dx2
                         dV1, dV2 = _vprime_complex_inline(
-                            p1, p2, T, T2, pref, lam, mphi_sq, bosonMassSquared,
-                            gb2, gf2, gg2, gfg2, coef_b,
-                            _xm, _hy, _ihy, _xhi, _ns,
-                            _c0b, _c1b, _c2b, _c3b, _c0f, _c1f, _c2f, _c3f)
+                            p1,
+                            p2,
+                            T,
+                            T2,
+                            pref,
+                            lam,
+                            mphi_sq,
+                            bosonMassSquared,
+                            gb2,
+                            gf2,
+                            gg2,
+                            gfg2,
+                            coef_b,
+                            _xm,
+                            _hy,
+                            _ihy,
+                            _xhi,
+                            _ns,
+                            _c0b,
+                            _c1b,
+                            _c2b,
+                            _c3b,
+                            _c0f,
+                            _c1f,
+                            _c2f,
+                            _c3f,
+                        )
                         kp1 = inv_a2 * lap1 - eta_eff * pv1 - dV1 * inv_mu2
                         kp2 = inv_a2 * lap2 - eta_eff * pv2 - dV2 * inv_mu2
-                        _site = nb.int64(i) * nyz + nb.int64(j) * nb.int64(nz) + nb.int64(k)
-                        _seed = nb.uint64(_site * nb.int64(73856093)) ^ nb.uint64(noise_seed)
+                        _site = (
+                            nb.int64(i) * nyz + nb.int64(j) * nb.int64(nz) + nb.int64(k)
+                        )
+                        _seed = nb.uint64(_site * nb.int64(73856093)) ^ nb.uint64(
+                            noise_seed
+                        )
                         _u1, _u2 = _hash_rng_pair(_seed)
-                        _z1 = math.sqrt(-2.0 * math.log(_u1)) * math.cos(6.283185307179586 * _u2)
-                        _z2 = math.sqrt(-2.0 * math.log(_u1)) * math.sin(6.283185307179586 * _u2)
-                        phi1[i,j,k] += half_dt * pv1
-                        phi2[i,j,k] += half_dt * pv2
-                        pi1[i,j,k] += half_dt * kp1 + 0.5 * noise_scale * _z1
-                        pi2[i,j,k] += half_dt * kp2 + 0.5 * noise_scale * _z2
+                        _z1 = math.sqrt(-2.0 * math.log(_u1)) * math.cos(
+                            6.283185307179586 * _u2
+                        )
+                        _z2 = math.sqrt(-2.0 * math.log(_u1)) * math.sin(
+                            6.283185307179586 * _u2
+                        )
+                        phi1[i, j, k] += half_dt * pv1
+                        phi2[i, j, k] += half_dt * pv2
+                        pi1[i, j, k] += half_dt * kp1 + 0.5 * noise_scale * _z1
+                        pi2[i, j, k] += half_dt * kp2 + 0.5 * noise_scale * _z2
 
     T2m = T_mid * T_mid
     prefm = T2m * T2m / (2.0 * math.pi * math.pi)
@@ -2599,21 +2990,62 @@ def rk2_fused_single_pass(
                     for k in range(kk, k_end):
                         kp = k + 1 if k + 1 < nz else 0
                         km = k - 1 if k - 1 >= 0 else nz - 1
-                        p1 = phi1[i,j,k]; p2 = phi2[i,j,k]
-                        pv1 = pi1[i,j,k]; pv2 = pi2[i,j,k]
-                        lap1 = (phi1[ip,j,k]+phi1[im,j,k]+phi1[i,jp,k]+phi1[i,jm,k]+phi1[i,j,kp]+phi1[i,j,km]-6.0*p1)*inv_dx2
-                        lap2 = (phi2[ip,j,k]+phi2[im,j,k]+phi2[i,jp,k]+phi2[i,jm,k]+phi2[i,j,kp]+phi2[i,j,km]-6.0*p2)*inv_dx2
+                        p1 = phi1[i, j, k]
+                        p2 = phi2[i, j, k]
+                        pv1 = pi1[i, j, k]
+                        pv2 = pi2[i, j, k]
+                        lap1 = (
+                            phi1[ip, j, k]
+                            + phi1[im, j, k]
+                            + phi1[i, jp, k]
+                            + phi1[i, jm, k]
+                            + phi1[i, j, kp]
+                            + phi1[i, j, km]
+                            - 6.0 * p1
+                        ) * inv_dx2
+                        lap2 = (
+                            phi2[ip, j, k]
+                            + phi2[im, j, k]
+                            + phi2[i, jp, k]
+                            + phi2[i, jm, k]
+                            + phi2[i, j, kp]
+                            + phi2[i, j, km]
+                            - 6.0 * p2
+                        ) * inv_dx2
                         dV1, dV2 = _vprime_complex_inline(
-                            p1, p2, T_mid, T2m, prefm, lam, mphi_sq, bosonMassSquared,
-                            gb2, gf2, gg2, gfg2, coef_b,
-                            _xm, _hy, _ihy, _xhi, _ns,
-                            _c0b, _c1b, _c2b, _c3b, _c0f, _c1f, _c2f, _c3f)
+                            p1,
+                            p2,
+                            T_mid,
+                            T2m,
+                            prefm,
+                            lam,
+                            mphi_sq,
+                            bosonMassSquared,
+                            gb2,
+                            gf2,
+                            gg2,
+                            gfg2,
+                            coef_b,
+                            _xm,
+                            _hy,
+                            _ihy,
+                            _xhi,
+                            _ns,
+                            _c0b,
+                            _c1b,
+                            _c2b,
+                            _c3b,
+                            _c0f,
+                            _c1f,
+                            _c2f,
+                            _c3f,
+                        )
                         kp1 = inv_a2 * lap1 - eta_eff * pv1 - dV1 * inv_mu2
                         kp2 = inv_a2 * lap2 - eta_eff * pv2 - dV2 * inv_mu2
-                        phi1_tmp[i,j,k] = p1 + half_dt * pv1
-                        phi2_tmp[i,j,k] = p2 + half_dt * pv2
-                        pi1_tmp[i,j,k] = pv1 + half_dt * kp1
-                        pi2_tmp[i,j,k] = pv2 + half_dt * kp2
+                        phi1_tmp[i, j, k] = p1 + half_dt * pv1
+                        phi2_tmp[i, j, k] = p2 + half_dt * pv2
+                        pi1_tmp[i, j, k] = pv1 + half_dt * kp1
+                        pi2_tmp[i, j, k] = pv2 + half_dt * kp2
 
     # ---- Pass 4: second half-step, k2 at (phi_tmp, T_mid) + inline noise ----
     for i in nb.prange(nx):
@@ -2629,26 +3061,75 @@ def rk2_fused_single_pass(
                     for k in range(kk, k_end):
                         kp = k + 1 if k + 1 < nz else 0
                         km = k - 1 if k - 1 >= 0 else nz - 1
-                        p1 = phi1_tmp[i,j,k]; p2 = phi2_tmp[i,j,k]
-                        pv1 = pi1_tmp[i,j,k]; pv2 = pi2_tmp[i,j,k]
-                        lap1 = (phi1_tmp[ip,j,k]+phi1_tmp[im,j,k]+phi1_tmp[i,jp,k]+phi1_tmp[i,jm,k]+phi1_tmp[i,j,kp]+phi1_tmp[i,j,km]-6.0*p1)*inv_dx2
-                        lap2 = (phi2_tmp[ip,j,k]+phi2_tmp[im,j,k]+phi2_tmp[i,jp,k]+phi2_tmp[i,jm,k]+phi2_tmp[i,j,kp]+phi2_tmp[i,j,km]-6.0*p2)*inv_dx2
+                        p1 = phi1_tmp[i, j, k]
+                        p2 = phi2_tmp[i, j, k]
+                        pv1 = pi1_tmp[i, j, k]
+                        pv2 = pi2_tmp[i, j, k]
+                        lap1 = (
+                            phi1_tmp[ip, j, k]
+                            + phi1_tmp[im, j, k]
+                            + phi1_tmp[i, jp, k]
+                            + phi1_tmp[i, jm, k]
+                            + phi1_tmp[i, j, kp]
+                            + phi1_tmp[i, j, km]
+                            - 6.0 * p1
+                        ) * inv_dx2
+                        lap2 = (
+                            phi2_tmp[ip, j, k]
+                            + phi2_tmp[im, j, k]
+                            + phi2_tmp[i, jp, k]
+                            + phi2_tmp[i, jm, k]
+                            + phi2_tmp[i, j, kp]
+                            + phi2_tmp[i, j, km]
+                            - 6.0 * p2
+                        ) * inv_dx2
                         dV1, dV2 = _vprime_complex_inline(
-                            p1, p2, T_mid, T2m, prefm, lam, mphi_sq, bosonMassSquared,
-                            gb2, gf2, gg2, gfg2, coef_b,
-                            _xm, _hy, _ihy, _xhi, _ns,
-                            _c0b, _c1b, _c2b, _c3b, _c0f, _c1f, _c2f, _c3f)
+                            p1,
+                            p2,
+                            T_mid,
+                            T2m,
+                            prefm,
+                            lam,
+                            mphi_sq,
+                            bosonMassSquared,
+                            gb2,
+                            gf2,
+                            gg2,
+                            gfg2,
+                            coef_b,
+                            _xm,
+                            _hy,
+                            _ihy,
+                            _xhi,
+                            _ns,
+                            _c0b,
+                            _c1b,
+                            _c2b,
+                            _c3b,
+                            _c0f,
+                            _c1f,
+                            _c2f,
+                            _c3f,
+                        )
                         kp1 = inv_a2 * lap1 - eta_eff * pv1 - dV1 * inv_mu2
                         kp2 = inv_a2 * lap2 - eta_eff * pv2 - dV2 * inv_mu2
-                        _site = nb.int64(i) * nyz + nb.int64(j) * nb.int64(nz) + nb.int64(k)
-                        _seed = nb.uint64(_site * nb.int64(19349669)) ^ nb.uint64(noise_seed)
+                        _site = (
+                            nb.int64(i) * nyz + nb.int64(j) * nb.int64(nz) + nb.int64(k)
+                        )
+                        _seed = nb.uint64(_site * nb.int64(19349669)) ^ nb.uint64(
+                            noise_seed
+                        )
                         _u1, _u2 = _hash_rng_pair(_seed)
-                        _z1 = math.sqrt(-2.0 * math.log(_u1)) * math.cos(6.283185307179586 * _u2)
-                        _z2 = math.sqrt(-2.0 * math.log(_u1)) * math.sin(6.283185307179586 * _u2)
-                        phi1[i,j,k] += half_dt * pv1
-                        phi2[i,j,k] += half_dt * pv2
-                        pi1[i,j,k] += half_dt * kp1 + 0.5 * noise_scale * _z1
-                        pi2[i,j,k] += half_dt * kp2 + 0.5 * noise_scale * _z2
+                        _z1 = math.sqrt(-2.0 * math.log(_u1)) * math.cos(
+                            6.283185307179586 * _u2
+                        )
+                        _z2 = math.sqrt(-2.0 * math.log(_u1)) * math.sin(
+                            6.283185307179586 * _u2
+                        )
+                        phi1[i, j, k] += half_dt * pv1
+                        phi2[i, j, k] += half_dt * pv2
+                        pi1[i, j, k] += half_dt * kp1 + 0.5 * noise_scale * _z1
+                        pi2[i, j, k] += half_dt * kp2 + 0.5 * noise_scale * _z2
 
 
 RK2_NF_TILE_J = 16
@@ -2736,21 +3217,50 @@ def rk2_step_inline(
                         pv1 = pi1[i, j, k]
                         pv2 = pi2[i, j, k]
                         lap1 = (
-                            phi1[ip, j, k] + phi1[im, j, k] + phi1[i, jp, k]
-                            + phi1[i, jm, k] + phi1[i, j, kp] + phi1[i, j, km]
+                            phi1[ip, j, k]
+                            + phi1[im, j, k]
+                            + phi1[i, jp, k]
+                            + phi1[i, jm, k]
+                            + phi1[i, j, kp]
+                            + phi1[i, j, km]
                             - 6.0 * p1
                         ) * inv_dx2
                         lap2 = (
-                            phi2[ip, j, k] + phi2[im, j, k] + phi2[i, jp, k]
-                            + phi2[i, jm, k] + phi2[i, j, kp] + phi2[i, j, km]
+                            phi2[ip, j, k]
+                            + phi2[im, j, k]
+                            + phi2[i, jp, k]
+                            + phi2[i, jm, k]
+                            + phi2[i, j, kp]
+                            + phi2[i, j, km]
                             - 6.0 * p2
                         ) * inv_dx2
                         dV1, dV2 = _vprime_complex_inline(
-                            p1, p2,
-                            T, T2, pref, lam_val, mphi_sq, bosonMassSquared,
-                            gb2, gf2, gg2, gfg2, coef_b,
-                            _xm, _hy, _ihy, _xhi, _ns,
-                            _c0b, _c1b, _c2b, _c3b, _c0f, _c1f, _c2f, _c3f,
+                            p1,
+                            p2,
+                            T,
+                            T2,
+                            pref,
+                            lam_val,
+                            mphi_sq,
+                            bosonMassSquared,
+                            gb2,
+                            gf2,
+                            gg2,
+                            gfg2,
+                            coef_b,
+                            _xm,
+                            _hy,
+                            _ihy,
+                            _xhi,
+                            _ns,
+                            _c0b,
+                            _c1b,
+                            _c2b,
+                            _c3b,
+                            _c0f,
+                            _c1f,
+                            _c2f,
+                            _c3f,
                         )
                         k_pi1 = inv_a2 * lap1 - eta_eff * pv1 - dV1 * inv_mu2
                         k_pi2 = inv_a2 * lap2 - eta_eff * pv2 - dV2 * inv_mu2
@@ -2778,21 +3288,50 @@ def rk2_step_inline(
                         pv1 = pi1_tmp[i, j, k]
                         pv2 = pi2_tmp[i, j, k]
                         lap1 = (
-                            phi1_tmp[ip, j, k] + phi1_tmp[im, j, k] + phi1_tmp[i, jp, k]
-                            + phi1_tmp[i, jm, k] + phi1_tmp[i, j, kp] + phi1_tmp[i, j, km]
+                            phi1_tmp[ip, j, k]
+                            + phi1_tmp[im, j, k]
+                            + phi1_tmp[i, jp, k]
+                            + phi1_tmp[i, jm, k]
+                            + phi1_tmp[i, j, kp]
+                            + phi1_tmp[i, j, km]
                             - 6.0 * p1
                         ) * inv_dx2
                         lap2 = (
-                            phi2_tmp[ip, j, k] + phi2_tmp[im, j, k] + phi2_tmp[i, jp, k]
-                            + phi2_tmp[i, jm, k] + phi2_tmp[i, j, kp] + phi2_tmp[i, j, km]
+                            phi2_tmp[ip, j, k]
+                            + phi2_tmp[im, j, k]
+                            + phi2_tmp[i, jp, k]
+                            + phi2_tmp[i, jm, k]
+                            + phi2_tmp[i, j, kp]
+                            + phi2_tmp[i, j, km]
                             - 6.0 * p2
                         ) * inv_dx2
                         dV1, dV2 = _vprime_complex_inline(
-                            p1, p2,
-                            T, T2, pref, lam_val, mphi_sq, bosonMassSquared,
-                            gb2, gf2, gg2, gfg2, coef_b,
-                            _xm, _hy, _ihy, _xhi, _ns,
-                            _c0b, _c1b, _c2b, _c3b, _c0f, _c1f, _c2f, _c3f,
+                            p1,
+                            p2,
+                            T,
+                            T2,
+                            pref,
+                            lam_val,
+                            mphi_sq,
+                            bosonMassSquared,
+                            gb2,
+                            gf2,
+                            gg2,
+                            gfg2,
+                            coef_b,
+                            _xm,
+                            _hy,
+                            _ihy,
+                            _xhi,
+                            _ns,
+                            _c0b,
+                            _c1b,
+                            _c2b,
+                            _c3b,
+                            _c0f,
+                            _c1f,
+                            _c2f,
+                            _c3f,
                         )
                         k_pi1 = inv_a2 * lap1 - eta_eff * pv1 - dV1 * inv_mu2
                         k_pi2 = inv_a2 * lap2 - eta_eff * pv2 - dV2 * inv_mu2
@@ -2902,21 +3441,33 @@ if REPLAY_MODE:
     if not USE_OVERDAMPED:
         _need_pi = "pi1" if _has_complex else "pi"
         if _need_pi not in ckpt_data:
-            print(f"ERROR: {_replay_ckpt_file} has no '{_need_pi}' (lightweight snapshot).")
+            print(
+                f"ERROR: {_replay_ckpt_file} has no '{_need_pi}' (lightweight snapshot)."
+            )
             print("  Replay requires a full checkpoint. Use a file with momentum.")
             sys.exit(1)
         _ckpt_pv1 = ckpt_data[_need_pi]
         if np.any(np.isnan(_ckpt_pv1)):
-            print(f"ERROR: Checkpoint {_replay_ckpt_file} pi contains NaN. Cannot replay.")
+            print(
+                f"ERROR: Checkpoint {_replay_ckpt_file} pi contains NaN. Cannot replay."
+            )
             sys.exit(1)
 
     resuming = True
     n_start = _replay_start
     phi1 = _ckpt_p1.astype(field_dtype)
-    phi2 = ckpt_data["phi2"].astype(field_dtype) if "phi2" in ckpt_data else np.zeros_like(phi1)
+    phi2 = (
+        ckpt_data["phi2"].astype(field_dtype)
+        if "phi2" in ckpt_data
+        else np.zeros_like(phi1)
+    )
     if not USE_OVERDAMPED:
         pi1 = _ckpt_pv1.astype(field_dtype)
-        pi2 = ckpt_data["pi2"].astype(field_dtype) if "pi2" in ckpt_data else np.zeros_like(pi1)
+        pi2 = (
+            ckpt_data["pi2"].astype(field_dtype)
+            if "pi2" in ckpt_data
+            else np.zeros_like(pi1)
+        )
     if HUBBLE_EXPANSION and "scale_factor" in ckpt_data:
         a_current = float(ckpt_data["scale_factor"])
 
@@ -2975,11 +3526,19 @@ if not REPLAY_MODE and cli_args.resume:
         if ckpt_data is not None:
             resuming = True
             n_start = ckpt_step
-            phi1 = (ckpt_data["phi1"] if "phi1" in ckpt_data else ckpt_data["phi"]).astype(field_dtype)
-            phi2 = (ckpt_data["phi2"] if "phi2" in ckpt_data else np.zeros_like(phi1)).astype(field_dtype)
+            phi1 = (
+                ckpt_data["phi1"] if "phi1" in ckpt_data else ckpt_data["phi"]
+            ).astype(field_dtype)
+            phi2 = (
+                ckpt_data["phi2"] if "phi2" in ckpt_data else np.zeros_like(phi1)
+            ).astype(field_dtype)
             if not USE_OVERDAMPED:
-                pi1 = (ckpt_data["pi1"] if "pi1" in ckpt_data else ckpt_data["pi"]).astype(field_dtype)
-                pi2 = (ckpt_data["pi2"] if "pi2" in ckpt_data else np.zeros_like(pi1)).astype(field_dtype)
+                pi1 = (
+                    ckpt_data["pi1"] if "pi1" in ckpt_data else ckpt_data["pi"]
+                ).astype(field_dtype)
+                pi2 = (
+                    ckpt_data["pi2"] if "pi2" in ckpt_data else np.zeros_like(pi1)
+                ).astype(field_dtype)
             if HUBBLE_EXPANSION and "scale_factor" in ckpt_data:
                 a_current = float(ckpt_data["scale_factor"])
             print(f"\n{'='*60}")
@@ -3233,15 +3792,37 @@ elif USE_FUSED_RK2:
     if USE_NUMBA_RNG:
         generate_noise_field(warmup_noise2, warmup_scale, 1)
     else:
-        warmup_noise2[:] = (np.random.randn(Nx, Ny, Nz) * warmup_scale).astype(field_dtype)
+        warmup_noise2[:] = (np.random.randn(Nx, Ny, Nz) * warmup_scale).astype(
+            field_dtype
+        )
     rk2_step_fused(
-        phi1, phi2, pi1, pi2,
-        dt, dx, eta, T0, T0, mu, lam, mphi,
-        bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-        fermionCoupling, fermionGaugeCoupling,
-        warmup_noise, warmup_noise2,
-        lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-        phi1_mid, phi2_mid, pi1_mid, pi2_mid,
+        phi1,
+        phi2,
+        pi1,
+        pi2,
+        dt,
+        dx,
+        eta,
+        T0,
+        T0,
+        mu,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+        warmup_noise,
+        warmup_noise2,
+        lap_tmp,
+        lap_tmp2,
+        Vp_tmp,
+        Vp_tmp2,
+        phi1_mid,
+        phi2_mid,
+        pi1_mid,
+        pi2_mid,
         1.0,
     )
 else:
@@ -3295,9 +3876,20 @@ def plot_force_imbalance(phi1_arr, phi2_arr, label_suffix, save_name):
     diag_Vp2 = np.empty((Nx, Ny, Nz), dtype=field_dtype)
     laplacian_periodic(diag_lap1, phi1_arr, dx)
     laplacian_periodic(diag_lap2, phi2_arr, dx)
-    Vprime_field(diag_Vp1, diag_Vp2, phi1_arr, phi2_arr, T0, lam, mphi,
-                 bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                 fermionCoupling, fermionGaugeCoupling)
+    Vprime_field(
+        diag_Vp1,
+        diag_Vp2,
+        phi1_arr,
+        phi2_arr,
+        T0,
+        lam,
+        mphi,
+        bosonMassSquared,
+        bosonCoupling,
+        bosonGaugeCoupling,
+        fermionCoupling,
+        fermionGaugeCoupling,
+    )
     F1 = diag_lap1 - diag_Vp1 / (mu * mu)
     F2 = diag_lap2 - diag_Vp2 / (mu * mu)
     F_mag = np.sqrt(F1**2 + F2**2)
@@ -3311,16 +3903,22 @@ def plot_force_imbalance(phi1_arr, phi2_arr, label_suffix, save_name):
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     zmid = phi1_arr.shape[2] // 2
-    im0 = axes[0].imshow(np.asarray(rho_arr[:, :, zmid], dtype=np.float64).T,
-                         origin="lower", cmap="viridis")
+    im0 = axes[0].imshow(
+        np.asarray(rho_arr[:, :, zmid], dtype=np.float64).T,
+        origin="lower",
+        cmap="viridis",
+    )
     axes[0].set_title(f"|Phi| (z={zmid}) {label_suffix}")
-    axes[0].set_xlabel("x"); axes[0].set_ylabel("y")
+    axes[0].set_xlabel("x")
+    axes[0].set_ylabel("y")
     fig.colorbar(im0, ax=axes[0], shrink=0.8)
 
-    im1 = axes[1].imshow(np.asarray(F_mag[:, :, zmid], dtype=np.float64).T,
-                         origin="lower", cmap="hot")
+    im1 = axes[1].imshow(
+        np.asarray(F_mag[:, :, zmid], dtype=np.float64).T, origin="lower", cmap="hot"
+    )
     axes[1].set_title(f"|F| = |lap - V'/mu^2| {label_suffix}")
-    axes[1].set_xlabel("x"); axes[1].set_ylabel("y")
+    axes[1].set_xlabel("x")
+    axes[1].set_ylabel("y")
     fig.colorbar(im1, ax=axes[1], shrink=0.8)
 
     fig.suptitle(f"max|F| = {max_F:.4e}  at {max_loc}", fontsize=11)
@@ -3337,7 +3935,9 @@ if SEED_BUBBLES:
     print("\n" + "-" * 60)
     print("FORCE IMBALANCE DIAGNOSTIC (before relaxation)")
     print("-" * 60)
-    plot_force_imbalance(phi1, phi2, "(before relaxation)", "initial_force_imbalance.png")
+    plot_force_imbalance(
+        phi1, phi2, "(before relaxation)", "initial_force_imbalance.png"
+    )
     print("-" * 60 + "\n")
 
 # =====================================================
@@ -3401,7 +4001,9 @@ if SEED_BUBBLES and GRADIENT_FLOW_RELAX and not resuming:
     print(f"  Snapshots will be saved to: {gf_snap_path}")
 
     if GF_SAVE_EVERY > 0:
-        plot_force_imbalance(phi1, phi2, "(GF iter 0)", f"gradient_flow_snapshots/gf_iter_0000.png")
+        plot_force_imbalance(
+            phi1, phi2, "(GF iter 0)", f"gradient_flow_snapshots/gf_iter_0000.png"
+        )
 
     gf_start = time.time()
     gf_converged = False
@@ -3410,9 +4012,20 @@ if SEED_BUBBLES and GRADIENT_FLOW_RELAX and not resuming:
     for gf_iter in range(GF_MAX_ITER):
         laplacian_periodic(lap_tmp, phi1, dx)
         laplacian_periodic(lap_tmp2, phi2, dx)
-        Vprime_field(Vp_tmp, Vp_tmp2, phi1, phi2, T0, lam, mphi,
-                     bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                     fermionCoupling, fermionGaugeCoupling)
+        Vprime_field(
+            Vp_tmp,
+            Vp_tmp2,
+            phi1,
+            phi2,
+            T0,
+            lam,
+            mphi,
+            bosonMassSquared,
+            bosonCoupling,
+            bosonGaugeCoupling,
+            fermionCoupling,
+            fermionGaugeCoupling,
+        )
         force1 = lap_tmp - Vp_tmp / (mu * mu)
         force2 = lap_tmp2 - Vp_tmp2 / (mu * mu)
         force_mag = np.sqrt(force1**2 + force2**2)
@@ -3428,17 +4041,33 @@ if SEED_BUBBLES and GRADIENT_FLOW_RELAX and not resuming:
         rel_change = max_delta / max(max_rho, 1e-30)
 
         if (gf_iter + 1) % GF_PRINT_EVERY == 0:
-            print(f"  iter {gf_iter+1:6d}: max|dphi|={max_delta:.2e}, rel={rel_change:.2e}, |Phi| range=[{rho_gf.min():.2e}, {rho_gf.max():.2e}]")
+            print(
+                f"  iter {gf_iter+1:6d}: max|dphi|={max_delta:.2e}, rel={rel_change:.2e}, |Phi| range=[{rho_gf.min():.2e}, {rho_gf.max():.2e}]"
+            )
 
-        save_now = GF_SAVE_EVERY > 0 and ((gf_iter + 1) % GF_SAVE_EVERY == 0 or (gf_iter + 1) in gf_early_iters)
+        save_now = GF_SAVE_EVERY > 0 and (
+            (gf_iter + 1) % GF_SAVE_EVERY == 0 or (gf_iter + 1) in gf_early_iters
+        )
         if save_now:
-            plot_force_imbalance(phi1, phi2, f"(GF iter {gf_iter+1})", f"gradient_flow_snapshots/gf_iter_{gf_iter+1:04d}.png")
+            plot_force_imbalance(
+                phi1,
+                phi2,
+                f"(GF iter {gf_iter+1})",
+                f"gradient_flow_snapshots/gf_iter_{gf_iter+1:04d}.png",
+            )
 
         if rel_change < GF_TOL:
-            print(f"  Converged at iter {gf_iter+1}! rel_change={rel_change:.2e} < tol={GF_TOL:.0e}")
+            print(
+                f"  Converged at iter {gf_iter+1}! rel_change={rel_change:.2e} < tol={GF_TOL:.0e}"
+            )
             gf_converged = True
             if GF_SAVE_EVERY > 0:
-                plot_force_imbalance(phi1, phi2, f"(GF iter {gf_iter+1}, converged)", f"gradient_flow_snapshots/gf_iter_{gf_iter+1:04d}_converged.png")
+                plot_force_imbalance(
+                    phi1,
+                    phi2,
+                    f"(GF iter {gf_iter+1}, converged)",
+                    f"gradient_flow_snapshots/gf_iter_{gf_iter+1:04d}_converged.png",
+                )
             break
 
     if not gf_converged:
@@ -3448,14 +4077,17 @@ if SEED_BUBBLES and GRADIENT_FLOW_RELAX and not resuming:
     gf_time = time.time() - gf_start
     print(f"  Gradient flow took {gf_time:.2f}s ({gf_iter+1} iterations)")
 
-    pi1[:] = 0.0; pi2[:] = 0.0
+    pi1[:] = 0.0
+    pi2[:] = 0.0
     print("  Momentum reset to zero.")
     print("=" * 60 + "\n")
 
     print("-" * 60)
     print("FORCE IMBALANCE DIAGNOSTIC (after gradient flow)")
     print("-" * 60)
-    plot_force_imbalance(phi1, phi2, "(after gradient flow)", "initial_force_imbalance_after_gf.png")
+    plot_force_imbalance(
+        phi1, phi2, "(after gradient flow)", "initial_force_imbalance_after_gf.png"
+    )
     print("-" * 60 + "\n")
 
 # =====================================================
@@ -3473,34 +4105,104 @@ if SEED_BUBBLES and SETTLING_ENABLED and not resuming:
     for s in range(SETTLING_STEPS):
         if USE_FUSED_RK2:
             rk2_step_fused(
-                phi1, phi2, pi1, pi2, dt, dx, settling_eta, T_settle, T_settle, mu, lam, mphi,
-                bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                fermionCoupling, fermionGaugeCoupling,
-                settling_noise1, settling_noise2, lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-                phi1_mid, phi2_mid, pi1_mid, pi2_mid, 1.0,
+                phi1,
+                phi2,
+                pi1,
+                pi2,
+                dt,
+                dx,
+                settling_eta,
+                T_settle,
+                T_settle,
+                mu,
+                lam,
+                mphi,
+                bosonMassSquared,
+                bosonCoupling,
+                bosonGaugeCoupling,
+                fermionCoupling,
+                fermionGaugeCoupling,
+                settling_noise1,
+                settling_noise2,
+                lap_tmp,
+                lap_tmp2,
+                Vp_tmp,
+                Vp_tmp2,
+                phi1_mid,
+                phi2_mid,
+                pi1_mid,
+                pi2_mid,
+                1.0,
             )
         else:
             rk2_step(
-                phi1, phi2, pi1, pi2, 0.5 * dt, dx, settling_eta, T_settle, mu, lam, mphi,
-                bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                fermionCoupling, fermionGaugeCoupling,
-                settling_noise1, settling_noise2, lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-                phi1_mid, phi2_mid, pi1_mid, pi2_mid, 1.0,
+                phi1,
+                phi2,
+                pi1,
+                pi2,
+                0.5 * dt,
+                dx,
+                settling_eta,
+                T_settle,
+                mu,
+                lam,
+                mphi,
+                bosonMassSquared,
+                bosonCoupling,
+                bosonGaugeCoupling,
+                fermionCoupling,
+                fermionGaugeCoupling,
+                settling_noise1,
+                settling_noise2,
+                lap_tmp,
+                lap_tmp2,
+                Vp_tmp,
+                Vp_tmp2,
+                phi1_mid,
+                phi2_mid,
+                pi1_mid,
+                pi2_mid,
+                1.0,
             )
             rk2_step(
-                phi1, phi2, pi1, pi2, 0.5 * dt, dx, settling_eta, T_settle, mu, lam, mphi,
-                bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                fermionCoupling, fermionGaugeCoupling,
-                settling_noise1, settling_noise2, lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-                phi1_mid, phi2_mid, pi1_mid, pi2_mid, 1.0,
+                phi1,
+                phi2,
+                pi1,
+                pi2,
+                0.5 * dt,
+                dx,
+                settling_eta,
+                T_settle,
+                mu,
+                lam,
+                mphi,
+                bosonMassSquared,
+                bosonCoupling,
+                bosonGaugeCoupling,
+                fermionCoupling,
+                fermionGaugeCoupling,
+                settling_noise1,
+                settling_noise2,
+                lap_tmp,
+                lap_tmp2,
+                Vp_tmp,
+                Vp_tmp2,
+                phi1_mid,
+                phi2_mid,
+                pi1_mid,
+                pi2_mid,
+                1.0,
             )
         if (s + 1) % 2000 == 0:
             _rho_s = np.sqrt(phi1**2 + phi2**2)
-            print(f"  Settling step {s+1}/{SETTLING_STEPS}, |Phi| range: [{_rho_s.min():.2e}, {_rho_s.max():.2e}]")
+            print(
+                f"  Settling step {s+1}/{SETTLING_STEPS}, |Phi| range: [{_rho_s.min():.2e}, {_rho_s.max():.2e}]"
+            )
 
     _rho_s = np.sqrt(phi1**2 + phi2**2)
     print(f"Settling complete. |Phi|: [{_rho_s.min():.2e}, {_rho_s.max():.2e}]")
-    pi1[:] = 0.0; pi2[:] = 0.0
+    pi1[:] = 0.0
+    pi2[:] = 0.0
     print("Momentum reset to zero.\n")
 
 print("Starting main loop...\n")
@@ -3553,7 +4255,9 @@ for n in range(n_start, Nt):
     if cli_args.zn_order > 0 and cli_args.zn_turn_on_T > 0.0:
         if T < cli_args.zn_turn_on_T and _ZN_PARAMS[2] < 0.5:
             _ZN_PARAMS[2] = 1.0
-            print(f"\n*** Z_{cli_args.zn_order} breaking activated at T={T:.1f} < {cli_args.zn_turn_on_T:.1f} ***\n")
+            print(
+                f"\n*** Z_{cli_args.zn_order} breaking activated at T={T:.1f} < {cli_args.zn_turn_on_T:.1f} ***\n"
+            )
 
     # Rebuild V'(rho) table when T changes or rho exceeds table range
     if USE_VPRIME_TABLE:
@@ -3633,12 +4337,29 @@ for n in range(n_start, Nt):
 
         if USE_SINGLE_PASS_RK2 and not USE_VPRIME_TABLE:
             rk2_fused_single_pass(
-                phi1, phi2, pi1, pi2,
-                dt, dx, eta_eff, T, T_mid, mu, lam, mphi,
-                bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                fermionCoupling, fermionGaugeCoupling,
-                _ns_val, nb.uint64(n),
-                phi1_mid, phi2_mid, pi1_mid, pi2_mid,
+                phi1,
+                phi2,
+                pi1,
+                pi2,
+                dt,
+                dx,
+                eta_eff,
+                T,
+                T_mid,
+                mu,
+                lam,
+                mphi,
+                bosonMassSquared,
+                bosonCoupling,
+                bosonGaugeCoupling,
+                fermionCoupling,
+                fermionGaugeCoupling,
+                _ns_val,
+                nb.uint64(n),
+                phi1_mid,
+                phi2_mid,
+                pi1_mid,
+                pi2_mid,
                 inv_a2,
             )
         else:
@@ -3729,29 +4450,95 @@ for n in range(n_start, Nt):
                 )
             elif USE_FUSED_RK2:
                 rk2_step_fused(
-                    phi1, phi2, pi1, pi2,
-                    dt, dx, eta_eff, T, T_mid, mu, lam, mphi,
-                    bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                    fermionCoupling, fermionGaugeCoupling,
-                    noise, noise2, lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-                    phi1_mid, phi2_mid, pi1_mid, pi2_mid, inv_a2,
+                    phi1,
+                    phi2,
+                    pi1,
+                    pi2,
+                    dt,
+                    dx,
+                    eta_eff,
+                    T,
+                    T_mid,
+                    mu,
+                    lam,
+                    mphi,
+                    bosonMassSquared,
+                    bosonCoupling,
+                    bosonGaugeCoupling,
+                    fermionCoupling,
+                    fermionGaugeCoupling,
+                    noise,
+                    noise2,
+                    lap_tmp,
+                    lap_tmp2,
+                    Vp_tmp,
+                    Vp_tmp2,
+                    phi1_mid,
+                    phi2_mid,
+                    pi1_mid,
+                    pi2_mid,
+                    inv_a2,
                 )
             else:
                 half_noise1 = 0.5 * noise
                 half_noise2 = 0.5 * noise2
                 rk2_step(
-                    phi1, phi2, pi1, pi2, 0.5 * dt, dx, eta_eff, T, mu, lam, mphi,
-                    bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                    fermionCoupling, fermionGaugeCoupling,
-                    half_noise1, half_noise2, lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-                    phi1_mid, phi2_mid, pi1_mid, pi2_mid, inv_a2,
+                    phi1,
+                    phi2,
+                    pi1,
+                    pi2,
+                    0.5 * dt,
+                    dx,
+                    eta_eff,
+                    T,
+                    mu,
+                    lam,
+                    mphi,
+                    bosonMassSquared,
+                    bosonCoupling,
+                    bosonGaugeCoupling,
+                    fermionCoupling,
+                    fermionGaugeCoupling,
+                    half_noise1,
+                    half_noise2,
+                    lap_tmp,
+                    lap_tmp2,
+                    Vp_tmp,
+                    Vp_tmp2,
+                    phi1_mid,
+                    phi2_mid,
+                    pi1_mid,
+                    pi2_mid,
+                    inv_a2,
                 )
                 rk2_step(
-                    phi1, phi2, pi1, pi2, 0.5 * dt, dx, eta_eff, T_mid, mu, lam, mphi,
-                    bosonMassSquared, bosonCoupling, bosonGaugeCoupling,
-                    fermionCoupling, fermionGaugeCoupling,
-                    half_noise1, half_noise2, lap_tmp, lap_tmp2, Vp_tmp, Vp_tmp2,
-                    phi1_mid, phi2_mid, pi1_mid, pi2_mid, inv_a2,
+                    phi1,
+                    phi2,
+                    pi1,
+                    pi2,
+                    0.5 * dt,
+                    dx,
+                    eta_eff,
+                    T_mid,
+                    mu,
+                    lam,
+                    mphi,
+                    bosonMassSquared,
+                    bosonCoupling,
+                    bosonGaugeCoupling,
+                    fermionCoupling,
+                    fermionGaugeCoupling,
+                    half_noise1,
+                    half_noise2,
+                    lap_tmp,
+                    lap_tmp2,
+                    Vp_tmp,
+                    Vp_tmp2,
+                    phi1_mid,
+                    phi2_mid,
+                    pi1_mid,
+                    pi2_mid,
+                    inv_a2,
                 )
 
     # NaN / divergence guard
@@ -3763,7 +4550,11 @@ for n in range(n_start, Nt):
             has_nan = has_nan or np.any(np.isnan(pi1)) or np.any(np.isnan(pi2))
             has_inf = has_inf or np.any(np.isinf(pi1)) or np.any(np.isinf(pi2))
         _rho_check = np.sqrt(phi1**2 + phi2**2)
-        rho_absmax = float(np.max(_rho_check[np.isfinite(_rho_check)])) if np.any(np.isfinite(_rho_check)) else 0.0
+        rho_absmax = (
+            float(np.max(_rho_check[np.isfinite(_rho_check)]))
+            if np.any(np.isfinite(_rho_check))
+            else 0.0
+        )
         diverging = rho_absmax > 1e6
         if has_nan or has_inf or diverging:
             print(f"\n{'!'*60}")
@@ -3774,10 +4565,19 @@ for n in range(n_start, Nt):
             print(f"  eta_eff = {eta_eff:.6e}, T = {T:.1f}, inv_a2 = {inv_a2:.10f}")
             print(f"{'!'*60}")
             state_file = f"{state_path}/state_step_{n:010d}_NaN_debug.npz"
-            _nan_save = dict(phi1=phi1, phi2=phi2, step=n, time=t, temperature=T,
-                             noise_scale=noise_scale, eta_eff=eta_eff, inv_a2=inv_a2)
+            _nan_save = dict(
+                phi1=phi1,
+                phi2=phi2,
+                step=n,
+                time=t,
+                temperature=T,
+                noise_scale=noise_scale,
+                eta_eff=eta_eff,
+                inv_a2=inv_a2,
+            )
             if not USE_OVERDAMPED:
-                _nan_save["pi1"] = pi1; _nan_save["pi2"] = pi2
+                _nan_save["pi1"] = pi1
+                _nan_save["pi2"] = pi2
             np.savez_compressed(state_file, **_nan_save)
             print(f"  Debug state saved: {state_file}")
             print("  ABORTING simulation.")
@@ -3822,25 +4622,32 @@ for n in range(n_start, Nt):
             )
 
         # Compute derived quantities
-        _rho_save = np.sqrt(phi1.astype(np.float64)**2 + phi2.astype(np.float64)**2)
+        _rho_save = np.sqrt(phi1.astype(np.float64) ** 2 + phi2.astype(np.float64) ** 2)
         _theta_save = np.arctan2(phi2.astype(np.float64), phi1.astype(np.float64))
-        compute_winding_number(phi1.astype(np.float64), phi2.astype(np.float64), winding_buf)
+        compute_winding_number(
+            phi1.astype(np.float64), phi2.astype(np.float64), winding_buf
+        )
 
         # Save field state
         state_file = f"{state_path}/state_step_{n:010d}.npz"
         _is_checkpoint = _total_saves % CHECKPOINT_EVERY == 0
         _total_saves += 1
         save_dict = dict(
-            phi1=phi1, phi2=phi2,
+            phi1=phi1,
+            phi2=phi2,
             rho=_rho_save.astype(np.float32),
             theta=_theta_save.astype(np.float32),
             winding=winding_buf.copy(),
-            step=n, time=t, temperature=T,
-            rho_min=float(_rho_save.min()), rho_max=float(_rho_save.max()),
+            step=n,
+            time=t,
+            temperature=T,
+            rho_min=float(_rho_save.min()),
+            rho_max=float(_rho_save.max()),
             zn_active=float(_ZN_PARAMS[2]),
         )
         if _is_checkpoint and not USE_OVERDAMPED:
-            save_dict["pi1"] = pi1; save_dict["pi2"] = pi2
+            save_dict["pi1"] = pi1
+            save_dict["pi2"] = pi2
         if HUBBLE_EXPANSION:
             save_dict["scale_factor"] = a_current
             save_dict["hubble"] = H_now
@@ -3855,22 +4662,26 @@ for n in range(n_start, Nt):
 
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         _t_phys = t / mu
-        _title = (f"Step {n:,} | t={_t_phys:.4e} | T={T:.1f} | "
-                  f"|Phi| [{_rho_save.min():.2e}, {_rho_save.max():.2e}] | "
-                  f"strings: {_n_strings}")
+        _title = (
+            f"Step {n:,} | t={_t_phys:.4e} | T={T:.1f} | "
+            f"|Phi| [{_rho_save.min():.2e}, {_rho_save.max():.2e}] | "
+            f"strings: {_n_strings}"
+        )
 
         im0 = axes[0, 0].imshow(_rho_sl.T, origin="lower", cmap="viridis")
         axes[0, 0].set_title(r"$\rho = |\Phi|$ (z-midplane)")
         fig.colorbar(im0, ax=axes[0, 0], shrink=0.8)
 
-        im1 = axes[0, 1].imshow(_theta_sl.T, origin="lower", cmap="hsv",
-                                vmin=-np.pi, vmax=np.pi)
+        im1 = axes[0, 1].imshow(
+            _theta_sl.T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
+        )
         axes[0, 1].set_title(r"$\theta = \arg(\Phi)$ (z-midplane)")
         fig.colorbar(im1, ax=axes[0, 1], shrink=0.8)
 
         _wmax = max(float(np.max(np.abs(_wind_sl))), 0.1)
-        im2 = axes[1, 0].imshow(_wind_sl.T, origin="lower", cmap="RdBu_r",
-                                vmin=-_wmax, vmax=_wmax)
+        im2 = axes[1, 0].imshow(
+            _wind_sl.T, origin="lower", cmap="RdBu_r", vmin=-_wmax, vmax=_wmax
+        )
         axes[1, 0].set_title(f"Winding number (z-midplane, |W|>0.5: {_n_strings})")
         fig.colorbar(im2, ax=axes[1, 0], shrink=0.8)
 
@@ -3879,7 +4690,9 @@ for n in range(n_start, Nt):
         axes[1, 1].set_xlabel(r"$\rho = |\Phi|$")
         axes[1, 1].set_ylabel("Density")
         axes[1, 1].set_title(r"$\rho$ histogram")
-        axes[1, 1].axvline(float(vev_thermal), color="r", ls="--", label=f"VEV={vev_thermal:.1e}")
+        axes[1, 1].axvline(
+            float(vev_thermal), color="r", ls="--", label=f"VEV={vev_thermal:.1e}"
+        )
         axes[1, 1].legend(fontsize=8)
 
         fig.suptitle(_title, fontsize=11)
@@ -3944,12 +4757,23 @@ else:
     metadata_file = f"{save_path}/simulation_metadata.npz"
     np.savez(
         metadata_file,
-        Nx=Nx, Ny=Ny, Nz=Nz,
-        dx_phys=dx_phys, dt_phys=dt_phys,
-        mphi=mphi, lam=lam, eta_phys=eta_phys,
-        T0=T0, cooling_rate=cooling_rate,
-        Nt=Nt, steps=steps, total_time=total_time,
-        mu=mu, dx=dx, dt=dt, eta=eta,
+        Nx=Nx,
+        Ny=Ny,
+        Nz=Nz,
+        dx_phys=dx_phys,
+        dt_phys=dt_phys,
+        mphi=mphi,
+        lam=lam,
+        eta_phys=eta_phys,
+        T0=T0,
+        cooling_rate=cooling_rate,
+        Nt=Nt,
+        steps=steps,
+        total_time=total_time,
+        mu=mu,
+        dx=dx,
+        dt=dt,
+        eta=eta,
         vev=np.sqrt(mphi**2 / lam),
         seed_bubbles=SEED_BUBBLES,
         bubble_config=np.array(BUBBLE_CONFIG if SEED_BUBBLES else []),
