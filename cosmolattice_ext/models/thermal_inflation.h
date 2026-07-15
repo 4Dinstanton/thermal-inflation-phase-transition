@@ -100,12 +100,12 @@ namespace TempLat {
         double expansionTSwitch_ = 0.0;   // >0: enter MD when T <= this
         double expansionFSwitch_ = 1e-5;  // else enter MD when false-vac frac <= this
         double expansionPhiEsc_ = 1e4;    // |phi|/rho escape threshold (GeV)
-        double TRh_ = 0.0;               // reheating T; 0 = stay in MD
+        double TRh_ = 0.0;               // post–flaton-decay T_reh (GeV); 0 = stay in MD
         double aSwitch_ = 1.0;           // scale factor at ti→md
         double TSwitch_ = 0.0;           // bath T at ti→md
         double rhoMSwitch_ = 0.0;        // matter density at ti→md (= delV dump)
         double aRh_ = 1.0;               // scale factor at md→rd
-        double TRhAnchor_ = 0.0;         // T at md→rd (normally T_rh)
+        double TRhAnchor_ = 0.0;         // bath T after md→rd (= T_rh)
 
         int activeScalars() const { return nScalars_; }
         ExpansionStage expansionStage() const { return expansionStage_; }
@@ -284,7 +284,7 @@ namespace TempLat {
         // Stage-aware bath temperature from scale factor (does not mutate stage).
         //   ti / legacy: T = T0 / a
         //   md:          T = T_sw (a_sw / a)^{3/2}
-        //   rd:          T = T_rh (a_rh / a)
+        //   rd:          T = T_reh (a_rh / a)  with T_reh = --T_rh
         double temperatureAtScaleFactor(double a) const {
             if (a <= 0.0) a = 1e-30;
             if (!expansionStaged_ || expansionStage_ == ExpansionStage::TI) {
@@ -294,7 +294,7 @@ namespace TempLat {
                 const double ratio = aSwitch_ / a;
                 return TSwitch_ * std::pow(ratio, 1.5);
             }
-            // RD
+            // RD after flaton decay: cool from the CLI reheating temperature.
             return TRhAnchor_ * (aRh_ / a);
         }
 
@@ -314,6 +314,7 @@ namespace TempLat {
                 return std::sqrt(H2 > 0 ? H2 : 0.0);
             }
             if (expansionStaged_ && expansionStage_ == ExpansionStage::RD) {
+                // Radiation-only H from bath T (= T_reh (a_rh/a)); not from ΔV.
                 const double chig2 = 30.0 / (M_PI * M_PI * gStarHubble);
                 const double H2 = std::pow(T_now, 4) / chig2 / (3.0 * M_PL * M_PL);
                 return std::sqrt(H2 > 0 ? H2 : 0.0);
@@ -384,21 +385,20 @@ namespace TempLat {
 
             if (expansionStage_ == ExpansionStage::MD && TRh_ > 0.0) {
                 if (thermalCtx.T <= TRh_) {
-                    // Convert matter density into radiation at reheating so RD has
-                    // H ~ O(H_md), not the tiny thermal-bath ρ_r(T_rh) ≪ ρ_m.
-                    const double rhoR = rhoMatter();
+                    // Flaton decay / reheating: T_rh is the true reheating
+                    // temperature (arXiv:0801.4197), not (ρ_m)^{1/4}. Enter RD
+                    // with T = T_rh and H from ρ_r(T); do not dump ΔV → T.
+                    const double H_before = prescribedHubble();
                     expansionStage_ = ExpansionStage::RD;
                     aRh_ = aI > 0.0 ? aI : 1.0;
-                    const double coef = (M_PI * M_PI / 30.0) * gStarHubble;
-                    TRhAnchor_ = (coef > 0.0 && rhoR > 0.0)
-                                     ? std::pow(rhoR / coef, 0.25)
-                                     : TRh_;
+                    TRhAnchor_ = TRh_;
                     thermalCtx.T = TRhAnchor_;
+                    const double H_after = prescribedHubble();
                     if (getToolBox()->amIRoot()) {
                         std::cout << "\n*** expansion stage MD→RD at a=" << aRh_
-                                  << " T_rh(trigger)=" << TRh_
-                                  << " T_after_dump=" << TRhAnchor_ << " GeV"
-                                  << " rho_r=" << rhoR << " GeV^4 ***\n\n";
+                                  << " T_reh=" << TRhAnchor_ << " GeV"
+                                  << " H_md=" << H_before
+                                  << " H_rd=" << H_after << " ***\n\n";
                     }
                 }
             }

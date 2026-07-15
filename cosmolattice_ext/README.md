@@ -157,9 +157,12 @@ python simulation/run_cosmolattice.py \
     `H = √(ρ_m/(3 M_Pl²))`, `T = T_sw (a_sw/a)^{3/2}`.
     Trigger: `T ≤ --expansion_T_switch` if that is >0, else false-vacuum
     fraction `≤ --expansion_f_switch` with escape `|φ|/ρ ≤ --expansion_phi_esc`.
-  - **rd**: when bath `T ≤ --T_rh` (`T_rh=0` disables), dump `ρ_m → ρ_r` and
-    set `T = (ρ_r / ((π²/30) g_*))^{1/4}`, then continue with radiation-only
-    `H(T)` and `T ∝ 1/a`. (`T_rh` is the decay trigger, not the post-dump T.)
+  - **rd**: when bath `T ≤ --T_rh` (`T_rh=0` disables), flaton decay enters
+    radiation domination with reheating temperature `T = T_rh` (CLI; typically
+    𝒪(100–1000) GeV in thermal inflation) and radiation-only
+    `H(T)`, `T ∝ 1/a`. Do **not** set `T` from dumping `ρ_m=ΔV` (that would give
+    `T ∼ V_TI^{1/4} ≫ T_reh`). `H` may jump down because `ρ_r(T_rh) ≪ ρ_m` —
+    intentional lattice shortcut vs waiting for `a_d/a_c ∼ 10⁵`.
   Snapshot `manifest.csv` records `expansion_stage` (0=ti,1=md,2=rd) and `rho_m`.
 - **Newer CMake.** If `cmake` rejects the upstream policy version, pass
   `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` (the wrapper does this automatically).

@@ -107,7 +107,8 @@ def parse_args():
     p.add_argument("--expansion_phi_esc", type=float, default=1e4,
                    help="Escape |phi|/rho threshold (GeV) for false-vac fraction")
     p.add_argument("--T_rh", type=float, default=0.0,
-                   help="Reheating T (GeV); 0=remain in matter era until tMax")
+                   help="Post–flaton-decay reheating T (GeV); bath cools in MD "
+                        "until T<=T_rh then RD with that T. 0=stay in MD")
     p.add_argument("--evolver", default="stochasticrk",
                    help="CosmoLattice evolver name (default: stochasticrk)")
     p.add_argument("--stochastic_scheme", default="numba",
@@ -746,7 +747,18 @@ def output_dirname(args):
     N = args.Nx
     steps = args.steps if args.steps is not None else 100_000
     hubble_tag = "_nohubble" if args.no_hubble else "_hubble"
-    staged_tag = "_staged" if args.expansion_mode == "staged" else ""
+    if args.expansion_mode == "staged":
+        staged_parts = ["_staged"]
+        if args.expansion_T_switch > 0:
+            staged_parts.append(f"_Tsw_{args.expansion_T_switch:g}")
+        else:
+            staged_parts.append(f"_fsw_{args.expansion_f_switch:g}")
+            staged_parts.append(f"_phiesc_{args.expansion_phi_esc:g}")
+        if args.T_rh > 0:
+            staged_parts.append(f"_Trh_{args.T_rh:g}")
+        staged_tag = "".join(staged_parts)
+    else:
+        staged_tag = ""
     eta = args.eta_phys if args.eta_phys is not None else args.T0
     eta_tag = f"_eta_{eta:g}"
     nb = 0 if args.potential_type == "fermion_only" else args.nb
