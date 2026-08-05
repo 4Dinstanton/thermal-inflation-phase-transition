@@ -1,11 +1,5 @@
 # CosmoLattice thermal-inflation extension
 
-> There is now a CosmoLattice v2.0 port of all of this in
-> `cosmolattice_ext_v2/`, driven by `simulation/run_cosmolattice_v2.py`. This v1
-> tree is frozen and still reproduces every existing run. Read
-> `cosmolattice_ext_v2/README.md` §1 before comparing v1 and v2 numbers — the
-> two sample different effective temperatures with their default settings.
-
 Project-specific extension to [CosmoLattice](https://github.com/cosmolattice/cosmolattice)
 (added as the submodule `external/cosmolattice`) implementing:
 
@@ -151,20 +145,6 @@ python simulation/run_cosmolattice.py \
 - **FDT noise amplitude** is `sqrt(2 eta_eff T dt / (mu^2 dx_phys^3))`, with
   `eta_eff = eta + 3H/mu` and `T = T0/a`, applied as half per RK2 half-step
   (identical structure to the numba `rk2_fused` kernel).
-- **The default `numba` scheme does not sample `T`.** Two effects, both measured
-  in `cosmolattice_ext_v2/tests/fdt_check.py --with-v1` and explained in
-  `cosmolattice_ext_v2/README.md` §1:
-  - the half-per-half-step convention above injects **half** the FDT variance —
-    that is what the `sqrt(2)` in `--stochastic_scheme fdt` restores, and it is
-    inherited from the numba reference, not a bug here;
-  - explicit friction inflates the sampled variance by `1/(1 - eta*dt/4)`,
-    i.e. +22% at the production `eta_phys = T0 = 7350`, `mphi = 1000`,
-    `dt = 0.1`.
-
-  Net, the default runs equilibrate at `T_eff ≈ 0.61 T`, which shifts the
-  nucleation rate and hence `T_c1`. Use `--stochastic_scheme fdt` for anything
-  that has to reproduce a thermodynamic temperature, and for any comparison
-  against v2 (whose `ou` scheme is exact).
 - The Langevin **algorithm** is validated independently of the C++ build in
   `tools/validate_langevin.py` (FDT/equipartition + numba parity).
 - **Inflation expansion.** With self-consistent expansion the program-unit field

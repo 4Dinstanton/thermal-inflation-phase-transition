@@ -736,7 +736,6 @@ def write_run_params(args, out_dir):
         "expansion_phi_esc": args.expansion_phi_esc,
         "T_rh": args.T_rh,
         "integrator": f"{args.evolver}_CL",
-        "stochastic_scheme": getattr(args, "stochastic_scheme", "numba"),
         "steps": steps,
         "phi_threshold": args.phi_threshold,
         "steps_dense": args.steps_dense,

@@ -1,0 +1,63 @@
+# Thermal-inflation: boson + fermion (Set B), CosmoLattice v2.0 input file.
+# Generated/overridden by simulation/run_cosmolattice_v2.py. Values below are a
+# self-consistent 64^3 example (dx_phys=1e-3, dt_phys=1e-4, mphi=1000).
+
+#Output
+outputfile = ./output/ti_boson_fermion/
+
+#Evolution
+expansion = true
+evolver = stochastic           # custom Langevin evolver (see cosmolattice_ext_v2/README.md)
+
+#Lattice                       # dx_tilde = omegaStar*dx_phys = mphi*dx_phys = 1.0
+N = 64
+dt = 0.1                       # program time step = mphi*dt_phys = 1000*1e-4
+kIR = 0.09817477              # 2*pi / (N * dx_tilde) = 2*pi/64
+
+#Times (program units)
+tOutputFreq = 10
+tOutputInfreq = 100
+tMax = 20000
+
+#Field snapshots: upstream HDF5 writer (replaces the v1 raw .bin dumps).
+#snapshots = S
+#tSnapshotFreq = 100
+
+#IC
+kCutOff = 4
+baseSeed = 1
+initial_amplitudes = 0.0       # false vacuum at the origin (GeV)
+initial_momenta = 0.0          # (GeV^2)
+
+#Spectra / GWs
+PS_type = 1
+PS_version = 1
+withGWs = false
+
+#Cosmic defects (needs n_scalars = 2; writes winfindLengthStrings to defects.txt)
+measureDefectsStructure = false
+measureDefectsEnergies = false
+
+#---- Thermal-inflation model parameters ----
+potential_type = V_correct     # boson + fermion
+mphi = 1000.0                  # GeV  (= omegaStar = mu)
+gamma = 4.1667e-4             # phi0 = gamma*M_Pl ; lambda = mphi^2/phi0^2 ; delV = lam/4 phi0^4
+boson_coupling = 1.09          # y_b
+boson_gauge_coupling = 1.05    # g_b
+fermion_coupling = 1.09        # y_f
+fermion_gauge_coupling = 1.05  # g_f
+boson_mass_squared = 1.0e6     # GeV^2
+nb = 20
+nf = 20
+g_star_pot = 100.0             # radiation free-energy multiplicity (Potential.py literal)
+g_star_hubble = 106.75         # g_* in Friedmann radiation term
+
+#---- Temperature / Langevin ----
+T0 = 7350.0                    # initial temperature (GeV); T(t) = T0/a
+eta_phys = 7350.0             # thermal friction (GeV); numba default eta = T0
+dx_phys = 1.0e-3              # comoving lattice spacing (GeV^-1), sets the FDT noise scale
+include_cw = 1                 # include Coleman-Weinberg force
+thermal_noise = 1             # enable FDT noise (set 0 for deterministic run)
+stochastic_scheme = ou         # exact OU friction+noise; `verlet` reproduces the v1 eta*dt bias
+n_scalars = 1
+thermal_table = ../../data/thermal_splines/thermal_tables.bin

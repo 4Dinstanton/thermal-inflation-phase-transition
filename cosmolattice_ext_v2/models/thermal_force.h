@@ -1,35 +1,33 @@
-#ifndef THERMAL_FORCE_H
-#define THERMAL_FORCE_H
+#ifndef THERMAL_FORCE_V2_H
+#define THERMAL_FORCE_V2_H
 
-/* This file is part of the thermal-inflation extension to CosmoLattice.
-   It defines TempLat unary operators that evaluate the temperature-dependent
-   thermal effective potential (and its derivatives) per lattice site, using the
-   tabulated thermal integrals in thermal_tables.hpp.
+/* CosmoLattice v2.0 port of cosmolattice_ext/models/thermal_force.h.
 
-   CosmoLattice's potential machinery expects the (program-variable) potential
-   and its field-derivatives to be returned as symbolic field expressions from
-   the model's potentialTerms()/potDeriv()/potDeriv2() functions. Because our
-   thermal potential is tabulated and T-dependent (it cannot be written as a
-   fixed algebraic expression), we wrap a per-site table lookup in custom unary
-   operators, exactly the way CosmoLattice implements exp(), sqrt(), tanh(),
-   etc. (see src/include/TempLat/lattice/algebra/operators/exponential.h).
+   Same physics: TempLat unary/binary operators that evaluate the tabulated
+   finite-temperature effective potential per lattice site, so a T-dependent,
+   non-algebraic V(phi,T) can appear in the symbolic EOM.
 
-   The operators read the PROGRAM field value phiTilde at site i, convert to the
-   physical field phi = fStar * phiTilde, evaluate the physical quantity from the
-   tables at the current temperature T, and return it converted to program units:
+   What changed for v2 / TempLat v1.0.0:
 
-       Vtilde(phiTilde)   = V_phys(phi) / (fStar^2 * omegaStar^2)
-       dVtilde/dphiTilde  = V'_phys(phi) / (fStar * omegaStar^2)
-       d2Vtilde/dphiTilde2= V''_phys(phi) / (omegaStar^2)
+     v1 (CL 1.x)                          v2 (TempLat)
+     -----------------------------------  ------------------------------------
+     auto get(ptrdiff_t i)                auto eval(const IDX&... idx)
+     GetValue::get(mR, i)                 DoEval::eval(mR, idx...)
+     (no device annotation)               DEVICE_FORCEINLINE_FUNCTION
+     virtual std::string operatorString() same, but must be `override`
 
-   The current temperature is read through a pointer so the model/evolver can
-   update it every step (T = T0 / a). */
+   Device restriction: the table lookup dereferences host memory
+   (ThermalTables holds std::vector). That is fine for the Serial / Threads /
+   OpenMP Kokkos backends, i.e. any CPU build. A CUDA/HIP build will fail to
+   compile here, which is the intended loud failure: the tables would have to
+   be mirrored into a Kokkos::View first. See README for the plan. */
 
-#include "TempLat/util/tdd/tdd.h"
-#include "TempLat/lattice/algebra/operators/unaryoperator.h"
-#include "TempLat/lattice/algebra/operators/binaryoperator.h"
-#include "TempLat/lattice/algebra/helpers/getvalue.h"
 #include "TempLat/lattice/algebra/constants/zerotype.h"
+#include "TempLat/lattice/algebra/helpers/doeval.h"
+#include "TempLat/lattice/algebra/helpers/isvariadicindex.h"
+#include "TempLat/lattice/algebra/operators/binaryoperator.h"
+#include "TempLat/lattice/algebra/operators/unaryoperator.h"
+#include "TempLat/parallel/device.h"
 
 #include "thermal_tables.hpp"
 
@@ -70,25 +68,27 @@ namespace TempLat {
             ThermalOp(const R& r, const ThermalContext* ctx, ThermalKind kind)
                 : UnaryOperator<R>(r), mCtx(ctx), mKind(kind) {}
 
-            inline auto get(ptrdiff_t i) -> double {
-                const double phiTilde = GetValue::get(mR, i);
+            template <typename... IDX>
+                requires requires(std::decay_t<R> t, IDX... idx) {
+                    requires IsVariadicIndex<IDX...>;
+                    DoEval::eval(t, idx...);
+                }
+            DEVICE_FORCEINLINE_FUNCTION auto eval(const IDX&... idx) const -> double {
+                const double phiTilde = static_cast<double>(DoEval::eval(mR, idx...));
                 const double phi = mCtx->fStar * phiTilde;
-                const double T = mCtx->T;
                 const auto& tab = *mCtx->tables;
                 switch (mKind) {
                     case ThermalKind::Value:
-                        return tab.V(phi, T) * mCtx->invF2Omega2();
+                        return tab.V(phi, mCtx->T) * mCtx->invF2Omega2();
                     case ThermalKind::Deriv:
-                        return tab.Vprime(phi, T) * mCtx->invFOmega2();
+                        return tab.Vprime(phi, mCtx->T) * mCtx->invFOmega2();
                     case ThermalKind::Deriv2:
                     default:
-                        return tab.Vsecond(phi, T) * mCtx->invOmega2();
+                        return tab.Vsecond(phi, mCtx->T) * mCtx->invOmega2();
                 }
             }
 
-            virtual std::string operatorString() const {
-                return "thermal";
-            }
+            std::string operatorString() const override { return "thermal"; }
 
         private:
             const ThermalContext* mCtx;
@@ -104,18 +104,23 @@ namespace TempLat {
             ThermalComponentOp(const R0& r0, const R1& r1, const ThermalContext* ctx, int comp)
                 : BinaryOperator<R0, R1>(r0, r1), mCtx(ctx), mComp(comp) {}
 
-            inline auto get(ptrdiff_t i) -> double {
-                const double phi1 = mCtx->fStar * GetValue::get(mR, i);
-                const double phi2 = mCtx->fStar * GetValue::get(mT, i);
+            template <typename... IDX>
+                requires requires(std::decay_t<R0> a, std::decay_t<R1> b, IDX... idx) {
+                    requires IsVariadicIndex<IDX...>;
+                    DoEval::eval(a, idx...);
+                    DoEval::eval(b, idx...);
+                }
+            DEVICE_FORCEINLINE_FUNCTION auto eval(const IDX&... idx) const -> double {
+                const double phi1 = mCtx->fStar * static_cast<double>(DoEval::eval(mR, idx...));
+                const double phi2 = mCtx->fStar * static_cast<double>(DoEval::eval(mT, idx...));
                 double dV1 = 0.0, dV2 = 0.0;
                 mCtx->tables->vPrimeComponents(phi1, phi2, mCtx->T,
                                                mCtx->znOrder, mCtx->znStrength, mCtx->znActive(),
                                                dV1, dV2);
-                const double dV = (mComp == 0 ? dV1 : dV2);
-                return dV * mCtx->invFOmega2();
+                return (mComp == 0 ? dV1 : dV2) * mCtx->invFOmega2();
             }
 
-            virtual std::string operatorString() const { return "thermalComp"; }
+            std::string operatorString() const override { return "thermalComp"; }
 
         private:
             const ThermalContext* mCtx;
@@ -132,14 +137,20 @@ namespace TempLat {
             ThermalRhoValueOp(const R0& r0, const R1& r1, const ThermalContext* ctx)
                 : BinaryOperator<R0, R1>(r0, r1), mCtx(ctx) {}
 
-            inline auto get(ptrdiff_t i) -> double {
-                const double phi1 = mCtx->fStar * GetValue::get(mR, i);
-                const double phi2 = mCtx->fStar * GetValue::get(mT, i);
-                const double rho = std::sqrt(phi1 * phi1 + phi2 * phi2);
+            template <typename... IDX>
+                requires requires(std::decay_t<R0> a, std::decay_t<R1> b, IDX... idx) {
+                    requires IsVariadicIndex<IDX...>;
+                    DoEval::eval(a, idx...);
+                    DoEval::eval(b, idx...);
+                }
+            DEVICE_FORCEINLINE_FUNCTION auto eval(const IDX&... idx) const -> double {
+                const double phi1 = mCtx->fStar * static_cast<double>(DoEval::eval(mR, idx...));
+                const double phi2 = mCtx->fStar * static_cast<double>(DoEval::eval(mT, idx...));
+                const double rho = device::sqrt(phi1 * phi1 + phi2 * phi2);
                 return mCtx->tables->V(rho, mCtx->T) * mCtx->invF2Omega2();
             }
 
-            virtual std::string operatorString() const { return "thermalRhoV"; }
+            std::string operatorString() const override { return "thermalRhoV"; }
 
         private:
             const ThermalContext* mCtx;
@@ -175,4 +186,4 @@ namespace TempLat {
 
 }  // namespace TempLat
 
-#endif  // THERMAL_FORCE_H
+#endif  // THERMAL_FORCE_V2_H

@@ -1,0 +1,72 @@
+# Small smoke test for the CosmoLattice v2.0 thermal-inflation port. 32^3, a few
+# seconds, exercises Langevin + staged expansion + GWs + the string-length
+# observable. The transition completes around t ~ 120.
+# Run from external/cosmolattice_v2/build_ti:
+#   mkdir -p output_smoke
+#   ./thermal_inflation_v2 input=../../../cosmolattice_ext_v2/parameter-files/ti_smoke_v2.in
+
+#Output
+outputfile = ./output_smoke/
+print_headers = true
+overwriteFiles = true
+
+#Evolution
+expansion = true
+evolver = stochastic            # >>> thermal-inflation Langevin evolver
+
+#Lattice                        # dx_tilde = omegaStar*dx_phys = mphi*dx_phys = 1.0
+N = 32
+dt = 0.1
+kIR = 0.19634954                # 2*pi/(N*dx_tilde) = 2*pi/32
+
+#Times (program units)
+tOutputFreq = 5
+tOutputInfreq = 20
+tMax = 200
+
+#IC
+kCutOff = 4
+baseSeed = 1
+initial_amplitudes = 0.0
+initial_momenta = 0.0
+ic_numba = 1
+
+#Spectra / GWs
+PS_type = 1
+PS_version = 1
+withGWs = true
+GWprojectorType = 1
+
+#Cosmic defects (in-simulation string length; needs n_scalars = 2)
+measureDefectsStructure = true
+measureDefectsEnergies = true
+
+#---- Thermal-inflation model parameters ----
+potential_type = V_correct
+mphi = 1000.0
+gamma = 4.1667e-4
+boson_coupling = 1.09
+boson_gauge_coupling = 1.09
+fermion_coupling = 1.09
+fermion_gauge_coupling = 1.09
+boson_mass_squared = 1.0e6
+nb = 20
+nf = 20
+g_star_pot = 100.0
+g_star_hubble = 106.75
+
+#---- Temperature / Langevin ----
+T0 = 1230.0
+eta_phys = 1230.0
+dx_phys = 1.0e-3
+include_cw = 1
+thermal_noise = 1
+stochastic_scheme = ou          # exact OU friction+noise; `verlet` reproduces the v1 eta*dt bias
+n_scalars = 2
+thermal_table = ../../../data/thermal_splines/thermal_tables.bin
+
+#---- Staged expansion ----
+expansion_mode = staged
+expansion_f_switch = 1e-5
+expansion_phi_esc = 50000
+T_rh = 1000

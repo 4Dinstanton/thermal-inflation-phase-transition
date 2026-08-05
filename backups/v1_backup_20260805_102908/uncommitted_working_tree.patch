@@ -1,0 +1,894 @@
+diff --git a/cosmolattice_ext/README.md b/cosmolattice_ext/README.md
+index 0c09fba..10bc4da 100644
+--- a/cosmolattice_ext/README.md
++++ b/cosmolattice_ext/README.md
+@@ -164,6 +164,17 @@ python simulation/run_cosmolattice.py \
+     `T ∼ V_TI^{1/4} ≫ T_reh`). `H` may jump down because `ρ_r(T_rh) ≪ ρ_m` —
+     intentional lattice shortcut vs waiting for `a_d/a_c ∼ 10⁵`.
+   Snapshot `manifest.csv` records `expansion_stage` (0=ti,1=md,2=rd) and `rho_m`.
++- **Langevin off after nucleation** (`--langevin_off_after_nucleation`).
++  Keeps thermal friction/noise for nucleation, then sets `eta_phys=0` and
++  `thermal_noise=0` once the false-vacuum fraction drops to
++  `--langevin_off_f_switch` (default `0.99`, i.e. early conversion / start of
++  the bubble-collision stage). Escape threshold defaults to
++  `--expansion_phi_esc` (override with `--langevin_off_phi_esc`).
++  Hubble `3H` in the EOM is unchanged. Use this for vacuum-style GW comparisons
++  to TIPT (`κ_φ∼1`); without it, `η/H∼10⁴` dumps most of `ΔV` into the bath and
++  suppresses the lattice GW amplitude by ~`ρ_field/ΔV`.
++  To wait until near completion instead, set e.g.
++  `--langevin_off_f_switch 1e-5` (same order as `--expansion_f_switch`).
+ - **Newer CMake.** If `cmake` rejects the upstream policy version, pass
+   `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` (the wrapper does this automatically).
+ - **Snapshots.** 3D phi snapshots are written to `field_states/*.raw` during the
+@@ -195,6 +206,12 @@ Enable CosmoLattice's built-in GW sector (anisotropic stress → auxiliary `fldG
+ ```bash
+ python simulation/run_cosmolattice.py --with_gws --tOutputInfreq 50 \
+   --Nx 64 --uniform_phi 1e11 --no_hubble --tMax 200 --param_set set8
++
++# Vacuum-collision GW: Langevin on for nucleation, off once conversion starts
++python simulation/run_cosmolattice.py --install --build --mpi --np 8 \
++  --Nx 256 --T0 1230 --tMax 1520 --param_set set8 \
++  --expansion_mode staged --expansion_f_switch 1e-5 --T_rh 1000 \
++  --with_gws --n_scalars 2 --langevin_off_after_nucleation
+ ```
+ 
+ Spectra are written to `spectra_gws.txt` and `energy_gws.txt` on infrequent measurement
+@@ -202,11 +219,21 @@ steps. Plot with:
+ 
+ ```bash
+ python postprocess/plot_cl_gw_spectrum.py data/lattice/set8/<run_dir>
++# Physical h²Ω_GW(f) today (TI MD dilution + ρ_tot/ρ_c correction):
++python postprocess/plot_cl_gw_spectrum.py data/lattice/set8/<run_dir> \
++  --physical --T_rh 1000
+ ```
+ 
+-**Caveat:** `StochasticRK` uses prescribed `H(T, delV)` for expansion while
+-`GWsPowerSpectrumMeasurer` normalizes with `Energies::rho(model)` — spectra may
+-need a consistency pass if amplitudes look off.
++**Energy / GW normalization:** CosmoLattice `GWsPowerSpectrumMeasurer` divides by
++`Energies::rho` (includes `potAvI`). The tree potential is evaluated as the
++numerically stable form `(λ/4)(φ²−φ₀²)²` so `V(φ₀)=0`, `V(0)=+ΔV`, and
++`potAvI` does not go negative after nucleation from floating-point cancellation
++in the expanded polynomial (that cancellation was flipping the entire `P_GW(k)`
++spectrum negative via `/ρ`). Dynamics (`V'`) and therefore nucleation / `T_{c₁}`
++are unchanged by the additive constant. `StochasticRK` still expands with
++prescribed `H(T, ΔV)` (not lattice `ρ`). `--physical` converts a spectrum
++snapshot to today-frame `h²Ω_GW(f)` using `ρ_tot/ρ_c` and TI MD dilution
++`R_md=(π² g_* T_rh⁴/(30 V_TI))^{1/3}`.
+ 
+ ## Cosmic strings (postprocess)
+ 
+diff --git a/cosmolattice_ext/evolvers/stochasticrk.h b/cosmolattice_ext/evolvers/stochasticrk.h
+index faf40c8..3ab72db 100644
+--- a/cosmolattice_ext/evolvers/stochasticrk.h
++++ b/cosmolattice_ext/evolvers/stochasticrk.h
+@@ -77,6 +77,8 @@ namespace TempLat {
+         template <class Model>
+         void evolve(Model& model, T tMinust0) {
+             model.updateTemperature(model.aI);
++            // Before kernels: possibly drop Langevin η+noise for collision/GW stage.
++            model.maybeDisableLangevin();
+ 
+             switch (scheme_) {
+                 case Scheme::NumbaRK2:
+diff --git a/cosmolattice_ext/models/thermal_force.h b/cosmolattice_ext/models/thermal_force.h
+index 1e34b63..ce564c5 100644
+--- a/cosmolattice_ext/models/thermal_force.h
++++ b/cosmolattice_ext/models/thermal_force.h
+@@ -122,6 +122,29 @@ namespace TempLat {
+             int mComp;
+         };
+ 
++        // V(sqrt(phi1^2+phi2^2), T) for Energies::rho with complex / two-component fields.
++        template <typename R0, typename R1>
++        class ThermalRhoValueOp : public BinaryOperator<R0, R1> {
++        public:
++            using BinaryOperator<R0, R1>::mR;
++            using BinaryOperator<R0, R1>::mT;
++
++            ThermalRhoValueOp(const R0& r0, const R1& r1, const ThermalContext* ctx)
++                : BinaryOperator<R0, R1>(r0, r1), mCtx(ctx) {}
++
++            inline auto get(ptrdiff_t i) -> double {
++                const double phi1 = mCtx->fStar * GetValue::get(mR, i);
++                const double phi2 = mCtx->fStar * GetValue::get(mT, i);
++                const double rho = std::sqrt(phi1 * phi1 + phi2 * phi2);
++                return mCtx->tables->V(rho, mCtx->T) * mCtx->invF2Omega2();
++            }
++
++            virtual std::string operatorString() const { return "thermalRhoV"; }
++
++        private:
++            const ThermalContext* mCtx;
++        };
++
+     }  // namespace Operators
+ 
+     /** \brief Convenience factory functions mirroring exp()/sqrt() style. */
+@@ -138,6 +161,10 @@ namespace TempLat {
+         return Operators::ThermalOp<R>(r, ctx, Operators::ThermalKind::Deriv2);
+     }
+     template <typename R0, typename R1>
++    inline auto thermalVrho(const R0& r0, const R1& r1, const ThermalContext* ctx) {
++        return Operators::ThermalRhoValueOp<R0, R1>(r0, r1, ctx);
++    }
++    template <typename R0, typename R1>
+     inline auto thermalVprime1(const R0& r0, const R1& r1, const ThermalContext* ctx) {
+         return Operators::ThermalComponentOp<R0, R1>(r0, r1, ctx, 0);
+     }
+diff --git a/cosmolattice_ext/models/thermal_inflation.h b/cosmolattice_ext/models/thermal_inflation.h
+index 427bc8f..8cee586 100644
+--- a/cosmolattice_ext/models/thermal_inflation.h
++++ b/cosmolattice_ext/models/thermal_inflation.h
+@@ -92,6 +92,15 @@ namespace TempLat {
+         double znStrength_ = 0.0;                   // delta_V for cos(N theta) term
+         double znTurnOnT_ = 0.0;                    // activate Z_N below this T (GeV)
+ 
++        // Optional: zero Langevin η + FDT noise once nucleation/conversion begins
++        // (bubble collision / vacuum-GW stage). Hubble 3H in eta_eff is unchanged.
++        bool   langevinOffAfterNucleation_ = false;
++        double langevinOffFSwitch_ = 0.99;  // trigger when false-vac frac <= this
++        double langevinOffPhiEsc_ = -1.0;   // <0 → use expansionPhiEsc_ (or 1e4)
++        bool   langevinDisabled_ = false;
++        double etaPhysSaved_ = 0.0;
++        bool   thermalNoiseSaved_ = true;
++
+         // Post-PT expansion staging: ti (thermal inflation) → md → rd.
+         // legacy mode keeps H(T,delV) and T=T0/a forever.
+         enum class ExpansionStage { TI = 0, MD = 1, RD = 2 };
+@@ -357,6 +366,33 @@ namespace TempLat {
+             return localFalse / localTotal;
+         }
+ 
++        // Zero Langevin friction + FDT noise once false-vac fraction drops
++        // (start of bubble conversion / collision stage). Safe every step.
++        // Does not change V(φ,T) or thermodynamic T_c1; Hubble 3H remains.
++        void maybeDisableLangevin() {
++            if (!langevinOffAfterNucleation_ || langevinDisabled_) return;
++            const double esc = (langevinOffPhiEsc_ > 0.0)
++                                   ? langevinOffPhiEsc_
++                                   : (expansionPhiEsc_ > 0.0 ? expansionPhiEsc_ : 1e4);
++            const double fFalse = falseVacuumFraction(esc);
++            if (fFalse > langevinOffFSwitch_) return;
++
++            langevinDisabled_ = true;
++            etaPhysSaved_ = etaPhys;
++            thermalNoiseSaved_ = thermalNoise;
++            etaPhys = 0.0;
++            thermalNoise = false;
++            if (getToolBox()->amIRoot()) {
++                std::cout << "\n*** Langevin OFF (collision/GW stage): false-vac frac="
++                          << fFalse << " <= " << langevinOffFSwitch_
++                          << " (was eta_phys=" << etaPhysSaved_
++                          << " GeV, thermal_noise="
++                          << (thermalNoiseSaved_ ? 1 : 0) << ") ***\n\n";
++            }
++        }
++
++        bool langevinDisabled() const { return langevinDisabled_; }
++
+         // After a is advanced: possibly ti→md or md→rd. Safe to call every step.
+         void maybeAdvanceExpansionStage() {
+             if (!expansionStaged_) return;
+@@ -476,6 +512,15 @@ namespace TempLat {
+             dxPhys = parser.get<double>("dx_phys", 1e-3);
+             includeCW = parser.get<int>("include_cw", 1) != 0;
+             thermalNoise = parser.get<int>("thermal_noise", 1) != 0;
++            langevinOffAfterNucleation_ =
++                parser.get<int>("langevin_off_after_nucleation", 0) != 0;
++            langevinOffFSwitch_ =
++                parser.get<double>("langevin_off_f_switch", 0.99);
++            langevinOffPhiEsc_ =
++                parser.get<double>("langevin_off_phi_esc", -1.0);
++            langevinDisabled_ = false;
++            etaPhysSaved_ = etaPhys;
++            thermalNoiseSaved_ = thermalNoise;
+             icNumba = parser.get<int>("ic_numba", 0) != 0;
+             uniformPhiGeV = parser.get<double>("uniform_phi", 0.0);
+             bubbleSeedPhiGeV = parser.get<double>("bubble_seed_phi", 0.0);
+@@ -555,10 +600,12 @@ namespace TempLat {
+         }
+ 
+         /////////
+-        // Program potential (single combined term: tree + thermal + radiation + CW)
++        // Program potential (single combined term: tree + thermal + radiation + CW).
++        // Always evaluate V(rho) with rho=sqrt(phi1^2+phi2^2) so Energies::rho is
++        // correct for n_scalars=2; for n_scalars=1 the inactive phi2 stays 0.
+         /////////
+         auto potentialTerms(Tag<0>) {
+-            return thermalV(fldS(0_c), &thermalCtx);
++            return thermalVrho(fldS(0_c), fldS(1_c), &thermalCtx);
+         }
+ 
+         // First derivative wrt each scalar component (complex field via rho, theta).
+diff --git a/cosmolattice_ext/models/thermal_tables.hpp b/cosmolattice_ext/models/thermal_tables.hpp
+index 61c2d55..68a2dba 100644
+--- a/cosmolattice_ext/models/thermal_tables.hpp
++++ b/cosmolattice_ext/models/thermal_tables.hpp
+@@ -12,7 +12,13 @@
+  * Conventions (must match tools/export_thermal_splines.py and the numba solver
+  * simulation/latticeSimeRescale_numba.py):
+  *
+- *   tree:     V_tree   = (lam/4) phi^4 - (mphi^2/2) phi^2
++ *   tree:     V_tree   = (lam/4)(phi^2 - phi0^2)^2
++ *                       = (lam/4) phi^4 - (mphi^2/2) phi^2 + DeltaV
++ *             with phi0^2 = mphi^2/lam, DeltaV = mphi^4/(4 lam)
++ *             so V_tree(0)=+DeltaV (false vac) and V_tree(phi0)=0 (true vac).
++ *             The additive DeltaV does not change V' (dynamics) but keeps
++ *             CosmoLattice Energies::rho > 0 after nucleation so GW spectra
++ *             (which divide by rho) stay non-negative.
+  *   thermal:  V_th     = T^4/(2 pi^2) [ nb Jb(u_b) + nf Jf(u_f) ]
+  *   radiation:V_rad    = pi^2/30 * gStarPot * T^4              (phi-independent)
+  *   CW:       V_cw     = (m2)^2/(64 pi^2) (log(|m2|/T) - 3/2),  m2 = 3 lam phi^2
+@@ -98,7 +104,18 @@ public:
+         const double pref = std::pow(T, 4) / (2.0 * M_PI * M_PI);
+         const double ub = uBoson(phi, T);
+         const double uf = uFermion(phi, T);
+-        double v = 0.25 * p.lam * std::pow(phi, 4) - 0.5 * p.mphi * p.mphi * phi * phi;
++        // Shifted tree as (lam/4)(phi^2 - phi0^2)^2 — algebraically equal to
++        // (lam/4)phi^4 - (mphi^2/2)phi^2 + DeltaV, but stable near phi=phi0
++        // (expanded form suffers O(1e19) GeV^4 cancellation → spurious potAvI < 0
++        // and negative P_GW via /rho).
++        double v = 0.0;
++        if (p.lam > 0.0) {
++            const double phi0_sq = p.mphi * p.mphi / p.lam;
++            const double dphi2 = phi * phi - phi0_sq;
++            v += 0.25 * p.lam * dphi2 * dphi2;
++        } else {
++            v += 0.25 * p.lam * std::pow(phi, 4) - 0.5 * p.mphi * p.mphi * phi * phi;
++        }
+         // J interpolated with cubic Hermite using dJ as the nodal derivative.
+         v += pref * (p.nb * hermite(Jb_, dJb_, ub) + p.nf * hermite(Jf_, dJf_, uf));
+         v += M_PI * M_PI / 30.0 * p.gStarPot * std::pow(T, 4);
+diff --git a/external/cosmolattice b/external/cosmolattice
+--- a/external/cosmolattice
++++ b/external/cosmolattice
+@@ -1 +1 @@
+-Subproject commit a5654d648b803f250852ca3ea3c6169cc7188aae
++Subproject commit a5654d648b803f250852ca3ea3c6169cc7188aae-dirty
+diff --git a/postprocess/compute_lattice_Tc1.py b/postprocess/compute_lattice_Tc1.py
+index 921f59e..b99fa18 100755
+--- a/postprocess/compute_lattice_Tc1.py
++++ b/postprocess/compute_lattice_Tc1.py
+@@ -1,44 +1,99 @@
+ #!/usr/bin/env python3
+-import os
+-import glob
++"""Find operational T_c1 from lattice snapshots (false-vac fraction <= 1e-5).
++
++For complex fields uses rho = sqrt(phi1^2+phi2^2); for real fields uses |phi|.
++"""
+ import argparse
++import csv
++import glob
++import os
++
+ import numpy as np
+ 
++
++def _amp(data, escape_phi):
++    if "rho" in data:
++        return np.asarray(data["rho"], dtype=np.float64)
++    if "phi1" in data and "phi2" in data:
++        p1 = np.asarray(data["phi1"], dtype=np.float64)
++        p2 = np.asarray(data["phi2"], dtype=np.float64)
++        return np.sqrt(p1 * p1 + p2 * p2)
++    if "phi" in data:
++        return np.abs(np.asarray(data["phi"], dtype=np.float64))
++    raise KeyError("snapshot lacks phi/rho/phi1+phi2")
++
++
+ def main():
+-    parser = argparse.ArgumentParser(description="Find Tc1 (where false vacuum fraction <= 10^-5)")
+-    parser.add_argument("state_dir", help="Directory containing state_step_*.npz")
+-    parser.add_argument("--escape_phi", type=float, default=10000.0, help="Escape threshold (default 10000)")
++    parser = argparse.ArgumentParser(
++        description="Find Tc1 (where false vacuum fraction <= 10^-5)"
++    )
++    parser.add_argument("state_dir", help="Run directory containing field_states/")
++    parser.add_argument(
++        "--escape_phi",
++        type=float,
++        default=10000.0,
++        help="Escape threshold on |phi| or rho (GeV)",
++    )
++    parser.add_argument(
++        "--frac_thresh",
++        type=float,
++        default=1e-5,
++        help="False-vac fraction threshold for Tc1 (default 1e-5)",
++    )
++    parser.add_argument(
++        "--csv",
++        default=None,
++        help="Optional output CSV path for (step,T,frac_false)",
++    )
+     args = parser.parse_args()
+ 
+-    files = sorted(glob.glob(os.path.join(args.state_dir, "field_states", "state_step_*.npz")))
++    files = sorted(
++        glob.glob(os.path.join(args.state_dir, "field_states", "state_step_*.npz"))
++    )
+     if not files:
+-        print(f"No state_step_*.npz found in {args.state_dir}")
++        print(f"No state_step_*.npz found in {args.state_dir}/field_states")
+         return
+ 
+     data = []
+     for f in files:
+         d = np.load(f)
+-        phi = d["phi"].astype(np.float64)
++        amp = _amp(d, args.escape_phi)
+         T = float(d["temperature"])
+         step = int(d["step"])
+-        frac_false = np.mean(np.abs(phi) <= args.escape_phi)
++        frac_false = float(np.mean(amp <= args.escape_phi))
+         data.append((T, step, frac_false))
+-    
+-    # Sort by temperature descending (usually it cools down)
++
+     data.sort(key=lambda x: x[0], reverse=True)
+-    
+-    print(f"escape_phi = {args.escape_phi:.2e}")
++
++    print(f"escape_phi = {args.escape_phi:.2e}  frac_thresh = {args.frac_thresh:g}")
+     print(f"{'Step':>10} | {'Temperature (GeV)':>20} | {'False Vacuum Frac':>20}")
+     print("-" * 57)
+-    
++
+     found_tc1 = False
++    tc1 = None
+     for T, step, frac in data:
+         marker = ""
+-        if frac <= 1e-5 and not found_tc1:
+-            marker = " <--- Tc1 (fraction <= 1e-5)"
++        if frac <= args.frac_thresh and not found_tc1:
++            marker = " <--- Tc1 (fraction <= {:.0e})".format(args.frac_thresh)
+             found_tc1 = True
+-            
++            tc1 = (T, step, frac)
+         print(f"{step:10d} | {T:20.4f} | {frac:20.6e}{marker}")
+ 
++    if tc1 is None:
++        print("\nTc1 not reached in available snapshots "
++              f"(min false-vac frac = {min(d[2] for d in data):.3e}).")
++    else:
++        print(f"\nTc1 ≈ {tc1[0]:.4f} GeV  (step {tc1[1]}, frac={tc1[2]:.3e})")
++
++    if args.csv:
++        os.makedirs(os.path.dirname(os.path.abspath(args.csv)) or ".", exist_ok=True)
++        with open(args.csv, "w", newline="") as f:
++            w = csv.writer(f)
++            w.writerow(["step", "temperature_GeV", "false_vac_frac"])
++            for T, step, frac in sorted(data, key=lambda x: x[1]):
++                w.writerow([step, f"{T:.8g}", f"{frac:.8e}"])
++        print(f"Wrote {args.csv}")
++
++
+ if __name__ == "__main__":
+     main()
+diff --git a/postprocess/plot_cl_gw_spectrum.py b/postprocess/plot_cl_gw_spectrum.py
+index 02387a4..2829754 100644
+--- a/postprocess/plot_cl_gw_spectrum.py
++++ b/postprocess/plot_cl_gw_spectrum.py
+@@ -1,25 +1,42 @@
+ #!/usr/bin/env python3
+-"""Plot CosmoLattice on-lattice GW spectra from spectra_gws.txt / energy_gws.txt.
++"""Plot CosmoLattice GW spectra and convert to h²Ω_GW(f) today.
+ 
+-CosmoLattice writes GW power spectra on infrequent measurement steps to:
+-  <run_dir>/spectra_gws.txt   — binned P_GW(k) vs program wavenumber
+-  <run_dir>/energy_gws.txt    — t, spectral energy, energy * rho
++CosmoLattice writes (technical note):
++  spectra_gws.txt  — κ, Ω_GW(κ) = (1/ρ̃_tot) dρ̃_GW/dlogκ , #modes
++  energy_gws.txt   — t, E_spec, E_spec * ρ̃_tot
++
++Because StochasticRK uses *prescribed* H(T,ΔV), ρ̃_tot ≠ ρ̃_c. To get the
++critical-density normalization multiply by ρ̃_tot / ρ̃_c.
++
++Thermal-inflation redshift (EGLPS / Caprini-style):
++  R_md = (π² g_* T_rh⁴ / (30 V_TI))^{1/3}   # MD dilution a_*/a_rh
++  a_rh/a_0 from T_rh → today
++  h²Ω_0 = F_GW * Ω_crit,* * R_md
++  f_0   = (k_comov / 2π) * R_md * (a_rh/a_0)   [Hz]
+ 
+ Usage
+ -----
+     python postprocess/plot_cl_gw_spectrum.py <run_dir>
+-    python postprocess/plot_cl_gw_spectrum.py <run_dir> --out figs/gw_spectrum.png
++    python postprocess/plot_cl_gw_spectrum.py <run_dir> --physical --T_rh 1000
+ """
++from __future__ import annotations
++
+ import argparse
+ import json
++import math
+ import os
+-import re
+ 
+ import matplotlib.pyplot as plt
+ import numpy as np
+ 
+ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ 
++M_PL = 2.4e18  # reduced Planck mass [GeV]
++T_CMB_GEV = 2.7255 * 8.617333262145e-14
++G_S0 = 3.91
++HBAR_GEV_S = 6.582119569e-25  # ℏ [GeV·s]
++GEV_TO_HZ = 1.0 / HBAR_GEV_S
++
+ 
+ def _load_run_params(run_dir):
+     path = os.path.join(run_dir, "cl_run_params.json")
+@@ -29,6 +46,26 @@ def _load_run_params(run_dir):
+     return {}
+ 
+ 
++def _load_input_in(run_dir):
++    """Best-effort parse of CosmoLattice input.in key=value pairs."""
++    path = os.path.join(run_dir, "input.in")
++    out = {}
++    if not os.path.exists(path):
++        return out
++    with open(path) as f:
++        for line in f:
++            line = line.split("#", 1)[0].strip()
++            if "=" not in line:
++                continue
++            k, v = line.split("=", 1)
++            k, v = k.strip(), v.strip()
++            try:
++                out[k] = float(v) if ("." in v or "e" in v.lower()) else int(v)
++            except ValueError:
++                out[k] = v
++    return out
++
++
+ def parse_spectra_gws(path):
+     """Parse spectra_gws.txt into list of (k_centers, values) blocks."""
+     if not os.path.exists(path):
+@@ -85,6 +122,117 @@ def parse_energy_gws(path):
+     return arr[:, 0], arr[:, 1], arr[:, 2]
+ 
+ 
++def parse_scale_factor(run_dir):
++    """average_scale_factor.txt -> t, a, H (best-effort column guess)."""
++    path = os.path.join(run_dir, "average_scale_factor.txt")
++    if not os.path.exists(path):
++        return None
++    data = np.loadtxt(path)
++    if data.ndim == 1:
++        data = data.reshape(1, -1)
++    t = data[:, 0]
++    a = data[:, 1]
++    # Prefer last column as H when 4 columns (t, a, adot, H)
++    H = data[:, -1] if data.shape[1] >= 3 else np.full_like(a, np.nan)
++    return t, a, H
++
++
++def _delV_from_params(params, inp):
++    if "delV" in inp:
++        return float(inp["delV"])
++    gamma = float(params.get("gamma", inp.get("gamma", 4.1667e-4)))
++    mphi = float(params.get("mphi", inp.get("mphi", 1000.0)))
++    phi0 = gamma * M_PL
++    lam = mphi * mphi / (phi0 * phi0)
++    return 0.25 * lam * phi0**4
++
++
++def _fstar_omega(params, inp):
++    gamma = float(params.get("gamma", inp.get("gamma", 4.1667e-4)))
++    mphi = float(params.get("mphi", inp.get("mphi", 1000.0)))
++    fStar = gamma * M_PL
++    return fStar, mphi
++
++
++def select_production_index(energy, blocks):
++    """Pick snapshot with largest positive E_spec*|rho| proxy (E_rho)."""
++    if energy is None:
++        return len(blocks) - 1
++    t, e_spec, e_rho = energy
++    n = min(len(blocks), len(t))
++    best = 0
++    best_val = -np.inf
++    for i in range(n):
++        # Prefer late positive growth: use |E_rho| when E_spec>0
++        val = e_rho[i] if e_spec[i] > 0 else -np.inf
++        if val > best_val:
++            best_val = val
++            best = i
++    return best
++
++
++def convert_to_today(
++    kappa,
++    omega_over_rho_tot,
++    *,
++    rho_tot_prog,
++    a_star,
++    H_star_phys,
++    omega_star,
++    fStar,
++    V_TI,
++    T_rh,
++    g_star,
++):
++    """Map one CL spectrum block to (f_Hz, h2_Omega_GW) today.
++
++    Parameters
++    ----------
++    kappa : program wavenumber column from spectra_gws.txt
++    omega_over_rho_tot : CL Ω_GW = ρ_GW/ρ_tot (second column)
++    rho_tot_prog : Energies::rho in program units at that dump
++    a_star : scale factor at production
++    H_star_phys : Hubble [GeV] at production (prescribed)
++    omega_star, fStar : CosmoLattice scales [GeV]
++    V_TI, T_rh, g_star : TI vacuum energy, reheating T, g_*
++    """
++    # Critical density in program units: ρ_c = 3 H² Mpl² / (fStar² ωStar²)
++    rho_c_phys = 3.0 * H_star_phys**2 * M_PL**2
++    rho_c_prog = rho_c_phys / (fStar**2 * omega_star**2)
++    if rho_c_prog <= 0 or not np.isfinite(rho_c_prog):
++        raise RuntimeError("Invalid rho_c for GW conversion")
++
++    # CL note: multiply by ρ_tot/ρ_c when expansion is prescribed
++    rho_tot = max(rho_tot_prog, 1e-300)
++    omega_crit = omega_over_rho_tot * (rho_tot / rho_c_prog)
++
++    # Comoving k [GeV]: κ_prog * ω_*  (κ = k_phys/ω_* at a≈1 lattice units)
++    k_comov = np.asarray(kappa, dtype=float) * omega_star
++
++    R_md = (math.pi**2 * g_star * T_rh**4 / (30.0 * V_TI)) ** (1.0 / 3.0)
++    a_rh_over_a0 = (G_S0 / g_star) ** (1.0 / 3.0) * T_CMB_GEV / T_rh
++    # a_*/a_0 = (a_*/a_rh)*(a_rh/a_0) ≈ R_md * a_rh/a_0
++    # (R_md matches energy-equivalent MD dilution used in gwSpectrum.gw_thermal_inflation)
++    a_star_over_a0 = R_md * a_rh_over_a0
++
++    f_hz = (k_comov / (2.0 * math.pi)) * a_star_over_a0 * GEV_TO_HZ
++
++    F_GW = 1.67e-5 * (100.0 / g_star) ** (1.0 / 3.0)
++    h2_omega = F_GW * omega_crit * R_md
++
++    meta = {
++        "R_md": R_md,
++        "F_GW": F_GW,
++        "rho_tot_prog": rho_tot,
++        "rho_c_prog": rho_c_prog,
++        "rho_tot_over_rho_c": rho_tot / rho_c_prog,
++        "a_star": a_star,
++        "H_star_phys": H_star_phys,
++        "a_star_over_a0": a_star_over_a0,
++    }
++    return f_hz, h2_omega, meta
++
++
+ def plot_gw_spectrum(run_dir, out_path=None):
+     run_dir = os.path.abspath(run_dir)
+     params = _load_run_params(run_dir)
+@@ -111,26 +259,34 @@ def plot_gw_spectrum(run_dir, out_path=None):
+             T_est = T0 / max(1.0, t_prog / mphi) if params.get("no_hubble") else None
+             if T_est is not None:
+                 label = f"t={t_prog:.2g}, T~{T_est:.0f} GeV"
+-        axes[0].loglog(k[k > 0], np.maximum(pgw[k > 0], 1e-40), color=color, alpha=0.8, label=label)
++            else:
++                label = f"t={t_prog:.2g}"
++        mask = k > 0
++        axes[0].loglog(
++            k[mask], np.maximum(np.abs(pgw[mask]), 1e-40),
++            color=color, alpha=0.8, label=label,
++        )
+ 
+-    axes[0].set_xlabel(r"$k$ (program units)")
+-    axes[0].set_ylabel(r"$P_{\mathrm{GW}}(k)$")
++    axes[0].set_xlabel(r"$\kappa$ (program units)")
++    axes[0].set_ylabel(r"$\Omega_{\mathrm{GW}}(\kappa)/\tilde\rho_{\mathrm{tot}}$ (CL)")
+     axes[0].set_title("CosmoLattice GW spectrum evolution")
+     axes[0].legend(fontsize=7, loc="best")
+     axes[0].grid(True, which="both", alpha=0.3)
+ 
+     if energy is not None:
+         t, e_spec, e_rho = energy
+-        axes[1].semilogy(t, np.maximum(e_spec, 1e-40), "b-", label=r"$E_{\mathrm{spec}}$")
+-        axes[1].semilogy(t, np.maximum(e_rho, 1e-40), "r--", label=r"$E_{\mathrm{spec}} \times \rho$")
++        axes[1].semilogy(t, np.maximum(np.abs(e_spec), 1e-40), "b-", label=r"$E_{\mathrm{spec}}$")
++        axes[1].semilogy(t, np.maximum(np.abs(e_rho), 1e-40), "r--", label=r"$E_{\mathrm{spec}} \times \rho$")
+         axes[1].set_xlabel("t (program time)")
+         axes[1].set_ylabel("GW spectral energy")
+         axes[1].set_title("GW energy vs time")
+         axes[1].legend()
+         axes[1].grid(True, which="both", alpha=0.3)
+     else:
+-        axes[1].text(0.5, 0.5, "energy_gws.txt not found", ha="center", va="center",
+-                     transform=axes[1].transAxes)
++        axes[1].text(
++            0.5, 0.5, "energy_gws.txt not found",
++            ha="center", va="center", transform=axes[1].transAxes,
++        )
+         axes[1].set_axis_off()
+ 
+     fig.suptitle(os.path.basename(run_dir), fontsize=10)
+@@ -141,7 +297,7 @@ def plot_gw_spectrum(run_dir, out_path=None):
+         os.makedirs(out_dir, exist_ok=True)
+         out_path = os.path.join(out_dir, "gw_spectrum.png")
+     else:
+-        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
++        os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
+ 
+     fig.savefig(out_path, dpi=150)
+     plt.close(fig)
+@@ -149,12 +305,168 @@ def plot_gw_spectrum(run_dir, out_path=None):
+     return out_path
+ 
+ 
++def plot_physical_omega(
++    run_dir,
++    out_path=None,
++    T_rh=None,
++    snapshot=None,
++    g_star=106.75,
++):
++    run_dir = os.path.abspath(run_dir)
++    params = _load_run_params(run_dir)
++    inp = _load_input_in(run_dir)
++    blocks = parse_spectra_gws(os.path.join(run_dir, "spectra_gws.txt"))
++    energy = parse_energy_gws(os.path.join(run_dir, "energy_gws.txt"))
++    sf = parse_scale_factor(run_dir)
++    if not blocks:
++        raise RuntimeError("No GW spectrum blocks")
++
++    V_TI = _delV_from_params(params, inp)
++    fStar, omega_star = _fstar_omega(params, inp)
++    if T_rh is None:
++        T_rh = float(params.get("T_rh", 0.0) or 0.0)
++    if T_rh <= 0:
++        T_rh = float(params.get("T0", inp.get("T0", 1000.0))) * 0.8
++        print(f"WARNING: T_rh not set; defaulting to 0.8*T0 = {T_rh:g} GeV")
++
++    idx = snapshot if snapshot is not None else select_production_index(energy, blocks)
++    idx = int(np.clip(idx, 0, len(blocks) - 1))
++    kappa, omega_cl = blocks[idx]
++
++    # ρ_tot from energy_gws: E_rho / E_spec
++    if energy is not None and idx < len(energy[0]) and abs(energy[1][idx]) > 0:
++        rho_tot = energy[2][idx] / energy[1][idx]
++        t_star = energy[0][idx]
++    else:
++        rho_tot = 0.25  # false-vac ΔV in program units (shifted tree)
++        t_star = float("nan")
++        print("WARNING: could not infer rho_tot from energy_gws; using 0.25")
++
++    # a(t), H(t)
++    if sf is not None:
++        t_sf, a_sf, H_sf = sf
++        a_star = float(np.interp(t_star, t_sf, a_sf)) if np.isfinite(t_star) else float(a_sf[-1])
++        H_prog = float(np.interp(t_star, t_sf, H_sf)) if np.isfinite(t_star) else float(H_sf[-1])
++        # average_scale_factor H is often H/ω_* (program); convert to GeV
++        H_phys = H_prog * omega_star if H_prog < 1.0 else H_prog
++    else:
++        a_star = 1.0
++        H_phys = math.sqrt(V_TI / (3.0 * M_PL**2))
++        print("WARNING: no average_scale_factor.txt; using H=H_TI vacuum")
++
++    # Prefer prescribed H from vacuum+radiation at T≈T0/a
++    T0 = float(params.get("T0", inp.get("T0", 1230.0)))
++    T_star = T0 / max(a_star, 1e-30)
++    chig2 = 30.0 / (math.pi**2 * g_star)
++    H_prescribed = math.sqrt((T_star**4 / chig2 + V_TI) / (3.0 * M_PL**2))
++    # During/after nucleation ΔV may still dominate; use max for conservative ρ_c
++    H_use = max(H_phys, H_prescribed) if np.isfinite(H_phys) else H_prescribed
++
++    f_hz, h2_omega, meta = convert_to_today(
++        kappa,
++        omega_cl,
++        rho_tot_prog=rho_tot,
++        a_star=a_star,
++        H_star_phys=H_use,
++        omega_star=omega_star,
++        fStar=fStar,
++        V_TI=V_TI,
++        T_rh=T_rh,
++        g_star=g_star,
++    )
++
++    mask = (f_hz > 0) & np.isfinite(h2_omega) & (h2_omega > 0)
++    f_hz, h2_omega = f_hz[mask], h2_omega[mask]
++
++    fig, ax = plt.subplots(figsize=(8, 5))
++    ax.loglog(f_hz, h2_omega, "b-", lw=2, label=f"CL snapshot {idx}" + (f" (t={t_star:g})" if np.isfinite(t_star) else ""))
++    ax.set_xlabel(r"$f$ [Hz] (today)")
++    ax.set_ylabel(r"$h^2\Omega_{\mathrm{GW}}(f)$")
++    ax.set_title("Lattice GW → today (TI MD dilution)")
++    ax.grid(True, which="both", alpha=0.3)
++    ax.legend(fontsize=8)
++
++    # Annotate peak
++    if len(h2_omega):
++        ip = int(np.argmax(h2_omega))
++        ax.plot(f_hz[ip], h2_omega[ip], "ro", ms=5)
++        ax.annotate(
++            f"peak\n$f$={f_hz[ip]:.3g} Hz\n$h^2\\Omega$={h2_omega[ip]:.3g}",
++            xy=(f_hz[ip], h2_omega[ip]),
++            xytext=(0.55, 0.55),
++            textcoords="axes fraction",
++            fontsize=8,
++            arrowprops=dict(arrowstyle="->", color="0.4"),
++        )
++
++    text = (
++        f"$T_{{\\mathrm{{rh}}}}$={T_rh:g} GeV\n"
++        f"$R_{{\\mathrm{{md}}}}$={meta['R_md']:.3e}\n"
++        f"$\\tilde\\rho_{{\\mathrm{{tot}}}}/\\tilde\\rho_c$={meta['rho_tot_over_rho_c']:.3e}\n"
++        f"$a_*$={meta['a_star']:.4g}"
++    )
++    ax.text(0.02, 0.02, text, transform=ax.transAxes, fontsize=8,
++            va="bottom", ha="left", family="monospace",
++            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.7))
++
++    fig.tight_layout()
++    if out_path is None:
++        out_dir = os.path.join(run_dir, "figs")
++        os.makedirs(out_dir, exist_ok=True)
++        out_path = os.path.join(out_dir, "gw_omega_today.png")
++    else:
++        os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
++    fig.savefig(out_path, dpi=150)
++    plt.close(fig)
++
++    # Save numeric spectrum
++    npz_path = os.path.splitext(out_path)[0] + ".npz"
++    np.savez(
++        npz_path,
++        f_hz=f_hz,
++        h2_omega=h2_omega,
++        kappa=kappa[mask] if mask.shape == kappa.shape else kappa,
++        snapshot=idx,
++        T_rh=T_rh,
++        V_TI=V_TI,
++        **{k: np.asarray(v) for k, v in meta.items()},
++    )
++
++    print(f"Wrote {out_path}")
++    print(f"Wrote {npz_path}")
++    print(f"  snapshot={idx}  T_rh={T_rh:g}  R_md={meta['R_md']:.4e}")
++    print(f"  rho_tot/rho_c={meta['rho_tot_over_rho_c']:.4e}  H_*={H_use:.4e} GeV")
++    if len(h2_omega):
++        print(f"  peak: f={f_hz[ip]:.4e} Hz  h²Ω={h2_omega[ip]:.4e}")
++    return out_path
++
++
+ def main():
+     ap = argparse.ArgumentParser(description="Plot CosmoLattice GW spectra")
+     ap.add_argument("run_dir", help="CosmoLattice output directory")
+     ap.add_argument("--out", default=None, help="Output PNG path")
++    ap.add_argument(
++        "--physical",
++        action="store_true",
++        help="Convert selected snapshot to h²Ω_GW(f) today with TI MD dilution",
++    )
++    ap.add_argument("--T_rh", type=float, default=None,
++                    help="Reheating temperature [GeV] for redshift (default: from cl_run_params)")
++    ap.add_argument("--snapshot", type=int, default=None,
++                    help="Spectrum block index (default: max E_spec*ρ)")
++    ap.add_argument("--g_star", type=float, default=106.75)
+     args = ap.parse_args()
+-    plot_gw_spectrum(args.run_dir, out_path=args.out)
++
++    if args.physical:
++        plot_physical_omega(
++            args.run_dir,
++            out_path=args.out,
++            T_rh=args.T_rh,
++            snapshot=args.snapshot,
++            g_star=args.g_star,
++        )
++    else:
++        plot_gw_spectrum(args.run_dir, out_path=args.out)
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/simulation/run_cosmolattice.py b/simulation/run_cosmolattice.py
+index 72b6265..2a022d9 100644
+--- a/simulation/run_cosmolattice.py
++++ b/simulation/run_cosmolattice.py
+@@ -96,6 +96,16 @@ def parse_args():
+     # Langevin / expansion
+     p.add_argument("--eta_phys", type=float, default=None, help="Friction (GeV); default = T0")
+     p.add_argument("--thermal_noise", type=int, default=1, help="1=FDT noise on, 0=deterministic")
++    p.add_argument("--langevin_off_after_nucleation", action="store_true",
++                   help="Zero Langevin η and FDT noise once false-vac fraction drops "
++                        "(bubble collision / vacuum-GW stage); Hubble 3H kept")
++    p.add_argument("--langevin_off_f_switch", type=float, default=0.99,
++                   help="Trigger Langevin-off when false-vac fraction <= this "
++                        "(default 0.99 = early conversion; use ~expansion_f_switch "
++                        "to wait until near completion)")
++    p.add_argument("--langevin_off_phi_esc", type=float, default=None,
++                   help="Escape |phi| (GeV) for Langevin-off fraction; "
++                        "default = --expansion_phi_esc")
+     p.add_argument("--noise_seed", type=int, default=1)
+     p.add_argument("--no_hubble", action="store_true", help="Fixed T=T0, no expansion")
+     p.add_argument("--expansion_mode", choices=["legacy", "staged"], default="legacy",
+@@ -645,6 +655,10 @@ def make_input(args, out_dir):
+         f"dt_phys = {args.dt_phys:g}",
+         f"include_cw = {args.include_cw}",
+         f"thermal_noise = {args.thermal_noise}",
++        f"langevin_off_after_nucleation = {1 if args.langevin_off_after_nucleation else 0}",
++        f"langevin_off_f_switch = {args.langevin_off_f_switch:g}",
++        f"langevin_off_phi_esc = "
++        f"{(args.langevin_off_phi_esc if args.langevin_off_phi_esc is not None else args.expansion_phi_esc):g}",
+         f"noise_seed = {args.noise_seed}",
+         f"ic_numba = {0 if (args.cosmolattice_ic or args.bubble_seed_phi > 0 or args.uniform_phi > 0) else 1}",
+         f"uniform_phi = {args.uniform_phi:g}",
+@@ -702,6 +716,14 @@ def write_run_params(args, out_dir):
+         "vev": math.sqrt(mu * mu / lam),
+         "T0": args.T0,
+         "eta_phys": args.eta_phys if args.eta_phys is not None else args.T0,
++        "thermal_noise": args.thermal_noise,
++        "langevin_off_after_nucleation": bool(args.langevin_off_after_nucleation),
++        "langevin_off_f_switch": args.langevin_off_f_switch,
++        "langevin_off_phi_esc": (
++            args.langevin_off_phi_esc
++            if args.langevin_off_phi_esc is not None
++            else args.expansion_phi_esc
++        ),
+         "nb": 0 if args.potential_type == "fermion_only" else args.nb,
+         "nf": args.nf,
+         "boson_coupling": args.boson_coupling,
+@@ -761,6 +783,8 @@ def output_dirname(args):
+         staged_tag = ""
+     eta = args.eta_phys if args.eta_phys is not None else args.T0
+     eta_tag = f"_eta_{eta:g}"
++    if args.langevin_off_after_nucleation:
++        eta_tag += f"_langoff_f{args.langevin_off_f_switch:g}"
+     nb = 0 if args.potential_type == "fermion_only" else args.nb
+     coupling_tag = (
+         f"_gb_{args.boson_coupling:g}_gf_{args.fermion_coupling:g}"
+diff --git a/tools/export_cl_snapshots.py b/tools/export_cl_snapshots.py
+index 71645ca..f2ba35c 100644
+--- a/tools/export_cl_snapshots.py
++++ b/tools/export_cl_snapshots.py
+@@ -175,7 +175,9 @@ def write_metadata(run_dir, params, n_snapshots):
+     return out
+ 
+ 
+-MANIFEST_FIELDS = ("step", "t", "T", "a", "H", "fStar", "n_scalars", "filename")
++# Older runs: step,t,T,a,H,fStar,n_scalars,filename
++# Staged runs also insert expansion_stage,rho_m before filename.
++MANIFEST_MIN_FIELDS = 8
+ 
+ 
+ def _parse_manifest_row(line):
+@@ -184,9 +186,22 @@ def _parse_manifest_row(line):
+     if not line or line.startswith("step,"):
+         return None
+     parts = [p.strip() for p in line.split(",")]
+-    if len(parts) < len(MANIFEST_FIELDS):
++    if len(parts) < MANIFEST_MIN_FIELDS:
+         return None
+-    return dict(zip(MANIFEST_FIELDS, parts))
++    # Filename is always the last column (handles optional staged fields).
++    filename = parts[-1]
++    if not filename.endswith(".raw"):
++        return None
++    return {
++        "step": parts[0],
++        "t": parts[1],
++        "T": parts[2],
++        "a": parts[3],
++        "H": parts[4],
++        "fStar": parts[5],
++        "n_scalars": parts[6],
++        "filename": filename,
++    }
+ 
+ 
+ def export_run(run_dir, keep_raw=False, hubble=True):
+@@ -254,7 +269,8 @@ def export_run(run_dir, keep_raw=False, hubble=True):
+                 "rho_min": float(rho.min()),
+                 "rho_max": float(rho.max()),
+             }
+-            if "pi1" in snap:
++            # Omit pi by default: halves NPZ size; not needed for strings/Tc1/plots.
++            if hubble and "pi1" in snap and False:
+                 save_dict["pi1"] = snap["pi1"].astype(np.float32)
+                 save_dict["pi2"] = snap["pi2"].astype(np.float32)
+         else:

@@ -66,34 +66,6 @@ def _load_input_in(run_dir):
     return out
 
 
-def resolve_gw_paths(run_dir):
-    """Locate CosmoLattice v1/v2 GW spectrum and energy files.
-
-    v1: spectra_gws.txt, energy_gws.txt
-    v2: spectra_energy_gws.txt, average_energies_gws.txt
-    """
-    run_dir = os.path.abspath(run_dir)
-    spectra_candidates = [
-        "spectra_gws.txt",
-        "spectra_energy_gws.txt",
-    ]
-    energy_candidates = [
-        "energy_gws.txt",
-        "average_energies_gws.txt",
-    ]
-    spectra = next(
-        (os.path.join(run_dir, n) for n in spectra_candidates
-         if os.path.exists(os.path.join(run_dir, n))),
-        None,
-    )
-    energy = next(
-        (os.path.join(run_dir, n) for n in energy_candidates
-         if os.path.exists(os.path.join(run_dir, n))),
-        None,
-    )
-    return spectra, energy
-
-
 def parse_spectra_gws(path):
     """Parse spectra_gws.txt into list of (k_centers, values) blocks."""
     if not os.path.exists(path):
@@ -128,19 +100,14 @@ def parse_spectra_gws(path):
 
 
 def parse_energy_gws(path):
-    """Parse energy_gws.txt / average_energies_gws.txt -> (t, E_spec, E_rho).
-
-    Both v1 and v2 store columns such that rho_tot = E_rho / E_spec:
-      v1 energy_gws:              t, E_spec, E_spec*rho_tot
-      v2 average_energies_gws:    t, rhoGW/rho, rhoGW
-    """
-    if path is None or not os.path.exists(path):
+    """Parse energy_gws.txt -> arrays (t, E_spec, E_rho)."""
+    if not os.path.exists(path):
         return None
     rows = []
     with open(path) as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith("#") or line.startswith("1:"):
+            if not line or line.startswith("#"):
                 continue
             parts = line.split()
             if len(parts) < 3:
@@ -156,38 +123,17 @@ def parse_energy_gws(path):
 
 
 def parse_scale_factor(run_dir):
-    """average_scale_factor.txt -> t, a, H (best-effort column guess).
-
-    CosmoLattice layouts:
-      v1: t, a, aDot, H
-      v2: t, a, aDot, H, resolutionPreservingFactor
-    Prefer an explicit ``H`` header column when present; otherwise column 3
-    (0-indexed) when ≥4 columns — never the trailing resolution factor.
-    """
+    """average_scale_factor.txt -> t, a, H (best-effort column guess)."""
     path = os.path.join(run_dir, "average_scale_factor.txt")
     if not os.path.exists(path):
         return None
-    header_cols = None
-    with open(path) as f:
-        first = f.readline().strip()
-        if first.startswith("#"):
-            # "#t    a    aDot    H    ..." or "# t a aDot H"
-            tokens = first.lstrip("#").replace(":", " ").split()
-            if tokens and not tokens[0].replace(".", "", 1).isdigit():
-                header_cols = [tok.lower() for tok in tokens]
     data = np.loadtxt(path)
     if data.ndim == 1:
         data = data.reshape(1, -1)
     t = data[:, 0]
     a = data[:, 1]
-    if header_cols and "h" in header_cols:
-        H = data[:, header_cols.index("h")]
-    elif data.shape[1] >= 4:
-        H = data[:, 3]
-    elif data.shape[1] >= 3:
-        H = data[:, -1]
-    else:
-        H = np.full_like(a, np.nan)
+    # Prefer last column as H when 4 columns (t, a, adot, H)
+    H = data[:, -1] if data.shape[1] >= 3 else np.full_like(a, np.nan)
     return t, a, H
 
 
@@ -293,9 +239,8 @@ def plot_gw_spectrum(run_dir, out_path=None):
     mphi = float(params.get("mphi", 1000.0))
     T0 = float(params.get("T0", 7350.0))
 
-    spectra_path, energy_path = resolve_gw_paths(run_dir)
-    if spectra_path is None:
-        raise FileNotFoundError(f"No GW spectrum file in {run_dir}")
+    spectra_path = os.path.join(run_dir, "spectra_gws.txt")
+    energy_path = os.path.join(run_dir, "energy_gws.txt")
     blocks = parse_spectra_gws(spectra_path)
     energy = parse_energy_gws(energy_path)
 
@@ -370,11 +315,8 @@ def plot_physical_omega(
     run_dir = os.path.abspath(run_dir)
     params = _load_run_params(run_dir)
     inp = _load_input_in(run_dir)
-    spectra_path, energy_path = resolve_gw_paths(run_dir)
-    if spectra_path is None:
-        raise FileNotFoundError(f"No GW spectrum file in {run_dir}")
-    blocks = parse_spectra_gws(spectra_path)
-    energy = parse_energy_gws(energy_path)
+    blocks = parse_spectra_gws(os.path.join(run_dir, "spectra_gws.txt"))
+    energy = parse_energy_gws(os.path.join(run_dir, "energy_gws.txt"))
     sf = parse_scale_factor(run_dir)
     if not blocks:
         raise RuntimeError("No GW spectrum blocks")
