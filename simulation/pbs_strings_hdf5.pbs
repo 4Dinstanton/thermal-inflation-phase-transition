@@ -1,0 +1,21 @@
+#!/bin/bash
+#PBS -N strings-hdf5-skl
+#PBS -V
+#PBS -q norm_skl
+#PBS -A inhouse
+#PBS -l select=1:ncpus=48:mpiprocs=1:ompthreads=1
+#PBS -l walltime=48:00:00
+#PBS -W sandbox=PRIVATE
+#PBS -j oe
+#
+# Thin PBS wrapper → simulation/run_strings_hdf5_xeon.sh
+# Prefer interactive use on the fat Xeon (376 GiB) when SRU is exhausted:
+#
+#   bash simulation/run_strings_hdf5_xeon.sh data/lattice/set8/<run>
+#
+# With SRU on SKL:
+#   qsub -v RUN_DIR=data/lattice/set8/<run> simulation/pbs_strings_hdf5.pbs
+
+REPO="${REPO:-/scratch/a2136a01/PhaseTransition}"
+cd "$REPO" || exit 1
+exec bash simulation/run_strings_hdf5_xeon.sh ${RUN_DIR:+"$RUN_DIR"}

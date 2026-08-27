@@ -45,7 +45,7 @@ template arguments`; the build defaults to Homebrew `g++-16`. Override with
 | `models/thermal_tables.hpp` | Unchanged from v1: loader/evaluator of `V`, `V'`, `V''` from the binary J-tables. No CosmoLattice dependencies. |
 | `models/thermal_force.h` | TempLat operators wrapping the per-site table lookup. Ported to the v2 `eval()` / `DoEval::eval` operator API. |
 | `models/thermal_inflation.h` | The model. Same physics as v1; every raw per-site loop is now a lattice expression. |
-| `evolvers/stochasticrk.h` | `StochasticLangevin`: friction + FDT noise, `ou` and `verlet` schemes. |
+| `evolvers/stochasticrk.h` | `StochasticLangevin`: friction + FDT noise; `ou`, `verlet`, `numba`, `fused_rk2`. |
 | `parameter-files/*.in` | Set B / Set C / smoke-test inputs. |
 | `tests/fdt_check.py` | Reproduces the fluctuation-dissipation tables in §1, for v2 and (with `--with-v1`) v1. |
 | `patches/cosmolattice_v2.0.0_registration.patch` | The upstream edits, as a reviewable diff. |
@@ -108,6 +108,8 @@ which matters only over many e-folds (`a` moves ~1% in a typical run).
 |---|---|---|
 | `ou` (default) | exact Ornstein–Uhlenbeck half-steps, Strang-split around a plain Verlet step: `pi <- c pi + sqrt((1-c^2) <pi^2>_eq) z`, `c = exp(-eta dt/2)` | exactly `T`, at any `eta*dt` |
 | `verlet` | explicit, folded into each half kick (the v1 "fused" scheme) | `T / (1 - eta*dt/4)`, unstable above `eta*dt = 2` |
+| `numba` | same Verlet integrator, noise × `1/√2` (legacy amplitude parity) | `~0.61 T` at production `dt` |
+| `fused_rk2` | 4-pass predictor–corrector RK2 + two half-kicks of `0.5 σ_full` (Numba staging) | `~0.61 T` at production `dt` |
 
 Verified on a 32³ non-expanding box at fixed `T = eta_phys = 7350 GeV`,
 `mphi = 1000`, `dx_phys = 1e-3`, `fStar = 1e15`, where
@@ -156,6 +158,16 @@ depends exponentially on `S_3/T`, this biases `T_c1` and every downstream GW
 amplitude. It is a systematic offset, not a broken simulation — but v1 and v2
 numbers are not directly comparable, and a v1↔v2 `T_c1` comparison needs
 `--stochastic_scheme fdt` on the v1 side.
+
+### `fused_rk2`: Numba staging on the v2 backend
+
+`stochastic_scheme = fused_rk2` (aliases `rk2`, `numba_rk2`) is an expression-based
+4-pass predictor–corrector RK2 with the same half-noise construction as Numba /
+v1 `numbaRK2` (`0.5 * σ_full` on each of two independent corrector kicks). Scale
+factor is held fixed across the two half-steps and advanced once at the end.
+This is the structural match to the old fused RK2; it is still not bit-identical
+(different RNG). Prefer `fused_rk2` when comparing integrator *shape* to Numba;
+keep `numba` only for continuity with earlier v2 runs that used Verlet+½ FDT.
 
 ## 2. v2 cosmic defects and GWs in the TIPT scenario
 

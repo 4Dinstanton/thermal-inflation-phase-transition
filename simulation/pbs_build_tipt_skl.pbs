@@ -1,0 +1,90 @@
+#!/bin/bash
+#PBS -N tipt-build-skl
+#PBS -V
+#PBS -q norm_skl
+#PBS -A inhouse
+#PBS -l select=1:ncpus=40:mpiprocs=1:ompthreads=1
+#PBS -l walltime=02:00:00
+#PBS -W sandbox=PRIVATE
+#PBS -j oe
+#
+# Build thermal_inflation into external/cosmolattice/build_mpi/ (does not
+# touch build_pqera_mpi). gcc/8.3.0 + OpenMPI, not intel/18.
+#   cd /scratch/a2136a01
+#   qsub /scratch/a2136a01/PhaseTransition/simulation/pbs_build_tipt_skl.pbs
+
+REPO="${REPO:-/scratch/a2136a01/PhaseTransition}"
+
+export PYTHONUNBUFFERED=1
+unset CC CXX CFLAGS CXXFLAGS
+unset HDF5_ROOT HDF5_DIR HDF5_PARALLEL_DIR MYHDF5_PATH MYFFTW3_PATH FFTW_DIR FFTW_ROOT
+
+module purge
+module load craype-x86-skylake gcc/8.3.0 openmpi/3.1.0
+module load hdf5-parallel/1.10.2 fftw_mpi/3.3.7
+module load python/3.9.5 2>/dev/null || module load python/3.9 2>/dev/null || true
+module load cmake/3.26.2 2>/dev/null || module load cmake/3.17.4 2>/dev/null \
+  || module load cmake/3.12.3 2>/dev/null || module load cmake 2>/dev/null || true
+
+export CC=mpicc
+export CXX=mpicxx
+export CXXFLAGS="-std=c++14"
+export OMP_NUM_THREADS=1
+
+if ! command -v mpicxx >/dev/null 2>&1; then
+  echo "ERROR: mpicxx missing. Need gcc/8.3.0 + openmpi/3.1.0"
+  module list
+  exit 1
+fi
+
+if [ -z "${HDF5_ROOT:-}" ]; then
+  for d in ${HDF5_DIR:-} ${HDF5_PARALLEL_DIR:-}; do
+    [ -n "$d" ] && [ -f "$d/include/hdf5.h" ] && export HDF5_ROOT="$d" && break
+  done
+fi
+if [ -z "${HDF5_ROOT:-}" ] && command -v h5pcc >/dev/null 2>&1; then
+  p="$(h5pcc -showconfig 2>/dev/null | awk -F': ' '/Installation point/{print $2; exit}')"
+  [ -n "$p" ] && [ -f "$p/include/hdf5.h" ] && export HDF5_ROOT="$p"
+fi
+if [ -z "${HDF5_ROOT:-}" ]; then
+  for d in /apps/compiler/gcc/8.3.0/openmpi/*/applib2/x86-skylake/hdf5-parallel/1.10.2 \
+           /apps/compiler/gcc/8.3.0/openmpi/3.1.0/applib2/x86-skylake/hdf5-parallel/1.10.2; do
+    [ -f "$d/include/hdf5.h" ] && export HDF5_ROOT="$d" && break
+  done
+fi
+
+if [ -n "${FFTW_DIR:-}" ]; then
+  export MYFFTW3_PATH="$FFTW_DIR"
+elif [ -n "${FFTW_ROOT:-}" ]; then
+  export MYFFTW3_PATH="$FFTW_ROOT"
+else
+  for d in /apps/compiler/gcc/8.3.0/openmpi/*/applib2/x86-skylake/fftw_mpi/3.3.7 \
+           /apps/compiler/gcc/8.3.0/openmpi/3.1.0/applib2/x86-skylake/fftw_mpi/3.3.7; do
+    if [ -d "$d/include" ] || [ -f "$d/include/fftw3.h" ]; then
+      export MYFFTW3_PATH="$d"
+      break
+    fi
+  done
+fi
+
+echo "=== TIPT SKL build thermal_inflation ==="
+echo "date=$(date)  host=$(hostname)  REPO=$REPO"
+echo "CC=$(command -v "$CC")  CXX=$(command -v "$CXX")"
+echo "HDF5_ROOT=${HDF5_ROOT:-unset}  MYFFTW3_PATH=${MYFFTW3_PATH:-unset}"
+module list
+
+set -e
+cd "$REPO" || { echo "ERROR: no repo at $REPO"; exit 1; }
+
+if [ ! -f data/thermal_splines/thermal_tables.bin ]; then
+  echo "ERROR: missing data/thermal_splines/thermal_tables.bin"
+  exit 1
+fi
+
+# Wipe Mac CMake cache in build_mpi; do not delete build_pqera_mpi.
+rm -rf external/cosmolattice/build_mpi
+python3 simulation/run_cosmolattice.py --install --build --mpi --dry_run \
+  --Nx 32 --tMax 1 --no_snapshots
+
+ls -l external/cosmolattice/build_mpi/thermal_inflation
+echo "build done $(date)"

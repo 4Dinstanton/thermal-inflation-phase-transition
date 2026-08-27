@@ -532,6 +532,7 @@ def make_input(args, out_dir):
         "#Temperature / Langevin",
         f"T0 = {args.T0:g}",
         f"eta_phys = {eta:g}",
+        f"eta_follows_T = {1 if getattr(args, 'eta_follows_T', False) else 0}",
         f"dx_phys = {args.dx_phys:g}",
         f"include_cw = {args.include_cw}",
         f"thermal_noise = {args.thermal_noise}",
@@ -584,10 +585,15 @@ def parse_args():
                      help="build with HDF5 (optional; raw --steps snapshots do not need it)")
     v2p.add_argument("--jobs", type=int, default=None, help="make -j value")
     v2p.add_argument("--stochastic_scheme_v2", default="ou",
-                     choices=["ou", "verlet", "numba"],
+                     choices=["ou", "verlet", "numba", "fused_rk2", "nonfused_rk2"],
                      help="Langevin scheme: ou = exact FDT temperature; "
                           "verlet = explicit friction (v1 fdt amplitude); "
-                          "numba = verlet + half-FDT noise (v1 default amplitude / T_c1 parity)")
+                          "numba = verlet + half-FDT noise (legacy amplitude parity); "
+                          "fused_rk2 = 4-pass RK2 + half-noise (Numba fused); "
+                          "nonfused_rk2 = 2-pass RK2 + full-dt noise (Numba nonfused)")
+    v2p.add_argument("--eta_follows_T", action="store_true",
+                     help="Scale friction with the bath: eta_phys(t) = eta_phys * T(t)/T0 "
+                          "(default off: eta frozen at T0). With default eta_phys=T0 this is eta~T.")
     v2p.add_argument("--measure_defects", action="store_true",
                      help="write the in-simulation comoving string length "
                           "(average_defects.txt, column winfindLengthStrings); "
@@ -619,7 +625,10 @@ def main():
 
     out_root = os.path.join(REPO, "data", "lattice", args.param_set)
     scheme = getattr(args, "stochastic_scheme_v2", "ou")
-    out_dir = os.path.join(out_root, v1.output_dirname(args) + f"_v2_{scheme}")
+    tag = f"_v2_{scheme}"
+    if getattr(args, "eta_follows_T", False):
+        tag += "_etaT"
+    out_dir = os.path.join(out_root, v1.output_dirname(args) + tag)
     os.makedirs(out_dir, exist_ok=True)
 
     in_path = os.path.join(out_dir, "input.in")

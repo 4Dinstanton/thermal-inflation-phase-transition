@@ -1,0 +1,173 @@
+#!/bin/bash
+#PBS -N tipt1024-knl
+#PBS -V
+#PBS -q normal
+#PBS -A inhouse
+#PBS -l select=8:ncpus=64:mpiprocs=64:ompthreads=1
+#PBS -l walltime=48:00:00
+#PBS -W sandbox=PRIVATE
+#PBS -j oe
+#
+# Build thermal_inflation then run 1024^3 on Nurion KNL
+# (512 ranks = 8 KNL x 64). Does not touch build_pqera_mpi.
+# Must rebuild: SKL binary will not run on KNL (and vice versa).
+#
+#   cd /scratch/a2136a01
+#   qsub -v TIPT_POT=fermion_only  PhaseTransition/simulation/pbs_tipt_1024_all.pbs
+#   qsub -v TIPT_POT=V_correct     PhaseTransition/simulation/pbs_tipt_1024_all.pbs
+#   qsub -v TIPT_POT=V_correct,GAMMA=1e-5  PhaseTransition/simulation/pbs_tipt_1024_all.pbs
+#       → writes under data/lattice/set_gamma_1e-05/ (not set8)
+# Live progress (PBS *.o is delayed):  tail -f /scratch/a2136a01/tipt_live/*.log
+#                                      tail -f PhaseTransition/kisti_log/latest_V_correct.log
+#
+# For walltime > 48h use queue "long" (max 120h) instead of "normal".
+
+REPO="${REPO:-/scratch/a2136a01/PhaseTransition}"
+NP=512
+TIPT_POT="${TIPT_POT:-fermion_only}"
+GAMMA="${GAMMA:-4.1667e-4}"
+# auto → set8 / setA / set_gamma_<γ>; override with PARAM_SET=... if needed
+PARAM_SET="${PARAM_SET:-auto}"
+
+export PYTHONUNBUFFERED=1
+LIVE_DIR="${TIPT_LIVE_DIR:-/scratch/a2136a01/tipt_live}"
+mkdir -p "$LIVE_DIR" "$REPO/kisti_log"
+JOBTAG="${PBS_JOBID:-manual}"
+export TIPT_LIVE_LOG="$LIVE_DIR/${JOBTAG}.${TIPT_POT}.log"
+ln -sfn "$TIPT_LIVE_LOG" "$REPO/kisti_log/latest_${TIPT_POT}.log"
+set -o pipefail
+# sandbox *.o is delayed until exit; this scratch file is readable immediately.
+if command -v stdbuf >/dev/null 2>&1; then
+  exec > >(stdbuf -oL -eL tee -a "$TIPT_LIVE_LOG") 2>&1
+else
+  exec > >(tee -a "$TIPT_LIVE_LOG") 2>&1
+fi
+echo "=== live log (login node: tail -f this file) ==="
+echo "  $TIPT_LIVE_LOG"
+echo "  $REPO/kisti_log/latest_${TIPT_POT}.log"
+unset CC CXX CFLAGS CXXFLAGS
+unset HDF5_ROOT HDF5_DIR HDF5_PARALLEL_DIR MYHDF5_PATH MYFFTW3_PATH FFTW_DIR FFTW_ROOT
+
+module purge
+module load craype-mic-knl gcc/8.3.0 openmpi/3.1.0
+module load hdf5-parallel/1.10.2 fftw_mpi/3.3.7
+module load python/3.9.5 2>/dev/null || module load python/3.9 2>/dev/null || true
+module load cmake/3.26.2 2>/dev/null || module load cmake/3.17.4 2>/dev/null \
+  || module load cmake/3.12.3 2>/dev/null || module load cmake 2>/dev/null || true
+
+export CC=mpicc
+export CXX=mpicxx
+export CXXFLAGS="-std=c++14"
+export OMP_NUM_THREADS=1
+export OMP_PLACES=cores
+export OMP_PROC_BIND=true
+
+if ! command -v mpicxx >/dev/null 2>&1; then
+  echo "ERROR: mpicxx missing. Need craype-mic-knl + gcc/8.3.0 + openmpi/3.1.0"
+  module list
+  exit 1
+fi
+
+if [ -z "${HDF5_ROOT:-}" ]; then
+  for d in ${HDF5_DIR:-} ${HDF5_PARALLEL_DIR:-}; do
+    [ -n "$d" ] && [ -f "$d/include/hdf5.h" ] && export HDF5_ROOT="$d" && break
+  done
+fi
+if [ -z "${HDF5_ROOT:-}" ] && command -v h5pcc >/dev/null 2>&1; then
+  p="$(h5pcc -showconfig 2>/dev/null | awk -F': ' '/Installation point/{print $2; exit}')"
+  [ -n "$p" ] && [ -f "$p/include/hdf5.h" ] && export HDF5_ROOT="$p"
+fi
+if [ -z "${HDF5_ROOT:-}" ]; then
+  for d in /apps/compiler/gcc/8.3.0/openmpi/*/applib2/x86-knl/hdf5-parallel/1.10.2 \
+           /apps/compiler/gcc/8.3.0/openmpi/3.1.0/applib2/x86-knl/hdf5-parallel/1.10.2 \
+           /apps/compiler/gcc/8.3.0/openmpi/*/applib2/mic-knl/hdf5-parallel/1.10.2 \
+           /apps/compiler/gcc/8.3.0/openmpi/3.1.0/applib2/mic-knl/hdf5-parallel/1.10.2; do
+    [ -f "$d/include/hdf5.h" ] && export HDF5_ROOT="$d" && break
+  done
+fi
+
+if [ -n "${FFTW_DIR:-}" ]; then
+  export MYFFTW3_PATH="$FFTW_DIR"
+elif [ -n "${FFTW_ROOT:-}" ]; then
+  export MYFFTW3_PATH="$FFTW_ROOT"
+else
+  for d in /apps/compiler/gcc/8.3.0/openmpi/*/applib2/x86-knl/fftw_mpi/3.3.7 \
+           /apps/compiler/gcc/8.3.0/openmpi/3.1.0/applib2/x86-knl/fftw_mpi/3.3.7 \
+           /apps/compiler/gcc/8.3.0/openmpi/*/applib2/mic-knl/fftw_mpi/3.3.7 \
+           /apps/compiler/gcc/8.3.0/openmpi/3.1.0/applib2/mic-knl/fftw_mpi/3.3.7; do
+    if [ -d "$d/include" ] || [ -f "$d/include/fftw3.h" ]; then
+      export MYFFTW3_PATH="$d"
+      break
+    fi
+  done
+fi
+
+case "$TIPT_POT" in
+  fermion_only)
+    T0=1600
+    POT_ARGS=(--potential_type fermion_only --nb 0 --nf 20)
+    ;;
+  V_correct|boson_fermion)
+    T0=1230
+    TIPT_POT=V_correct
+    POT_ARGS=(--potential_type V_correct --nb 20 --nf 20)
+    ;;
+  *)
+    echo "ERROR: TIPT_POT=$TIPT_POT  (fermion_only | V_correct)"
+    exit 1
+    ;;
+esac
+
+echo "=== TIPT build + 1024^3 run (KNL) ==="
+echo "date=$(date)  host=$(hostname)  REPO=$REPO"
+echo "NP=$NP  TIPT_POT=$TIPT_POT  T0=$T0  GAMMA=$GAMMA  PARAM_SET=$PARAM_SET"
+echo "HDF5_ROOT=${HDF5_ROOT:-unset}  MYFFTW3_PATH=${MYFFTW3_PATH:-unset}"
+module list
+
+set -e
+cd "$REPO" || { echo "ERROR: no repo at $REPO"; exit 1; }
+
+if [ ! -f data/thermal_splines/thermal_tables.bin ]; then
+  echo "ERROR: missing data/thermal_splines/thermal_tables.bin"
+  exit 1
+fi
+
+echo "=== build thermal_inflation for KNL (wipe prior SKL/Mac CMake cache; keep build_pqera_mpi) ==="
+rm -rf external/cosmolattice/build_mpi
+python3 simulation/run_cosmolattice.py --install --build --mpi --dry_run \
+  --Nx 32 --tMax 1 --no_snapshots
+ls -l external/cosmolattice/build_mpi/thermal_inflation
+echo "build done $(date)"
+
+echo "=== run ==="
+# Program time dt = mphi*dt_phys = 0.1. Averages+spectra (GWs) txt every 10 steps
+# (tOutputFreq=tOutputInfreq=1); 3D energy HDF5 every 200 steps (tOutputRareFreq=20).
+# Checkpoint every 1000 steps (tBackupFreq=100) -> thermal_inflation_backup.h5
+python3 simulation/run_cosmolattice.py \
+  --mpi --np "$NP" \
+  --Nx 1024 \
+  --tMax 1000 \
+  --dx_phys 1e-3 --dt_phys 1e-4 \
+  --T0 "$T0" \
+  --gamma "$GAMMA" \
+  "${POT_ARGS[@]}" \
+  --eta_follows_T \
+  --n_scalars 2 \
+  --with_gws \
+  --expansion_mode staged \
+  --expansion_f_switch 0.01 \
+  --expansion_phi_esc 5e4 \
+  --T_rh 1000 \
+  --langevin_off_after_nucleation \
+  --langevin_off_f_switch 0.01 \
+  --langevin_off_phi_esc 5e4 \
+  --phi_threshold 50000 \
+  --steps 4000 \
+  --steps_dense 100 \
+  --tOutputFreq 1 \
+  --tOutputInfreq 1 \
+  --tOutputRareFreq 20 \
+  --backup_steps 1000 \
+  --param_set "$PARAM_SET"
+
+echo "done $(date)"

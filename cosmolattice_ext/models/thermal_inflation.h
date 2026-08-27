@@ -75,7 +75,8 @@ namespace TempLat {
         double T0() const { return T0_; }
         double muScale() const { return mphi; }   // = omegaStar
         double fStarVal() const { return fStar; } // field rescaling, for FDT noise
-        double etaPhys = 0.0;                       // friction (GeV); default = T0 (set below)
+        double etaPhys = 0.0;                       // friction (GeV) at T0; default = T0
+        bool   etaFollowsT_ = false;                // if true, eta_phys(t) = etaPhys * T(t)/T0
         double dxPhys = 1e-3;                       // physical spacing (GeV^-1), for FDT noise
         double gStarHubble = 106.75;               // g_* in the Friedmann radiation term
         double delV = 0.0;                          // vacuum energy ΔV (GeV^4) for H
@@ -86,17 +87,18 @@ namespace TempLat {
         double bubbleSeedPhiGeV = 0.0;              // cubic patch seed at lattice centre (GeV)
         double bubbleSeedBgGeV = 0.0;               // background phi outside patch (GeV); 0 = leave IC
         int    bubbleSeedRadius = 0;                // patch half-width in lattice cells (0 = centre site only)
-        std::string stochasticScheme = "numba";     // "numba" (default) or "fused"
+        std::string stochasticScheme = "numba";     // numba|rk2_fused|fdt|nonfused_rk2|fused
         int    nScalars_ = 1;                       // 1 = real scalar; 2 = complex phi1+i*phi2
         double znOrder_ = 0.0;                      // Z_N breaking order (0 = pure U(1))
         double znStrength_ = 0.0;                   // delta_V for cos(N theta) term
         double znTurnOnT_ = 0.0;                    // activate Z_N below this T (GeV)
 
-        // Optional: zero Langevin η + FDT noise once nucleation/conversion begins
-        // (bubble collision / vacuum-GW stage). Hubble 3H in eta_eff is unchanged.
+        // Optional: zero Langevin η + FDT noise once false-vac fraction drops.
+        // Hubble 3H in eta_eff is unchanged. phi_threshold is snapshots only.
         bool   langevinOffAfterNucleation_ = false;
         double langevinOffFSwitch_ = 0.99;  // trigger when false-vac frac <= this
         double langevinOffPhiEsc_ = -1.0;   // <0 → use expansionPhiEsc_ (or 1e4)
+        double phiThresholdGeV_ = -1.0;     // CLI phi_threshold (dense snapshots)
         bool   langevinDisabled_ = false;
         double etaPhysSaved_ = 0.0;
         bool   thermalNoiseSaved_ = true;
@@ -313,6 +315,13 @@ namespace TempLat {
         void setCurrentTemperature(double T) { thermalCtx.T = T; }
         double currentT() const { return thermalCtx.T; }
 
+        /** Instantaneous physical friction (GeV). Constant etaPhys unless etaFollowsT_. */
+        double etaPhysNow() const {
+            if (etaPhys <= 0.0) return 0.0;
+            if (!etaFollowsT_ || T0_ <= 0.0) return etaPhys;
+            return etaPhys * (currentT() / T0_);
+        }
+
         // Prescribed Hubble matching StochasticRK (for snapshots / diagnostics).
         double prescribedHubble() const {
             const double M_PL = 2.4e18;
@@ -366,9 +375,8 @@ namespace TempLat {
             return localFalse / localTotal;
         }
 
-        // Zero Langevin friction + FDT noise once false-vac fraction drops
-        // (start of bubble conversion / collision stage). Safe every step.
-        // Does not change V(φ,T) or thermodynamic T_c1; Hubble 3H remains.
+        // Zero Langevin friction + FDT noise once false-vac fraction drops.
+        // Safe every step. Hubble 3H remains.
         void maybeDisableLangevin() {
             if (!langevinOffAfterNucleation_ || langevinDisabled_) return;
             const double esc = (langevinOffPhiEsc_ > 0.0)
@@ -383,8 +391,9 @@ namespace TempLat {
             etaPhys = 0.0;
             thermalNoise = false;
             if (getToolBox()->amIRoot()) {
-                std::cout << "\n*** Langevin OFF (collision/GW stage): false-vac frac="
-                          << fFalse << " <= " << langevinOffFSwitch_
+                std::cout << "\n*** Langevin OFF (eta=0, FDT off; Hubble 3H kept): "
+                          << "false-vac frac=" << fFalse
+                          << " <= " << langevinOffFSwitch_
                           << " (was eta_phys=" << etaPhysSaved_
                           << " GeV, thermal_noise="
                           << (thermalNoiseSaved_ ? 1 : 0) << ") ***\n\n";
@@ -402,7 +411,8 @@ namespace TempLat {
                 if (expansionTSwitch_ > 0.0) {
                     enterMD = (thermalCtx.T <= expansionTSwitch_);
                 } else {
-                    enterMD = (falseVacuumFraction(expansionPhiEsc_) <= expansionFSwitch_);
+                    enterMD = (falseVacuumFraction(expansionPhiEsc_)
+                               <= expansionFSwitch_);
                 }
                 if (enterMD) {
                     expansionStage_ = ExpansionStage::MD;
@@ -509,6 +519,7 @@ namespace TempLat {
 
             T0_ = parser.get<double>("T0", 7350.0);
             etaPhys = parser.get<double>("eta_phys", T0_);  // default eta = T0 (numba convention)
+            etaFollowsT_ = parser.get<int>("eta_follows_T", 0) != 0;
             dxPhys = parser.get<double>("dx_phys", 1e-3);
             includeCW = parser.get<int>("include_cw", 1) != 0;
             thermalNoise = parser.get<int>("thermal_noise", 1) != 0;
@@ -590,11 +601,13 @@ namespace TempLat {
             const bool saveSnapshots = parser.get<int>("save_snapshots", 0) != 0;
             const int snapshotSteps = parser.get<int>("snapshot_steps", 100000);
             const int snapshotStepsDense = parser.get<int>("snapshot_steps_dense", 0);
-            const double phiThreshold = parser.get<double>("phi_threshold", -1.0);
+            phiThresholdGeV_ = parser.get<double>("phi_threshold", -1.0);
+            const std::string snapFmt = parser.get<std::string>("snapshot_format", "hdf5")();
+            const bool useRaw = (snapFmt == "raw" || snapFmt == "RAW" || snapFmt == ".raw");
             snapshotWriter_.configure(
                 runPar.outFn, saveSnapshots,
-                snapshotSteps, snapshotStepsDense, phiThreshold,
-                fStar, runPar.N);
+                snapshotSteps, snapshotStepsDense, phiThresholdGeV_,
+                fStar, runPar.N, useRaw);
 
             setInitialPotentialAndMassesFromPotential();
         }

@@ -1,19 +1,16 @@
 #ifndef THERMAL_INFLATION_FIELD_SNAPSHOT_HPP
 #define THERMAL_INFLATION_FIELD_SNAPSHOT_HPP
 
-/* Lightweight 3D field snapshot writer for thermal-inflation CosmoLattice runs.
+/* 3D field snapshots for thermal-inflation CosmoLattice runs.
  *
- * Writes program-unit fldS/piS values to field_states/snapshot_{step:010d}.raw plus a
- * manifest.csv for post-run conversion to numba-compatible NPZ (see
- * tools/export_cl_snapshots.py).
+ * Formats (snapshot_format in .in / --snapshot_format):
+ *   hdf5 (default): CosmoLattice FileIO local MPI slabs -> field_snapshot.h5
+ *                   Safe for 1024^3 (no per-rank N^3 gather).
+ *   raw:            gather full N^3 float buffers to root -> field_states/*.raw
+ *                   Classical path for tools/export_cl_snapshots.py.
+ *                   OK at 256^3; OOM risk at 1024^3 MPI.
  *
- * Formats:
- *   FLPI (0x464C5049): single scalar phi + pi
- *   FLP2 (0x464C5032): two components phi1, phi2, pi1, pi2 (complex field)
- *
- * MPI: every rank packs its local interior into a full N^3 buffer (zeros elsewhere)
- * and MPI_Reduce(SUM) gathers to root, which writes the file. Without this, only
- * rank 0's slab was saved (7/8 of the volume looked "dead").
+ * Both write field_states/manifest.csv (root).
  */
 
 #include <sstream>
@@ -26,6 +23,7 @@
 #include <sys/stat.h>
 #include <vector>
 
+#include "TempLat/lattice/IO/fileio.h"
 #include "TempLat/parallel/mpi/mpitypeconstants.h"
 
 #ifndef NOMPI
@@ -75,8 +73,9 @@ public:
 
     void configure(const std::string& outputDir, bool enabled,
                    int coarseSteps, int denseSteps, double phiThresholdGeV,
-                   double fStar, int latticeN) {
+                   double fStar, int latticeN, bool useRaw = false) {
         enabled_ = enabled;
+        useRaw_ = useRaw;
         latticeN_ = latticeN;
         fStar_ = fStar;
         coarseStepFreq_ = std::max(1, coarseSteps);
@@ -85,6 +84,7 @@ public:
         phiThresholdGeV_ = phiThresholdGeV;
         denseActive_ = false;
         stepFreq_ = coarseStepFreq_;
+        h5Created_ = false;
 
         if (!enabled_) return;
 
@@ -92,6 +92,7 @@ public:
         if (!dir_.empty() && dir_.back() != '/') dir_ += '/';
         stateDir_ = dir_ + "field_states/";
         ensureDir(stateDir_);
+        h5Name_ = dir_ + "field_snapshot.h5";
         openManifest();
     }
 
@@ -103,8 +104,12 @@ public:
 
         if (stepFreq_ <= 0 || (n % stepFreq_) != 0) return;
 
-        // All ranks must enter writeSnapshot (MPI_Reduce collective).
-        writeSnapshot(model, n, t);
+        // All ranks must enter write (MPI collectives in both formats).
+        if (useRaw_) {
+            writeRawSnapshot(model, n, t);
+        } else {
+            writeHdf5Snapshot(model, n, t);
+        }
     }
 
 private:
@@ -154,17 +159,10 @@ private:
         }
     }
 
-    /** Convert CosmoLattice signed spatial coord to [0, N). */
     static size_t toIndex0N(ptrdiff_t c, int N) {
         return static_cast<size_t>(c >= 0 ? c : c + N);
     }
 
-    /** Pack local interior sites into a full N^3 buffer (zeros elsewhere).
-     *
-     * IMPORTANT: use it.getVec() (signed global coords). Do NOT pass it()
-     * (memory offset) into getCoordConfiguration0N — that API expects a loop
-     * index into the coordinate cache, not an offset.
-     */
     template <class Model, class Getter>
     void packGlobalField(Model& model, std::vector<float>& buf, Getter getter) const {
         const size_t n3 = buf.size();
@@ -173,7 +171,7 @@ private:
         const int N = latticeN_;
         auto& it = toolbox->itX();
         for (it.begin(); it.end(); ++it) {
-            const auto c = it.getVec();  // signed global coordinates
+            const auto c = it.getVec();
             if (c.size() < 3) continue;
             const size_t ix = toIndex0N(c[0], N);
             const size_t iy = toIndex0N(c[1], N);
@@ -209,9 +207,15 @@ private:
     }
 
     template <class Model>
-    void writeSnapshot(Model& model, int n, double t) {
+    void writeRawSnapshot(Model& model, int n, double t) {
         auto toolbox = model.getToolBox();
         const bool isRoot = toolbox->amIRoot();
+        if (isRoot && !warnedRaw_) {
+            std::cout << "Field snapshots: classical gather -> "
+                      << stateDir_ << "snapshot_*.raw\n";
+            warnedRaw_ = true;
+        }
+
         const int64_t step = n;
         const int nComp = model.activeScalars();
         const double T = model.currentT();
@@ -305,6 +309,57 @@ private:
         }
     }
 
+    template <class Model>
+    void writeHdf5Snapshot(Model& model, int n, double t) {
+#ifndef HDF5
+        if (model.getToolBox()->amIRoot() && !warnedNoHdf5_) {
+            std::cout << "WARNING: snapshot_format=hdf5 needs -DHDF5=ON. "
+                         "Use --snapshot_format raw, or rebuild with HDF5.\n";
+            warnedNoHdf5_ = true;
+        }
+        (void)n;
+        (void)t;
+        return;
+#else
+        const int nComp = model.activeScalars();
+        if (!h5Created_) {
+            fIO_.saver.create(h5Name_);
+            fIO_.saver.close();
+            h5Created_ = true;
+            if (model.getToolBox()->amIRoot()) {
+                std::cout << "Field snapshots: " << h5Name_
+                          << " (HDF5 local slabs)\n";
+            }
+        }
+
+        fIO_.saver.open(h5Name_);
+        fIO_.saver.save(t, model.fldS(0_c), "phi_0");
+        fIO_.saver.save(t, model.piS(0_c), "pi_0");
+        if (nComp > 1) {
+            fIO_.saver.save(t, model.fldS(1_c), "phi_1");
+            fIO_.saver.save(t, model.piS(1_c), "pi_1");
+        }
+        fIO_.saver.close();
+
+        if (!model.getToolBox()->amIRoot()) return;
+
+        const double T = model.currentT();
+        const double a = model.aI;
+        const double H = snapshotHubble(model);
+        const int stageId = model.expansionStageId();
+        const double rhoM = model.rhoMatter();
+        if (manifest_.is_open()) {
+            manifest_ << n << ','
+                      << std::setprecision(16) << t << ','
+                      << T << ',' << a << ',' << H << ','
+                      << fStar_ << ',' << nComp << ','
+                      << stageId << ',' << rhoM << ','
+                      << "field_snapshot.h5\n";
+            manifest_.flush();
+        }
+#endif
+    }
+
     static std::string zeroPad(int64_t v, int width) {
         std::ostringstream oss;
         oss << std::setw(width) << std::setfill('0') << v;
@@ -321,8 +376,12 @@ private:
     }
 
     bool enabled_ = false;
+    bool useRaw_ = false;
     bool denseEnabled_ = false;
     bool denseActive_ = false;
+    bool h5Created_ = false;
+    bool warnedNoHdf5_ = false;
+    mutable bool warnedRaw_ = false;
     int latticeN_ = 0;
     int coarseStepFreq_ = 1;
     int denseStepFreq_ = 1;
@@ -331,7 +390,11 @@ private:
     double fStar_ = 1.0;
     std::string dir_;
     std::string stateDir_;
+    std::string h5Name_;
     std::ofstream manifest_;
+#ifdef HDF5
+    TempLat::FileIO fIO_;
+#endif
 };
 
 }  // namespace ThermalInflation

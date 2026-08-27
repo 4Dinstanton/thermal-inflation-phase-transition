@@ -13,20 +13,26 @@
  * with eta_eff = eta + 3H/mu, noise_scale^2 = 2 eta_eff T dt / (a^3 mu^2 dx_phys^3),
  * and scale-factor update once per step (before the RK2 passes), as in numba.
  *
- * Noise: two half-kicks per step (passes 2 and 4), each 0.5*noise_scale*z with
- * independent z (rk2_fused_inline). noise_scale is evaluated once from T at the
- * start of the step (not T_mid), matching numba fused_inline.
+ * Noise (numba / fused_rk2): two half-kicks, each 0.5*sigma_full*z with
+ * independent z (rk2_fused_inline). Half FDT variance.
  *
- * RNG: per-site hash Box-Muller (rk2_fused_inline), independent at each site/step/pass:
+ * Noise (rk2_fused): same 4-pass RK2, but the *same* z on both correctors
+ * (Numba rk2_fused / rk2_fused_table): 0.5*sigma*z + 0.5*sigma*z = sigma*z.
+ * Full FDT amplitude.
+ *
+ * RNG: per-site hash Box-Muller. Independent-z (inline):
  *     pass 2: seed = site * 73856093  XOR step
  *     pass 4: seed = site * 19349669 XOR step
- * where site is the flat GLOBAL lattice index i*Ny*Nz+j*Nz+k (0-based),
+ * Shared-z (rk2_fused): both passes use 73856093.
+ * site is the flat GLOBAL lattice index i*Ny*Nz+j*Nz+k (0-based),
  * not the local MPI memory offset it() — using it() duplicates noise across ranks.
  *
  * stochastic_scheme:
- *   numba (default) — bare numba noise_scale (nucleation parity with numba reference)
- *   fdt             — sqrt(2) noise correction for fixed-T equipartition tests
- *   fused           — legacy FusedRK2 symplectic kernel
+ *   numba / fused_rk2 (default) — 4-pass RK2, independent 0.5*sigma kicks (inline)
+ *   rk2_fused       — 4-pass RK2, same z both half-steps (Numba rk2_fused)
+ *   fdt             — independent-z fused RK2, each half-kick *sqrt(2)
+ *   nonfused_rk2    — 2-pass RK2, one full-dt kick of sigma_full (Numba rk2_nonfused)
+ *   fused           — legacy FusedRK2 symplectic kernel (not the Numba fused kernel)
  *
  * Program-field mapping (alpha = 1, phi_GeV = fStar * fldS):
  *     pi_numba = fStar * piS          (piS = d fldS / dt at a = 1)
@@ -38,6 +44,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include "TempLat/util/rangeiteration/for_in_range.h"
 #include "TempLat/lattice/algebra/spatialderivatives/latticelaplacian.h"
@@ -53,7 +60,7 @@ namespace TempLat {
     template <typename T = double>
     class StochasticRK {
     public:
-        enum class Scheme { NumbaRK2, FusedRK2, EulerMaruyama };
+        enum class Scheme { NumbaRK2, NonfusedRK2, FusedRK2, EulerMaruyama };
 
         template <class Model>
         StochasticRK(Model& model, RunParameters<T>& rPar)
@@ -62,13 +69,43 @@ namespace TempLat {
               aBackground(model, rPar),
               scheme_(Scheme::NumbaRK2),
               useFdtNoise_(false),
+              reuseSameZ_(false),
               latticeStep_(0) {
             model.updateTemperature(model.aI);
             const std::string& sch = model.stochasticScheme;
             if (sch == "fused" || sch == "FusedRK2" || sch == "cl") {
                 scheme_ = Scheme::FusedRK2;
+            } else if (sch == "nonfused_rk2" || sch == "NONFUSED_RK2" ||
+                       sch == "rk2_nonfused" || sch == "RK2_NONFUSED" ||
+                       sch == "nonfused" || sch == "NONFUSED") {
+                scheme_ = Scheme::NonfusedRK2;
+            } else if (sch == "rk2_fused" || sch == "RK2_FUSED") {
+                reuseSameZ_ = true;
             } else if (sch == "fdt" || sch == "FDT") {
                 useFdtNoise_ = true;
+            }
+            // else: NumbaRK2 independent-z (numba, fused_rk2, ...)
+            if (model.getToolBox()->amIRoot()) {
+                if (scheme_ == Scheme::NonfusedRK2) {
+                    std::cout << "stochastic_scheme: nonfused_rk2 "
+                              << "(2-pass RK2, one full-dt FDT kick)\n";
+                } else if (scheme_ == Scheme::FusedRK2) {
+                    std::cout << "stochastic_scheme: fused "
+                              << "(legacy symplectic kernel)\n";
+                } else if (reuseSameZ_) {
+                    std::cout << "stochastic_scheme: rk2_fused "
+                              << "(4-pass RK2, same z both half-steps = full FDT)\n";
+                } else if (useFdtNoise_) {
+                    std::cout << "stochastic_scheme: fdt "
+                              << "(fused RK2, independent half-kicks *sqrt(2))\n";
+                } else {
+                    std::cout << "stochastic_scheme: fused_rk2 / numba "
+                              << "(4-pass RK2, two independent 0.5*sigma kicks)\n";
+                }
+                if (model.etaFollowsT_) {
+                    std::cout << "eta_follows_T: eta_phys(t) = " << model.etaPhys
+                              << " * T(t)/T0  (eta ~ T)\n";
+                }
             }
         }
 
@@ -83,7 +120,10 @@ namespace TempLat {
             switch (scheme_) {
                 case Scheme::NumbaRK2:
                 default:
-                    numbaRK2(model, tMinust0);
+                    numbaRK2(model, tMinust0, /*twoHalves=*/true);
+                    break;
+                case Scheme::NonfusedRK2:
+                    numbaRK2(model, tMinust0, /*twoHalves=*/false);
                     break;
                 case Scheme::FusedRK2:
                     fusedRK2(model, tMinust0);
@@ -103,7 +143,7 @@ namespace TempLat {
         // ---- Shared coefficients ------------------------------------------------
         template <class Model>
         T etaThermal(Model& model) const {
-            return model.etaPhys / model.muScale();
+            return static_cast<T>(model.etaPhysNow()) / model.muScale();
         }
 
         template <class Model>
@@ -236,17 +276,9 @@ namespace TempLat {
         static constexpr uint64_t kNoiseMulPass2 = 73856093ULL;
         static constexpr uint64_t kNoiseMulPass4 = 19349669ULL;
 
+        // ---- Numba RK2: fused 4-pass (twoHalves) or nonfused 2-pass -------------
         template <class Model>
-        T numbaHalfNoise(Model& model, T T_now, T inv_a3, T eta_eff) const {
-            if (!model.thermalNoise) return 0.0;
-            T half = 0.5 * numbaNoiseScale(model, T_now, inv_a3, eta_eff) / model.fStarVal();
-            if (useFdtNoise_) half *= std::sqrt(2.0);
-            return half;
-        }
-
-        // ---- Numba fused 4-pass RK2 ---------------------------------------------
-        template <class Model>
-        void numbaRK2(Model& model, T /*tMinust0*/) {
+        void numbaRK2(Model& model, T /*tMinust0*/, bool twoHalves) {
             const T mu = model.muScale();
             const T fStar = model.fStarVal();
             const T halfdt = model.dt / 2.0;
@@ -273,7 +305,17 @@ namespace TempLat {
             }
 
             const T invMu2 = 1.0 / (mu * mu);
-            const T halfNoise = numbaHalfNoise(model, T_now, inv_a3, eta_eff);
+            // Fused: two kicks of 0.5*sigma (fdt: each *sqrt(2)).
+            // Nonfused: one kick of sigma_full (Numba rk2_nonfused; fdt does not apply).
+            T kickNoise = 0.0;
+            if (model.thermalNoise) {
+                kickNoise = numbaNoiseScale(model, T_now, inv_a3, eta_eff) / fStar;
+                if (twoHalves) {
+                    kickNoise *= static_cast<T>(0.5);
+                    if (useFdtNoise_) kickNoise *= std::sqrt(static_cast<T>(2.0));
+                }
+            }
+            const T dCorrector = twoHalves ? halfdt : model.dt;
             const uint64_t stepSeed = latticeStep_;
             ++latticeStep_;
             const int nScalars = model.activeScalars();
@@ -328,13 +370,13 @@ namespace TempLat {
                     T dV0 = 0.0;
                     model.vPrimeComponentGeV(phiGeV.first, phiGeV.second, 0, dV0);
                     const T kpi0 = lap0 - eta_eff * pi0 - dV0 * invMu2;
-                    model.fldS(0_c).getSet(i) += halfdt * model.tmpPiS(0_c).get(i);
-                    T piVal0 = model.piS(0_c).get(i) + halfdt * kpi0 * invPiScale;
+                    model.fldS(0_c).getSet(i) += dCorrector * model.tmpPiS(0_c).get(i);
+                    T piVal0 = model.piS(0_c).get(i) + dCorrector * kpi0 * invPiScale;
                     // Box-Muller pair: independent z0,z1 (matches latticeSimComplex_numba).
                     // Previously both components reused the same seed → identical kicks
                     // along (1,1), inflating radial noise by ~sqrt(2) vs real scalar.
                     T z0 = 0, z1 = 0;
-                    if (halfNoise > 0) {
+                    if (kickNoise > 0) {
                         const uint64_t site = globalSiteIndex(model, it);
                         const uint64_t seed = site * noiseMul ^ stepSeed;
                         T u1, u2;
@@ -343,7 +385,7 @@ namespace TempLat {
                         const T th = static_cast<T>(6.28318530717958647692) * u2;
                         z0 = r * std::cos(th);
                         z1 = r * std::sin(th);
-                        piVal0 += halfNoise * z0;
+                        piVal0 += kickNoise * z0;
                     }
                     model.piS(0_c).getSet(i) = piVal0;
                     if (nScalars > 1) {
@@ -352,10 +394,10 @@ namespace TempLat {
                         T dV1 = 0.0;
                         model.vPrimeComponentGeV(phiGeV.first, phiGeV.second, 1, dV1);
                         const T kpi1 = lap1 - eta_eff * pi1 - dV1 * invMu2;
-                        model.fldS(1_c).getSet(i) += halfdt * model.tmpPiS(1_c).get(i);
-                        T piVal1 = model.piS(1_c).get(i) + halfdt * kpi1 * invPiScale;
-                        if (halfNoise > 0) {
-                            piVal1 += halfNoise * z1;
+                        model.fldS(1_c).getSet(i) += dCorrector * model.tmpPiS(1_c).get(i);
+                        T piVal1 = model.piS(1_c).get(i) + dCorrector * kpi1 * invPiScale;
+                        if (kickNoise > 0) {
+                            piVal1 += kickNoise * z1;
                         }
                         model.piS(1_c).getSet(i) = piVal1;
                     }
@@ -369,10 +411,13 @@ namespace TempLat {
 
             rkPass1(T_now);
             rkPass2(T_now, kNoiseMulPass2);
-            model.fldS(0_c).confirmGhostsUpToDate();
-            if (nScalars > 1) model.fldS(1_c).confirmGhostsUpToDate();
-            rkPass1(T_mid);
-            rkPass2(T_mid, kNoiseMulPass4);
+            if (twoHalves) {
+                model.fldS(0_c).confirmGhostsUpToDate();
+                if (nScalars > 1) model.fldS(1_c).confirmGhostsUpToDate();
+                // Numba rk2_fused reuses the same z; inline uses a second draw.
+                rkPass1(T_mid);
+                rkPass2(T_mid, reuseSameZ_ ? kNoiseMulPass2 : kNoiseMulPass4);
+            }
 
             if (expansion) {
                 model.aIM = a0;
@@ -499,6 +544,7 @@ namespace TempLat {
         FixedBackgroundExpansion<T> aBackground;
         Scheme scheme_;
         bool useFdtNoise_;
+        bool reuseSameZ_;  // true: Numba rk2_fused (same z both half-steps)
         uint64_t latticeStep_;
     };
 

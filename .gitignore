@@ -6,6 +6,8 @@ figs/
 data
 .DS_Store
 paper/
+Atakan/
+kisti_log/
 
 # FFTW MPICH build intermediates (keep install tree under external/fftw_mpich)
 external/fftw_mpich_src/

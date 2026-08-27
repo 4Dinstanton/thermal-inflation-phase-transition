@@ -86,7 +86,8 @@ namespace TempLat {
         double T0() const { return T0_; }
         double muScale() const { return mphi; }    // = omegaStar
         double fStarVal() const { return fStar; }  // field rescaling, for FDT noise
-        double etaPhys = 0.0;                      // friction (GeV); default = T0
+        double etaPhys = 0.0;                      // friction (GeV) at T0; default = T0
+        bool   etaFollowsT_ = false;               // if true, eta_phys(t) = etaPhys * T(t)/T0
         double dxPhys = 1e-3;                      // physical spacing (GeV^-1)
         double gStarHubble = 106.75;               // g_* in the Friedmann radiation term
         double delV = 0.0;                         // vacuum energy dV (GeV^4) for H
@@ -97,7 +98,7 @@ namespace TempLat {
         double bubbleSeedPhiGeV = 0.0;
         double bubbleSeedBgGeV = 0.0;
         int    bubbleSeedRadius = 0;
-        std::string stochasticScheme = "ou";       // "ou" | "verlet" | "numba" (half-FDT)
+        std::string stochasticScheme = "ou";       // "ou" | "verlet" | "numba" | "fused_rk2"
         int    nScalars_ = 1;
         double znOrder_ = 0.0;
         double znStrength_ = 0.0;
@@ -225,6 +226,13 @@ namespace TempLat {
         void setCurrentTemperature(double T) { thermalCtx.T = T; }
         double currentT() const { return thermalCtx.T; }
 
+        /** Instantaneous physical friction (GeV). Constant etaPhys unless etaFollowsT_. */
+        double etaPhysNow() const {
+            if (etaPhys <= 0.0) return 0.0;
+            if (!etaFollowsT_ || T0_ <= 0.0) return etaPhys;
+            return etaPhys * (currentT() / T0_);
+        }
+
         double prescribedHubble() const {
             const double M_PL = 2.4e18;
             const double chig2 = 30.0 / (M_PI * M_PI * gStarHubble);
@@ -346,6 +354,7 @@ namespace TempLat {
 
             T0_ = parser.get<double>("T0", 7350.0);
             etaPhys = parser.get<double>("eta_phys", T0_);
+            etaFollowsT_ = parser.get<int>("eta_follows_T", 0) != 0;
             dxPhys = parser.get<double>("dx_phys", 1e-3);
             includeCW = parser.get<int>("include_cw", 1) != 0;
             thermalNoise = parser.get<int>("thermal_noise", 1) != 0;

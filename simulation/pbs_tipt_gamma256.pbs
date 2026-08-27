@@ -1,0 +1,58 @@
+#!/bin/bash
+#PBS -N tipt-gamma256
+#PBS -V
+#PBS -q normal
+#PBS -A inhouse
+#PBS -l select=1:ncpus=64:mpiprocs=64:ompthreads=1
+#PBS -l walltime=24:00:00
+#PBS -W sandbox=PRIVATE
+#PBS -j oe
+#
+# 256³ γ scan on one KNL (or adapt select= for SKL/Xeon).
+#
+#   qsub -v GAMMAS="4.1667e-4 1e-5 1e-3" PhaseTransition/simulation/pbs_tipt_gamma256.pbs
+#   qsub -v GAMMA=1e-5 PhaseTransition/simulation/pbs_tipt_gamma256.pbs   # single γ
+#
+# Live log:  tail -f $REPO/kisti_log/latest_gamma256.log
+
+REPO="${REPO:-/scratch/a2136a01/PhaseTransition}"
+NP="${NP:-64}"
+NX="${NX:-256}"
+# Prefer GAMMAS list; fall back to single GAMMA; else default scan.
+if [ -n "${GAMMAS:-}" ]; then
+  :
+elif [ -n "${GAMMA:-}" ]; then
+  GAMMAS="$GAMMA"
+else
+  GAMMAS="4.1667e-4 1e-5 1e-3 4.1667e-8"
+fi
+
+export PYTHONUNBUFFERED=1
+LIVE_DIR="${TIPT_LIVE_DIR:-/scratch/a2136a01/tipt_live}"
+mkdir -p "$LIVE_DIR" "$REPO/kisti_log"
+JOBTAG="${PBS_JOBID:-manual}"
+export TIPT_LIVE_LOG="$LIVE_DIR/${JOBTAG}.gamma256.log"
+ln -sfn "$TIPT_LIVE_LOG" "$REPO/kisti_log/latest_gamma256.log"
+set -o pipefail
+if command -v stdbuf >/dev/null 2>&1; then
+  exec > >(stdbuf -oL -eL tee -a "$TIPT_LIVE_LOG") 2>&1
+else
+  exec > >(tee -a "$TIPT_LIVE_LOG") 2>&1
+fi
+
+module purge
+module load craype-mic-knl gcc/8.3.0 openmpi/3.1.0 2>/dev/null || true
+module load hdf5-parallel/1.10.2 fftw_mpi/3.3.7 2>/dev/null || true
+module load python/3.9.5 2>/dev/null || module load python/3.9 2>/dev/null || true
+
+export OMP_NUM_THREADS=1
+cd "$REPO" || { echo "ERROR: no repo at $REPO"; exit 1; }
+
+echo "=== 256³ γ scan ==="
+echo "date=$(date)  host=$(hostname)  NX=$NX  NP=$NP  GAMMAS=$GAMMAS"
+
+# Build once for this node architecture, then scan.
+BUILD_ONCE=1 NX="$NX" NP="$NP" GAMMAS="$GAMMAS" \
+  bash simulation/run_tipt_gamma_scan.sh
+
+echo "done $(date)"

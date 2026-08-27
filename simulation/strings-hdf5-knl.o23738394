@@ -1,0 +1,90 @@
+=== strings from HDF5 (KNL) — tail -f live log ===
+  /scratch/a2136a01/strings_live/23738394.pbs.log
+  /scratch/a2136a01/PhaseTransition/kisti_log/latest_strings.log
+=== strings HDF5 analyze (no NPZ) ===
+date=2026. 08. 22. (토) 23:06:31 KST  host=node4844  REPO=/scratch/a2136a01/PhaseTransition
+RUN_DIR=data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL  WORKERS=1
+SKIP_PLOTS=0  METRICS_ONLY=0
+STEP_MIN=none  STEP_MAX=none
+PBS_NCPUS=unset  MPLBACKEND=Agg
+Currently Loaded Modulefiles:
+  1) craype-mic-knl         3) openmpi/3.1.0          5) fftw_mpi/3.3.7
+  2) gcc/8.3.0              4) hdf5-parallel/1.10.2   6) python/3.9.5
+Installing matplotlib (pip --user)...
+Collecting matplotlib
+  Using cached matplotlib-3.9.4-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (11 kB)
+Collecting contourpy>=1.0.1 (from matplotlib)
+  Using cached contourpy-1.3.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (5.4 kB)
+Collecting cycler>=0.10 (from matplotlib)
+  Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+Requirement already satisfied: fonttools>=4.22.0 in /home01/a2136a01/.local/lib/python3.9/site-packages (from matplotlib) (4.60.2)
+Requirement already satisfied: kiwisolver>=1.3.1 in /home01/a2136a01/.local/lib/python3.9/site-packages (from matplotlib) (1.4.7)
+Requirement already satisfied: numpy>=1.23 in /home01/a2136a01/.local/lib/python3.9/site-packages (from matplotlib) (2.0.2)
+Requirement already satisfied: packaging>=20.0 in /apps/applications/PYTHON/3.9.5/lib/python3.9/site-packages (from matplotlib) (23.2)
+Requirement already satisfied: pillow>=8 in /home01/a2136a01/.local/lib/python3.9/site-packages (from matplotlib) (11.3.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /apps/applications/PYTHON/3.9.5/lib/python3.9/site-packages (from matplotlib) (3.1.2)
+Requirement already satisfied: python-dateutil>=2.7 in /home01/a2136a01/.local/lib/python3.9/site-packages (from matplotlib) (2.9.0.post0)
+Requirement already satisfied: importlib-resources>=3.2.0 in /home01/a2136a01/.local/lib/python3.9/site-packages (from matplotlib) (6.5.2)
+Requirement already satisfied: zipp>=3.1.0 in /apps/applications/PYTHON/3.9.5/lib/python3.9/site-packages (from importlib-resources>=3.2.0->matplotlib) (3.18.1)
+Requirement already satisfied: six>=1.5 in /apps/applications/PYTHON/3.9.5/lib/python3.9/site-packages (from python-dateutil>=2.7->matplotlib) (1.16.0)
+Using cached matplotlib-3.9.4-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (8.3 MB)
+Using cached contourpy-1.3.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (321 kB)
+Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)
+Installing collected packages: cycler, contourpy, matplotlib
+Successfully installed contourpy-1.3.0 cycler-0.12.1 matplotlib-3.9.4
+
+[notice] A new release of pip is available: 24.0 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+manifest rows (approx): 39
+HDF5: /scratch/a2136a01/PhaseTransition/data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL/field_snapshot.h5
+-rw-r--r-- 1 a2136a01 pd1936 1.2T  8월 22 21:55 /scratch/a2136a01/PhaseTransition/data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL/field_snapshot.h5
+WARNING: 1024^3 — ~20 GB RAM per parallel HDF5 worker.
+         WORKERS=1 => est. peak ~20 GB (KNL ~96 GB typical).
+WARNING: 1024^3 PNG rendering is slow — 48h walltime may be tight.
+=== run: python3 tools/cl_hdf5_string_pipeline.py analyze /scratch/a2136a01/PhaseTransition/data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL --workers 1 ===
+HDF5: /scratch/a2136a01/PhaseTransition/data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL/field_snapshot.h5
+Grid N≈1024  est. RAM per worker ≈ 28.0 GB
+Analyzing 38 HDF5 snapshots (no NPZ export)
+  step 0: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 2800: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 2900: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3000: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3100: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3200: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3300: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3400: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3500: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3600: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3700: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3800: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 3900: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4000: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4100: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4200: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4300: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4400: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4500: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4600: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4700: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4800: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 4900: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5000: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5100: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5200: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5300: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5400: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5500: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5600: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5700: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5800: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 5900: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 6000: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 6100: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 6200: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 6300: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+  step 6400: fail:Unable to allocate 8.00 GiB for an array with shape (1024, 1024, 1024) and data type float64
+Wrote /scratch/a2136a01/PhaseTransition/data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL/strings/string_summary.csv (0 rows)
+=== outputs ===
+string_summary.csv:
+1 /scratch/a2136a01/PhaseTransition/data/lattice/set8/1024x1024x1024_T0_1230_complex_dx_0.001_dtphys_0.0001_interval_4000_3D_hubble_staged_fsw_0.01_phiesc_50000_Trh_1000_eta_1230_langoff_f0.01_gb_1.09_gf_1.09_nb_20_nf_20_stochasticrk_V_correct_CL/strings/string_summary.csv
+step,time,temperature,n_loops,n_string_voxels,string_voxel_fraction

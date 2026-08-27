@@ -24,6 +24,10 @@ Examples
 
   # Fermion-only (Set C)
   python simulation/run_cosmolattice.py --potential_type fermion_only --nb 0 --param_set set8
+
+  # Different γ → auto set name (setA / set_gamma_1e-5), never overwrites set8
+  python simulation/run_cosmolattice.py --gamma 1e-5 --Nx 256 --with_gws ...
+  # or: bash simulation/run_tipt_gamma.sh   (GAMMA=1e-5)
 """
 import argparse
 import math
@@ -31,11 +35,31 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CL = os.path.join(REPO, "external", "cosmolattice")
 EXT = os.path.join(REPO, "cosmolattice_ext")
 TABLE = os.path.join(REPO, "data", "thermal_splines", "thermal_tables.bin")
+
+# γ → data/lattice/<set>/ mapping (avoids clobbering set8 on a γ scan)
+sys.path.insert(0, os.path.join(REPO, "simulation"))
+try:
+    from gamma_sets import (  # noqa: E402
+        SET8_GAMMA,
+        format_gamma_tag,
+        gammas_close,
+        resolve_param_set,
+        set_name_for_gamma,
+        v0_of_gamma,
+    )
+except ImportError:  # pragma: no cover
+    resolve_param_set = None
+    SET8_GAMMA = 4.1667e-4
+    gammas_close = lambda a, b, rel=1e-4: abs(a - b) / max(a, b) <= rel  # noqa: E731
+    format_gamma_tag = lambda g: f"{g:.4g}".replace("+", "")  # noqa: E731
+    set_name_for_gamma = lambda g: "set8" if gammas_close(g, SET8_GAMMA) else f"set_gamma_{format_gamma_tag(g)}"
+    v0_of_gamma = None
 
 BUILD_DIR_NOMPI = "build"
 BUILD_DIR_MPI = "build_mpi"
@@ -68,7 +92,17 @@ def parse_args():
     # times
     p.add_argument("--tMax", type=float, default=2000.0, help="Max program time")
     p.add_argument("--tOutputFreq", type=float, default=10.0, help="Frequent-output interval (program time)")
-    p.add_argument("--tOutputInfreq", type=float, default=100.0, help="Infrequent-output interval")
+    p.add_argument("--tOutputInfreq", type=float, default=100.0,
+                   help="Infrequent-output interval (program time): spectra, GW spectra")
+    p.add_argument("--tOutputRareFreq", type=float, default=None,
+                   help="Rare-output interval (program time): 3D energy HDF5. "
+                        "Default: CosmoLattice 1000*dt. Independent of --steps.")
+    p.add_argument("--tBackupFreq", type=float, default=None,
+                   help="CosmoLattice checkpoint interval (program time). "
+                        "Writes thermal_inflation_backup.h5. Default off (-1).")
+    p.add_argument("--backup_steps", type=int, default=None,
+                   help="Checkpoint every this many lattice steps "
+                        "(sets tBackupFreq = backup_steps * mphi * dt_phys).")
     p.add_argument("--steps", type=int, default=None,
                    help="Coarse snapshot interval in lattice iterations (numba --steps)")
     p.add_argument("--phi_threshold", type=float, default=None,
@@ -78,9 +112,15 @@ def parse_args():
     p.add_argument("--save_snapshots", action="store_true",
                    help="Enable 3D phi snapshots (default on when --steps is set)")
     p.add_argument("--no_snapshots", action="store_true", help="Disable 3D phi snapshots")
+    p.add_argument("--snapshot_format", choices=["hdf5", "raw"], default="hdf5",
+                   help="3D field dump: hdf5=local MPI slabs (safe at 1024^3); "
+                        "raw=classical gather to field_states/*.raw (OK at 256^3)")
     p.add_argument("--export_only", action="store_true",
                    help="Only export raw snapshots in run dir to NPZ (no simulation)")
-    p.add_argument("--keep_raw", action="store_true", help="Keep .raw files after NPZ export")
+    p.add_argument("--keep_raw", action="store_true",
+                   help="Keep leftover .raw files after NPZ export (legacy gather dumps)")
+    p.add_argument("--no_export", action="store_true",
+                   help="Skip .raw->NPZ after the run")
     p.add_argument("--run_dir", default=None, help="Explicit run directory for --export_only")
     # physics
     p.add_argument("--T0", type=float, default=7350.0, help="Initial temperature (GeV)")
@@ -95,14 +135,16 @@ def parse_args():
     p.add_argument("--include_cw", type=int, default=1, help="1=include Coleman-Weinberg force; 0=numba-parity")
     # Langevin / expansion
     p.add_argument("--eta_phys", type=float, default=None, help="Friction (GeV); default = T0")
+    p.add_argument("--eta_follows_T", action="store_true",
+                   help="Scale friction with the bath: eta_phys(t) = eta_phys * T(t)/T0 "
+                        "(default off: eta frozen at T0). With default eta_phys=T0 this is eta~T.")
     p.add_argument("--thermal_noise", type=int, default=1, help="1=FDT noise on, 0=deterministic")
     p.add_argument("--langevin_off_after_nucleation", action="store_true",
-                   help="Zero Langevin η and FDT noise once false-vac fraction drops "
-                        "(bubble collision / vacuum-GW stage); Hubble 3H kept")
+                   help="Zero Langevin η and FDT noise (Hubble 3H kept) when "
+                        "false-vac fraction <= --langevin_off_f_switch")
     p.add_argument("--langevin_off_f_switch", type=float, default=0.99,
-                   help="Trigger Langevin-off when false-vac fraction <= this "
-                        "(default 0.99 = early conversion; use ~expansion_f_switch "
-                        "to wait until near completion)")
+                   help="Langevin-off when false-vac fraction <= this "
+                        "(0.99 = early bubbles; ~0.1 = bulk converted)")
     p.add_argument("--langevin_off_phi_esc", type=float, default=None,
                    help="Escape |phi| (GeV) for Langevin-off fraction; "
                         "default = --expansion_phi_esc")
@@ -122,8 +164,13 @@ def parse_args():
     p.add_argument("--evolver", default="stochasticrk",
                    help="CosmoLattice evolver name (default: stochasticrk)")
     p.add_argument("--stochastic_scheme", default="numba",
-                   choices=["numba", "fdt", "fused"],
-                   help="stochasticrk noise: numba (parity), fdt (sqrt2 equipartition), fused (legacy)")
+                   choices=["numba", "fused_rk2", "rk2_fused", "fdt", "nonfused_rk2", "fused"],
+                   help="stochasticrk scheme: "
+                        "numba/fused_rk2 = 4-pass RK2, independent 0.5*sigma kicks (inline); "
+                        "rk2_fused = 4-pass RK2, same z both half-steps (Numba rk2_fused, full FDT); "
+                        "fdt = independent-z fused RK2, half-kicks *sqrt(2); "
+                        "nonfused_rk2 = 2-pass RK2, one full-dt FDT kick; "
+                        "fused = legacy symplectic kernel")
     p.add_argument("--kCutOff", type=float, default=4.0, help="Initial-fluctuation cutoff")
     p.add_argument("--cosmolattice_ic", action="store_true",
                    help="Use CosmoLattice kCutOff spectral IC (default: numba phi=0.01 GeV, pi=0)")
@@ -161,7 +208,19 @@ def parse_args():
     p.add_argument("--np", type=int, default=None, dest="mpi_np",
                    help="MPI ranks (default: logical CPU count when --mpi)")
     # orchestration
-    p.add_argument("--param_set", default="set8", help="Output folder tag under data/lattice/")
+    p.add_argument(
+        "--param_set",
+        default="auto",
+        help="Output folder under data/lattice/<param_set>/. "
+             "'auto' (default) picks set8 / setA / set_gamma_<γ> from --gamma. "
+             "Passing set8 with a non-set8 γ is remapped unless --force_param_set.",
+    )
+    p.add_argument(
+        "--force_param_set",
+        action="store_true",
+        help="Do not remap --param_set when it conflicts with --gamma "
+             "(can overwrite an existing set; use with care).",
+    )
     p.add_argument("--install", action="store_true", help="Install headers + register evolver in submodule")
     p.add_argument("--build", action="store_true", help="cmake + make the model")
     p.add_argument("--dry_run", action="store_true", help="Generate .in and print command; do not execute")
@@ -180,6 +239,34 @@ def _symlink(src, dst):
     print(f"  linked {os.path.relpath(dst, REPO)} -> {os.path.relpath(src, REPO)}")
 
 
+def _restore_stock_u1_initializer():
+    """Atakan pqera writes csFluctScaleRe/Im into u1initializer.h; thermal_inflation
+    does not have those members. Restore stock if the pqera patch is present."""
+    dst = os.path.join(
+        CL, "src", "include", "CosmoInterface", "initializers", "u1initializer.h"
+    )
+    if not os.path.isfile(dst):
+        return
+    with open(dst, encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    if "csFluctScaleRe" not in text:
+        return
+    candidates = [
+        dst + ".stock_before_atakan-pqera",
+        os.path.join(EXT, "stock", "u1initializer.h"),
+    ]
+    src = next((p for p in candidates if os.path.isfile(p)), None)
+    if src is None:
+        print(
+            "  ERROR: u1initializer.h still has Atakan pqera csFluctScaleRe/Im,\n"
+            "    and no stock copy was found. Upload cosmolattice_ext/stock/"
+            "u1initializer.h"
+        )
+        sys.exit(1)
+    shutil.copy2(src, dst)
+    print("  restored stock u1initializer.h (removed Atakan pqera patch)")
+
+
 def install():
     if not os.path.isdir(CL):
         sys.exit("ERROR: external/cosmolattice submodule not found. Run: git submodule update --init")
@@ -187,19 +274,37 @@ def install():
     evolvers_dir = os.path.join(CL, "src", "include", "CosmoInterface", "evolvers")
     measurements_dir = os.path.join(CL, "src", "include", "CosmoInterface", "measurements")
     print("Installing thermal-inflation extension into submodule:")
+    _restore_stock_u1_initializer()
     for h in MODEL_HEADERS:
         src = os.path.join(EXT, "models" if h != "field_snapshot.hpp" else "measurements", h)
         _symlink(src, os.path.join(models_dir, h))
     _symlink(os.path.join(EXT, "measurements", MEASUREMENT_HEADER),
              os.path.join(measurements_dir, MEASUREMENT_HEADER))
+    _symlink(os.path.join(EXT, "evolvers", EVOLVER_HEADER),
+             os.path.join(evolvers_dir, EVOLVER_HEADER))
     _register_evolver(evolvers_dir)
     _register_snapshot_measurer()
     _register_main_snapshot()
     _register_ghost_refresh_after_measure()
     _register_verbose_temperature()
+    _register_hdf5_param_string_limit()
     _register_numba_ic()
     _register_freeze_inactive_scalars()
     print("Install complete.")
+
+
+def _patch_after_hook(text, needle, insert_line, label):
+    """Insert insert_line immediately after the first line containing needle."""
+    if insert_line.strip() in text:
+        return text, False
+    idx = text.find(needle)
+    if idx < 0:
+        return text, False
+    eol = text.find("\n", idx)
+    if eol < 0:
+        return text, False
+    text = text[:eol + 1] + insert_line + text[eol + 1:]
+    return text, True
 
 
 def _register_numba_ic():
@@ -207,41 +312,44 @@ def _register_numba_ic():
     main_cpp = os.path.join(CL, "src", "cosmolattice.cpp")
     with open(main_cpp, "r") as f:
         text = f.read()
-    if "applyNumbaInitialConditions" in text and "applyUniformPhi" not in text:
-        text = text.replace(
-            "        model.applyNumbaInitialConditions();  "
-            + MARK_OPEN + " ic-numba " + MARK_CLOSE + "\n"
-            "        model.applyBubbleSeed();  "
-            + MARK_OPEN + " bubble-seed " + MARK_CLOSE,
-            "        model.applyNumbaInitialConditions();  "
-            + MARK_OPEN + " ic-numba " + MARK_CLOSE + "\n"
-            "        model.applyUniformPhi();  "
-            + MARK_OPEN + " uniform-phi " + MARK_CLOSE + "\n"
-            "        model.applyBubbleSeed();  "
-            + MARK_OPEN + " bubble-seed " + MARK_CLOSE,
-        )
-        with open(main_cpp, "w") as f:
-            f.write(text)
-        print(f"  patched {os.path.relpath(main_cpp, REPO)} [bubble seed hook]")
-        return
-    if "applyNumbaInitialConditions" in text:
-        return
-    old = (
-        "        initializer.initialize(model, runParams);\n"
-        "        // 2) We initialize the model.\n"
-    )
-    new = (
-        "        initializer.initialize(model, runParams);\n"
-        "        // 2) We initialize the model.\n"
+    orig = text
+
+    numba_line = (
         "        model.applyNumbaInitialConditions();  "
         + MARK_OPEN + " ic-numba " + MARK_CLOSE + "\n"
     )
-    if old not in text:
-        raise RuntimeError("cosmolattice.cpp IC anchor not found")
-    text = text.replace(old, new)
-    with open(main_cpp, "w") as f:
-        f.write(text)
-    print(f"  patched {os.path.relpath(main_cpp, REPO)} [numba IC hook]")
+    uniform_line = (
+        "        model.applyUniformPhi();  "
+        + MARK_OPEN + " uniform-phi " + MARK_CLOSE + "\n"
+    )
+    bubble_line = (
+        "        model.applyBubbleSeed();  "
+        + MARK_OPEN + " bubble-seed " + MARK_CLOSE + "\n"
+    )
+
+    if "applyNumbaInitialConditions" not in text:
+        old = (
+            "        initializer.initialize(model, runParams);\n"
+            "        // 2) We initialize the model.\n"
+        )
+        if old not in text:
+            raise RuntimeError("cosmolattice.cpp IC anchor not found")
+        text = text.replace(old, old + numba_line, 1)
+        print(f"  patched {os.path.relpath(main_cpp, REPO)} [numba IC hook]")
+
+    text, added = _patch_after_hook(
+        text, "model.applyNumbaInitialConditions();", uniform_line, "uniform-phi")
+    if added:
+        print(f"  patched {os.path.relpath(main_cpp, REPO)} [uniform phi hook]")
+
+    after = "model.applyUniformPhi();" if "applyUniformPhi" in text else "model.applyNumbaInitialConditions();"
+    text, added = _patch_after_hook(text, after, bubble_line, "bubble-seed")
+    if added:
+        print(f"  patched {os.path.relpath(main_cpp, REPO)} [bubble seed hook]")
+
+    if text != orig:
+        with open(main_cpp, "w") as f:
+            f.write(text)
 
 
 def _register_freeze_inactive_scalars():
@@ -249,23 +357,24 @@ def _register_freeze_inactive_scalars():
     main_cpp = os.path.join(CL, "src", "cosmolattice.cpp")
     with open(main_cpp, "r") as f:
         text = f.read()
-    marker = f"{MARK_OPEN} freeze-inactive {MARK_CLOSE}"
     if "freezeInactiveScalars" in text:
         return
-    anchor = (
-        "        model.applyBubbleSeed();  "
-        + MARK_OPEN + " bubble-seed " + MARK_CLOSE
+    freeze_line = (
+        "        model.freezeInactiveScalars();  "
+        + MARK_OPEN + " freeze-inactive " + MARK_CLOSE + "\n"
     )
-    insert = (
-        anchor + "\n"
-        f"        model.freezeInactiveScalars();  {marker}"
-    )
-    if anchor not in text:
-        raise RuntimeError("cosmolattice.cpp freeze-inactive anchor not found")
-    text = text.replace(anchor, insert)
-    with open(main_cpp, "w") as f:
-        f.write(text)
-    print(f"  patched {os.path.relpath(main_cpp, REPO)} [freeze inactive scalar]")
+    for after in (
+        "model.applyBubbleSeed();",
+        "model.applyUniformPhi();",
+        "model.applyNumbaInitialConditions();",
+    ):
+        text, added = _patch_after_hook(text, after, freeze_line, "freeze-inactive")
+        if added:
+            with open(main_cpp, "w") as f:
+                f.write(text)
+            print(f"  patched {os.path.relpath(main_cpp, REPO)} [freeze inactive scalar]")
+            return
+    raise RuntimeError("cosmolattice.cpp freeze-inactive anchor not found")
 
 
 def _register_main_snapshot():
@@ -334,23 +443,72 @@ def _register_snapshot_measurer():
 
 
 def _register_verbose_temperature():
-    """Add T to the periodic Step-done terminal message in measurer.h."""
+    """Add T to the Step-done message, then std::cout.flush() (not << std::flush).
+
+    sayMPI is TempLat::StreamCacher, which does not accept iostream manipulators.
+    Flush cout after the sayMPI statement so PBS/tee sees Step lines promptly.
+    """
     measurer = os.path.join(CL, "src", "include", "CosmoInterface", "measurements", "measurer.h")
     with open(measurer, "r") as f:
         text = f.read()
-    if "model.currentT()" in text and "Step " in text:
+    patched = (
+        'sayMPI << "Step " << n << " done. Current time: " << t\n'
+        '                       << "  T=" << std::setprecision(6) << model.currentT() << " GeV";\n'
+        '                // sayMPI is StreamCacher (not ostream); flush cout after it dumps.\n'
+        '                std::cout.flush();'
+    )
+    if "model.currentT()" in text and "std::cout.flush()" in text and "Step " in text:
         return
-    old = 'sayMPI << "Step " << n << " done. Current time:" << t <<"\\n";'
-    new = (
+    stock = 'sayMPI << "Step " << n << " done. Current time:" << t <<"\\n";'
+    # Broken patch from an earlier attempt (StreamCacher rejects << std::flush).
+    broken_flush = (
+        'sayMPI << "Step " << n << " done. Current time: " << t\n'
+        '                       << "  T=" << std::setprecision(6) << model.currentT() << " GeV\\n"\n'
+        '                       << std::flush;'
+    )
+    old_t = (
         'sayMPI << "Step " << n << " done. Current time: " << t\n'
         '                       << "  T=" << std::setprecision(6) << model.currentT() << " GeV\\n";'
     )
-    if old not in text:
-        raise RuntimeError(f"measurer.h verbose-output anchor not found")
-    text = text.replace(old, new)
+    old_t_no_nl = (
+        'sayMPI << "Step " << n << " done. Current time: " << t\n'
+        '                       << "  T=" << std::setprecision(6) << model.currentT() << " GeV";'
+    )
+    if stock in text:
+        text = text.replace(stock, patched)
+    elif broken_flush in text:
+        text = text.replace(broken_flush, patched)
+    elif old_t in text:
+        text = text.replace(old_t, patched)
+    elif old_t_no_nl in text and "std::cout.flush()" not in text:
+        text = text.replace(old_t_no_nl, patched)
+    else:
+        raise RuntimeError("measurer.h verbose-output anchor not found")
     with open(measurer, "w") as f:
         f.write(text)
-    print(f"  patched {os.path.relpath(measurer, REPO)} [verbose T]")
+    print(f"  patched {os.path.relpath(measurer, REPO)} [verbose T + cout.flush]")
+
+
+def _register_hdf5_param_string_limit():
+    """CosmoLattice backup stores each parser key=value as a 256-char HDF5 string.
+
+    Our outputfile path is longer than that, so the first tBackupFreq dump aborts
+    with StringIsTooLong. Bump the fixed width.
+    """
+    path = os.path.join(
+        CL, "src", "include", "TempLat", "lattice", "IO", "HDF5", "helpers", "hdf5type.h"
+    )
+    with open(path, "r") as f:
+        text = f.read()
+    old = "static constexpr int FixedSizeStringLength = 256;"
+    new = "static constexpr int FixedSizeStringLength = 1024;"
+    if new in text:
+        return
+    if old not in text:
+        raise RuntimeError("hdf5type.h FixedSizeStringLength anchor not found")
+    with open(path, "w") as f:
+        f.write(text.replace(old, new))
+    print(f"  patched {os.path.relpath(path, REPO)} [HDF5 param strings 256->1024]")
 
 
 def _patch_block(path, anchor, insert, tag):
@@ -455,13 +613,21 @@ def _default_mpi_np(nx):
     return best
 
 
+def _on_pbs():
+    return bool(os.environ.get("PBS_JOBID") or os.environ.get("PBS_NODEFILE"))
+
+
 def _mpirun_candidates():
-    """Ordered mpirun paths: prefer Homebrew MPICH (works on this macOS), then PATH."""
+    """Ordered mpirun paths. On PBS use PATH (module mpirun); on macOS prefer MPICH."""
     cands = []
+    which = shutil.which("mpirun")
+    if _on_pbs():
+        if which:
+            cands.append(which)
+        return cands
     mpich_bin = os.path.join(MPICH_HOMEBREW, "bin", "mpirun")
     if os.path.isfile(mpich_bin) and os.access(mpich_bin, os.X_OK):
         cands.append(mpich_bin)
-    which = shutil.which("mpirun")
     if which and which not in cands:
         cands.append(which)
     return cands
@@ -469,7 +635,10 @@ def _mpirun_candidates():
 
 def _resolve_mpirun():
     """Return an mpirun that can spawn at least one rank, or None."""
-    for mpirun in _mpirun_candidates():
+    cands = _mpirun_candidates()
+    if _on_pbs() and cands:
+        return cands[0]
+    for mpirun in cands:
         try:
             subprocess.run(
                 [mpirun, "-np", "1", "true"],
@@ -498,8 +667,7 @@ def _check_mpirun():
 def _mpi_launch_cmd(binary, in_arg, mpi_np):
     """Build command line for an MPI CosmoLattice run."""
     if mpi_np == 1:
-        # Singleton MPI rank: launch directly (no launcher needed).
-        return [binary, in_arg]
+        return _stdbuf_prefix() + [binary, in_arg]
     mpirun = _resolve_mpirun()
     if mpirun is None:
         sys.exit(
@@ -509,7 +677,62 @@ def _mpi_launch_cmd(binary, in_arg, mpi_np):
             "  Then rebuild: python simulation/run_cosmolattice.py --build --mpi --dry_run\n"
             "  For single-rank testing use: --mpi --np 1"
         )
-    return [mpirun, "-np", str(mpi_np), binary, in_arg]
+    return [mpirun, "-np", str(mpi_np)] + _stdbuf_prefix() + [binary, in_arg]
+
+
+def _stdbuf_prefix():
+    """Line-buffer CosmoLattice stdout (PBS/mpirun is not a TTY)."""
+    stdbuf = shutil.which("stdbuf")
+    if stdbuf:
+        return [stdbuf, "-oL", "-eL"]
+    return []
+
+
+def _run_logged(cmd, log_paths):
+    """Run cmd, tee stdout/stderr to log files, line-buffered."""
+    logs = []
+    try:
+        for p in log_paths:
+            if not p:
+                continue
+            os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
+            logs.append(open(p, "a", buffering=1))
+        header = (
+            "\n===== " + time.strftime("%Y-%m-%d %H:%M:%S")
+            + "  " + " ".join(cmd) + " =====\n"
+        )
+        sys.stdout.write(header)
+        sys.stdout.flush()
+        for f in logs:
+            f.write(header)
+            f.flush()
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+            cwd=REPO,
+        )
+        assert proc.stdout is not None
+        while True:
+            chunk = proc.stdout.read(256)
+            if not chunk:
+                break
+            try:
+                text = chunk.decode("utf-8", errors="replace")
+            except Exception:
+                text = chunk.decode("latin-1", errors="replace")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            for f in logs:
+                f.write(text)
+                f.flush()
+        rc = proc.wait()
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, cmd)
+    finally:
+        for f in logs:
+            f.close()
 
 
 def _validate_mpi_np(nx, mpi_np):
@@ -528,19 +751,68 @@ def _validate_mpi_np(nx, mpi_np):
         )
 
 
-def build(mpi=False):
+def _hdf5_prefix(mpi=False):
+    env = os.environ.get("HDF5_ROOT") or os.environ.get("MYHDF5_PATH")
+    if env:
+        inc = os.path.join(env, "include", "hdf5.h")
+        if os.path.isfile(inc):
+            return env
+    if mpi:
+        p = os.path.join(REPO, "external", "hdf5_mpich")
+        if os.path.isfile(os.path.join(p, "include", "hdf5.h")):
+            return p
+    return ""
+
+
+def _binary_built_with_hdf5(mpi=False):
+    """True only if the configured CosmoLattice build has -DHDF5=ON.
+
+    Having hdf5 libs on disk (_hdf5_prefix) is not enough: a -DHDF5=OFF binary
+    still throws PureMPISaverNotImplemented on energy_snapshot / tBackupFreq.
+    """
+    cache = os.path.join(CL, build_dirname(mpi), "CMakeCache.txt")
+    if not os.path.isfile(cache):
+        return False
+    with open(cache, encoding="utf-8", errors="ignore") as f:
+        txt = f.read()
+    if "HDF5:BOOL=ON" in txt or "HDF5:UNINITIALIZED=ON" in txt:
+        return True
+    if "HDF5:BOOL=OFF" in txt or "HDF5:UNINITIALIZED=OFF" in txt:
+        return False
+    return "HDF5" in txt and "BOOL=ON" in txt
+
+
+def build(mpi=False, require_hdf5=None):
+    hdf5 = _hdf5_prefix(mpi)
+    if require_hdf5 is None:
+        require_hdf5 = mpi  # default: MPI production expects HDF5 field dumps
+    if require_hdf5 and not hdf5:
+        sys.exit(
+            "ERROR: MPI HDF5 field dumps need parallel HDF5.\n"
+            "  Set HDF5_ROOT / MYHDF5_PATH, or use --snapshot_format raw "
+            "(classical .raw; no HDF5 required for fields).\n"
+            "  Or put hdf5 under external/hdf5_mpich."
+        )
     build_dir = os.path.join(CL, build_dirname(mpi))
-    # Wipe stale CMake cache when switching MPI implementations.
-    if mpi and os.path.isdir(build_dir):
-        cache = os.path.join(build_dir, "CMakeCache.txt")
-        if os.path.isfile(cache):
-            with open(cache, encoding="utf-8", errors="ignore") as f:
-                cache_txt = f.read()
-            wants_mpich = os.path.isdir(FFTW_MPICH_PREFIX) and os.path.isdir(MPICH_HOMEBREW)
-            linked_openmpi = "open-mpi" in cache_txt or "OpenMPI" in cache_txt
-            if wants_mpich and linked_openmpi:
-                print("Stale OpenMPI CMake cache detected; clearing build_mpi/ ...")
-                shutil.rmtree(build_dir)
+    # Wipe a Mac / other-host CMake cache (Nurion: CMAKE_CACHEFILE_DIR still
+    # points at /Users/... if build_mpi/ was rsynced from the laptop).
+    cache = os.path.join(build_dir, "CMakeCache.txt")
+    if os.path.isfile(cache):
+        with open(cache, encoding="utf-8", errors="ignore") as f:
+            cache_txt = f.read()
+        here = os.path.realpath(CL)
+        foreign = (
+            "/Users/" in cache_txt
+            or "/home/" in cache_txt
+            or here not in cache_txt
+        )
+        wants_mpich = os.path.isdir(FFTW_MPICH_PREFIX) and os.path.isdir(MPICH_HOMEBREW)
+        linked_openmpi = "open-mpi" in cache_txt or "OpenMPI" in cache_txt
+        hdf5_off = "HDF5:BOOL=OFF" in cache_txt or "HDF5:UNINITIALIZED=OFF" in cache_txt
+        if foreign or (wants_mpich and linked_openmpi) or (hdf5 and hdf5_off):
+            print("Stale CMake cache (other host or MPI mix); clearing "
+                  + os.path.relpath(build_dir, REPO) + " ...")
+            shutil.rmtree(build_dir)
     os.makedirs(build_dir, exist_ok=True)
     mpi_flag = "ON" if mpi else "OFF"
     print(f"Configuring + building CosmoLattice (MODEL=thermal_inflation, MPI={mpi_flag})...")
@@ -550,28 +822,48 @@ def build(mpi=False):
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         f"-DMPI={mpi_flag}",
         "-DMODEL=thermal_inflation",
+        "-DCMAKE_CXX_STANDARD=14",
+        "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
     ]
     env = os.environ.copy()
+    if env.get("CC"):
+        cmake_cmd.append("-DCMAKE_C_COMPILER=" + env["CC"])
+    if env.get("CXX"):
+        cmake_cmd.append("-DCMAKE_CXX_COMPILER=" + env["CXX"])
+    prefix_parts = []
+    if hdf5:
+        cmake_cmd.append("-DHDF5=ON")
+        cmake_cmd.append("-DMYHDF5_PATH=" + hdf5)
+        prefix_parts.append(hdf5)
+        print("Using HDF5 at " + hdf5)
+    else:
+        cmake_cmd.append("-DHDF5=OFF")
+        print("WARNING: no HDF5_ROOT / hdf5_mpich; 3D field dumps need HDF5.")
     if mpi:
-        # Prefer MPICH + matching FFTW (Homebrew fftw is built against OpenMPI ABI).
-        prefix_parts = []
-        if os.path.isdir(FFTW_MPICH_PREFIX):
+        env_fftw = (
+            env.get("MYFFTW3_PATH") or env.get("FFTW_DIR") or env.get("FFTW_ROOT") or ""
+        )
+        if env_fftw and os.path.isdir(env_fftw):
+            cmake_cmd.append(f"-DMYFFTW3_PATH={env_fftw}")
+            prefix_parts.append(env_fftw)
+            print(f"Using FFTW from env at {env_fftw}")
+        elif sys.platform == "darwin" and os.path.isdir(FFTW_MPICH_PREFIX):
             cmake_cmd.append(f"-DMYFFTW3_PATH={FFTW_MPICH_PREFIX}")
             prefix_parts.append(FFTW_MPICH_PREFIX)
             print(f"Using MPICH FFTW at {FFTW_MPICH_PREFIX}")
-        elif not os.path.isdir(FFTW_MPICH_PREFIX):
+        elif sys.platform == "darwin":
             print(
                 "WARNING: external/fftw_mpich not found. Homebrew FFTW is OpenMPI-ABI;\n"
                 "  if you use MPICH, rebuild FFTW into external/fftw_mpich first."
             )
-        if os.path.isdir(MPICH_HOMEBREW):
+        if sys.platform == "darwin" and os.path.isdir(MPICH_HOMEBREW):
             prefix_parts.append(MPICH_HOMEBREW)
             mpich_bin = os.path.join(MPICH_HOMEBREW, "bin")
             env["PATH"] = mpich_bin + os.pathsep + env.get("PATH", "")
             env.setdefault("CC", os.path.join(mpich_bin, "mpicc"))
             env.setdefault("CXX", os.path.join(mpich_bin, "mpicxx"))
         if prefix_parts:
-            cmake_cmd.append(f"-DCMAKE_PREFIX_PATH={';'.join(prefix_parts)}")
+            cmake_cmd.append("-DCMAKE_PREFIX_PATH=" + os.pathsep.join(prefix_parts))
     cmake_cmd.append("..")
 
     subprocess.check_call(cmake_cmd, cwd=build_dir, env=env)
@@ -582,6 +874,15 @@ def build(mpi=False):
 # ---------------------------------------------------------------------------
 # Generate run .in and execute
 # ---------------------------------------------------------------------------
+def _cl_rel(path):
+    """Path relative to the repo (CosmoLattice cwd). Backup HDF5 stores key=value
+    as a 256-char string; absolute /scratch/.../long-dirname overflows."""
+    rel = os.path.relpath(os.path.abspath(path), REPO)
+    if rel.startswith(".."):
+        return os.path.abspath(path)
+    return rel.replace("\\", "/")
+
+
 def make_input(args, out_dir):
     N = args.Nx
     mu = args.mphi
@@ -593,10 +894,36 @@ def make_input(args, out_dir):
 
     save_snaps = _snapshots_enabled(args)
     coarse_steps = _snapshot_steps(args)
+    if args.backup_steps is not None:
+        t_backup = args.backup_steps * dt_tilde
+    elif args.tBackupFreq is not None:
+        t_backup = args.tBackupFreq
+    else:
+        t_backup = -1.0
+    # CosmoLattice checkpoints / energy_snapshot use HDF5 FileIO. A binary built
+    # with -DHDF5=OFF aborts (PureMPISaverNotImplemented) even if libs exist.
+    snap_fmt = getattr(args, "snapshot_format", "hdf5")
+    hdf5_ok = _binary_built_with_hdf5(bool(getattr(args, "mpi", False)))
+    if t_backup > 0 and not hdf5_ok:
+        print(
+            "WARNING: disabling tBackupFreq — thermal_inflation was built with "
+            "HDF5=OFF (checkpoints need -DHDF5=ON). Classical --snapshot_format "
+            "raw does not need backups."
+        )
+        t_backup = -1.0
+    if snap_fmt == "raw" and t_backup > 0:
+        # Keep classical runs free of CosmoLattice HDF5 I/O entirely.
+        print("WARNING: disabling tBackupFreq with --snapshot_format raw "
+              "(CosmoLattice backups are HDF5-only).")
+        t_backup = -1.0
+
+    out_rel = _cl_rel(out_dir)
+    if not out_rel.endswith("/"):
+        out_rel += "/"
 
     lines = [
         "#Output",
-        f"outputfile = {out_dir}/",
+        f"outputfile = {out_rel}",
         "",
         "#Evolution",
         f"expansion = {expansion}",
@@ -610,12 +937,30 @@ def make_input(args, out_dir):
         "#Times",
         f"tOutputFreq = {args.tOutputFreq:g}",
         f"tOutputInfreq = {args.tOutputInfreq:g}",
+        f"tOutputRareFreq = {args.tOutputRareFreq if args.tOutputRareFreq is not None else 1000.0 * dt_tilde:g}",
+        f"tOutputVerb = {args.tOutputFreq:g}",
         f"tMax = {args.tMax:g}",
+        f"tBackupFreq = {t_backup:g}",
         "",
-        "#Field snapshots (phi -> field_states/*.raw; export via tools/export_cl_snapshots.py)",
+        "#Field snapshots",
         f"save_snapshots = {1 if save_snaps else 0}",
         f"snapshot_steps = {coarse_steps}",
+        f"snapshot_format = {getattr(args, 'snapshot_format', 'hdf5')}",
     ]
+    # CosmoLattice EnergySnapshotsMeasurer needs a -DHDF5=ON *binary*.
+    use_hdf5_snaps = (
+        save_snaps
+        and snap_fmt == "hdf5"
+        and hdf5_ok
+    )
+    if use_hdf5_snaps:
+        lines.append("energy_snapshot = E_S_K E_S_G E_V")
+    elif save_snaps and snap_fmt == "hdf5" and not hdf5_ok:
+        print(
+            "WARNING: snapshot_format=hdf5 but binary has HDF5=OFF; "
+            "field dumps will no-op. Use --snapshot_format raw or rebuild "
+            "with HDF5."
+        )
     if args.phi_threshold is not None:
         lines.append(f"phi_threshold = {args.phi_threshold:g}")
     if args.steps_dense is not None:
@@ -651,6 +996,7 @@ def make_input(args, out_dir):
         "#Temperature / Langevin",
         f"T0 = {args.T0:g}",
         f"eta_phys = {eta:g}",
+        f"eta_follows_T = {1 if getattr(args, 'eta_follows_T', False) else 0}",
         f"dx_phys = {args.dx_phys:g}",
         f"dt_phys = {args.dt_phys:g}",
         f"include_cw = {args.include_cw}",
@@ -716,6 +1062,7 @@ def write_run_params(args, out_dir):
         "vev": math.sqrt(mu * mu / lam),
         "T0": args.T0,
         "eta_phys": args.eta_phys if args.eta_phys is not None else args.T0,
+        "eta_follows_T": bool(getattr(args, "eta_follows_T", False)),
         "thermal_noise": args.thermal_noise,
         "langevin_off_after_nucleation": bool(args.langevin_off_after_nucleation),
         "langevin_off_f_switch": args.langevin_off_f_switch,
@@ -766,7 +1113,11 @@ def export_snapshots(run_dir, keep_raw=False):
 
 
 def output_dirname(args):
-    """Match latticeSimeRescale_numba.py save_path naming, with a _CL suffix."""
+    """Match latticeSimeRescale_numba.py save_path naming, with a _CL suffix.
+
+    CosmoLattice backup stores outputfile=... as a short HDF5 string; we pass a
+    *relative* outputfile (see _cl_rel), so this name can stay descriptive.
+    """
     N = args.Nx
     steps = args.steps if args.steps is not None else 100_000
     hubble_tag = "_nohubble" if args.no_hubble else "_hubble"
@@ -784,6 +1135,8 @@ def output_dirname(args):
         staged_tag = ""
     eta = args.eta_phys if args.eta_phys is not None else args.T0
     eta_tag = f"_eta_{eta:g}"
+    if getattr(args, "eta_follows_T", False):
+        eta_tag += "_etaT"
     if args.langevin_off_after_nucleation:
         eta_tag += f"_langoff_f{args.langevin_off_f_switch:g}"
     nb = 0 if args.potential_type == "fermion_only" else args.nb
@@ -792,19 +1145,56 @@ def output_dirname(args):
         f"_nb_{nb:g}_nf_{args.nf:g}"
     )
     integrator_tag = f"_{args.evolver}"
+    scheme = getattr(args, "stochastic_scheme", "numba")
+    if scheme != "numba":
+        integrator_tag += f"_{scheme}"
     pot_type_tag = f"_{args.potential_type}" if args.potential_type != "V_p" else ""
     field_tag = "_complex" if args.n_scalars >= 2 else ""
     zn_tag = f"_ZN{args.zn_order}" if args.n_scalars >= 2 and args.zn_order > 0 else ""
+    # Tag γ in the run dirname when it is not the historical set8 value, so
+    # different γ never collide even if forced into the same param_set folder.
+    gamma = float(getattr(args, "gamma", SET8_GAMMA))
+    if gammas_close(gamma, SET8_GAMMA):
+        gamma_tag = ""
+    else:
+        gamma_tag = f"_g_{format_gamma_tag(gamma)}"
     return (
-        f"{N}x{N}x{N}_T0_{int(args.T0)}{field_tag}{zn_tag}"
+        f"{N}x{N}x{N}_T0_{int(args.T0)}{field_tag}{zn_tag}{gamma_tag}"
         f"_dx_{args.dx_phys:g}_dtphys_{args.dt_phys:g}"
         f"_interval_{steps}_3D{hubble_tag}{staged_tag}{eta_tag}{coupling_tag}"
         f"{integrator_tag}{pot_type_tag}_CL"
     )
 
 
+def _apply_param_set(args):
+    """Resolve data/lattice/<set>/ from --gamma / --param_set / --force_param_set."""
+    requested = args.param_set
+    if getattr(args, "force_param_set", False):
+        if requested in (None, "", "auto"):
+            args.param_set = set_name_for_gamma(args.gamma)
+        else:
+            args.param_set = requested
+    elif resolve_param_set is not None:
+        args.param_set = resolve_param_set(
+            args.gamma, requested, auto=(requested in (None, "", "auto"))
+        )
+    else:
+        args.param_set = set_name_for_gamma(args.gamma) if requested in (None, "", "auto") else requested
+
+    if v0_of_gamma is not None:
+        print(
+            f"param_set={args.param_set}  gamma={args.gamma:g}  "
+            f"V0={v0_of_gamma(args.gamma):.4e} GeV^4  "
+            f"→ data/lattice/{args.param_set}/"
+        )
+    else:
+        print(f"param_set={args.param_set}  gamma={args.gamma:g}")
+    return args.param_set
+
+
 def main():
     args = parse_args()
+    _apply_param_set(args)
 
     if args.export_only:
         run_dir = args.run_dir
@@ -825,7 +1215,8 @@ def main():
     if args.install:
         install()
     if args.build:
-        build(mpi=args.mpi)
+        need_hdf5 = getattr(args, "snapshot_format", "hdf5") == "hdf5"
+        build(mpi=args.mpi, require_hdf5=need_hdf5 if args.mpi else False)
 
     mpi_np = args.mpi_np
     if args.mpi:
@@ -849,12 +1240,29 @@ def main():
     print(f"Wrote input file: {os.path.relpath(in_path, REPO)}")
 
     binary = binary_path(mpi=args.mpi)
-    in_arg = f"input={in_path}"
+    in_rel = _cl_rel(in_path)
+    in_arg = f"input={in_rel}"
     if args.mpi:
         cmd = _mpi_launch_cmd(binary, in_arg, args.mpi_np)
     else:
-        cmd = [binary, in_arg]
+        cmd = _stdbuf_prefix() + [binary, in_arg]
     print("Run command:\n  " + " ".join(cmd))
+
+    run_log = os.path.join(out_dir, "run.log")
+    live_log = os.environ.get("TIPT_LIVE_LOG", "").strip()
+    pointer = os.path.join(REPO, "kisti_log", "LATEST_RUN.txt")
+    os.makedirs(os.path.dirname(pointer), exist_ok=True)
+    with open(pointer, "w") as f:
+        f.write("run_dir=" + out_dir + "\n")
+        f.write("run_log=" + run_log + "\n")
+        if live_log:
+            f.write("live_log=" + live_log + "\n")
+        f.write("watch:\n")
+        f.write("  tail -f " + (live_log or run_log) + "\n")
+        f.write("  tail -f " + os.path.join(out_dir, "average_energies.txt") + "\n")
+    print("Live log: " + (live_log or run_log))
+    print("Run dir:  " + out_dir)
+    print("Pointer:  " + pointer)
 
     if args.dry_run:
         print("(dry run; not executing)")
@@ -863,10 +1271,14 @@ def main():
         hint = "--install --build --mpi" if args.mpi else "--install --build"
         print(f"ERROR: binary not found: {binary}\n  Run with {hint} first.")
         sys.exit(1)
-    subprocess.check_call(cmd)
+    _run_logged(cmd, [run_log])
 
-    if _snapshots_enabled(args):
-        print("Exporting field snapshots to numba NPZ format...")
+    raw_dir = os.path.join(out_dir, "field_states")
+    has_raw = os.path.isdir(raw_dir) and any(
+        n.endswith(".raw") for n in os.listdir(raw_dir)
+    )
+    if has_raw and not getattr(args, "no_export", False):
+        print("Exporting leftover .raw snapshots to NPZ...")
         export_snapshots(out_dir, keep_raw=args.keep_raw)
 
 

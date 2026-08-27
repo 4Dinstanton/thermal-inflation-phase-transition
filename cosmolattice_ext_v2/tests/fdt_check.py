@@ -12,13 +12,13 @@ which follows from <phidot^2> = T / (a^3 dx_com^3) and pi = a^3 phidot /
 
 Expected outcome:
 
-  * v2 `ou`      -> ratio 1.00 at every dt, until the conservative Verlet core
-                    itself goes unstable (dt >= 0.3 for these parameters).
-  * v2 `verlet`  -> ratio 1 / (1 - eta*dt/4), the explicit-friction bias.
-  * v1 `fdt`     -> same bias as v2 `verlet` (cross-check of two independent
-                    implementations).
-  * v1 `numba`   -> half of that: the numba reference injects half the FDT
-                    variance by construction.
+  * v2 `ou`         -> ratio 1.00 at every dt, until the conservative core
+                       goes unstable (dt >= 0.3 for these parameters).
+  * v2 `verlet`     -> ratio 1 / (1 - eta*dt/4), the explicit-friction bias.
+  * v2 `numba`      -> Verlet + half-FDT amplitude (~0.61 at dt=0.1).
+  * v2 `fused_rk2`  -> 4-pass RK2 + 0.5*sigma_full kicks (~0.61 at dt=0.1).
+  * v1 `fdt`        -> same bias as v2 `verlet`.
+  * v1 `numba`      -> half of that (Numba half-noise construction).
 
 Usage:
     python cosmolattice_ext_v2/tests/fdt_check.py              # v2 only
@@ -133,7 +133,7 @@ def main():
           f"{'measured/eq':<13} {'expected':<10}")
 
     jobs = [("v2", V2_BIN, "stochastic", s, d)
-            for s in ("ou", "verlet", "numba")
+            for s in ("ou", "verlet", "numba", "fused_rk2")
             for d in (0.05, 0.1)]
     if args.with_v1:
         if not os.path.exists(V1_BIN):
@@ -143,12 +143,17 @@ def main():
     for tag, binary, evolver, scheme, dt in jobs:
         pi2 = run(binary, evolver, scheme, dt, args.workdir)
         if pi2 is None:
-            print(f"{tag:<6} {scheme:<8} {dt:<8} {'':<8} FAILED")
+            print(f"{tag:<6} {scheme:<10} {dt:<8} {'':<8} FAILED")
             continue
         eta_dt = ETA / MPHI * dt
         bias = 1.0 / (1.0 - eta_dt / 4.0)
-        expected = 1.0 if scheme == "ou" else (0.5 * bias if scheme == "numba" else bias)
-        print(f"{tag:<6} {scheme:<8} {dt:<8} {eta_dt:<8.3f} "
+        if scheme == "ou":
+            expected = 1.0
+        elif scheme in ("numba", "fused_rk2"):
+            expected = 0.5 * bias
+        else:
+            expected = bias
+        print(f"{tag:<6} {scheme:<10} {dt:<8} {eta_dt:<8.3f} "
               f"{pi2 / PI2_EQ:<13.4g} {expected:<10.4g}")
 
 

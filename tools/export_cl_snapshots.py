@@ -6,6 +6,9 @@ Reads field_states/manifest.csv + snapshot_*.raw written by field_snapshot.hpp,
 produces field_states/state_step_{step:010d}.npz and simulation_metadata.npz
 for postprocess/revisualize_snapshots.py.
 
+For HDF5 field snapshots (KISTI ``snapshot_format=hdf5``), use
+``tools/cl_hdf5_string_pipeline.py``.
+
 For two-component (complex-field) snapshots, also computes winding density via
 tools/winding.py so --strings mode works out of the box.
 
@@ -28,6 +31,7 @@ if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
 from tools.winding import compute_winding_number
+from tools.cl_field_snapshot_io import parse_manifest_row
 
 SNAPSHOT_MAGIC = 0x464C5048  # 'FLPH' phi only
 SNAPSHOT_MAGIC_PI = 0x464C5049  # 'FLPI' phi + pi
@@ -181,27 +185,8 @@ MANIFEST_MIN_FIELDS = 8
 
 
 def _parse_manifest_row(line):
-    """Parse one manifest.csv line (with or without header row)."""
-    line = line.strip()
-    if not line or line.startswith("step,"):
-        return None
-    parts = [p.strip() for p in line.split(",")]
-    if len(parts) < MANIFEST_MIN_FIELDS:
-        return None
-    # Filename is always the last column (handles optional staged fields).
-    filename = parts[-1]
-    if not filename.endswith(".raw"):
-        return None
-    return {
-        "step": parts[0],
-        "t": parts[1],
-        "T": parts[2],
-        "a": parts[3],
-        "H": parts[4],
-        "fStar": parts[5],
-        "n_scalars": parts[6],
-        "filename": filename,
-    }
+    """Parse one manifest.csv line (raw or HDF5)."""
+    return parse_manifest_row(line)
 
 
 def export_run(run_dir, keep_raw=False, hubble=True):
@@ -224,7 +209,11 @@ def export_run(run_dir, keep_raw=False, hubble=True):
         row = _parse_manifest_row(line)
         if row is None:
             continue
-        step_key = int(float(row["step"]))
+        try:
+            step_key = int(float(row["step"]))
+        except ValueError:
+            print(f"  skip corrupt manifest line: {line.strip()[:80]}")
+            continue
         if step_key in seen_steps:
             continue
         seen_steps.add(step_key)
@@ -233,6 +222,12 @@ def export_run(run_dir, keep_raw=False, hubble=True):
     print(f"Exporting {len(rows)} unique snapshots from {run_dir}")
     for i, row in enumerate(rows):
         raw_name = row["filename"].strip()
+        if raw_name.endswith(".h5"):
+            print(
+                f"  [{i+1}/{len(rows)}] skip {raw_name} "
+                "(use tools/cl_hdf5_string_pipeline.py for HDF5)"
+            )
+            continue
         raw_path = os.path.join(state_dir, raw_name)
         if not os.path.exists(raw_path):
             print(f"  [{i+1}/{len(rows)}] skip missing {raw_name}")
