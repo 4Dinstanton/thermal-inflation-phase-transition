@@ -614,6 +614,82 @@ def plot_strings_3d(
     return strings
 
 
+def _plot_strings_3d_dense(
+    state,
+    metadata,
+    output_file,
+    n_string_vox,
+    elev=25,
+    azim=135,
+    max_points=300_000,
+):
+    """3D scatter of |winding|>0.5 voxels *without* loop labeling.
+
+    For dense / false-vacuum-noisy snapshots: subsample points and color by
+    winding sign (+/−) only. Avoids ndimage_label and full argwhere on labelled.
+    """
+    winding = np.asarray(state["winding"])
+    step = state["step"]
+    T_val = state["temperature"]
+
+    mu = 1000.0
+    if metadata is not None:
+        if "mu" in metadata:
+            mu = float(metadata["mu"])
+        elif "mphi" in metadata:
+            mu = float(metadata["mphi"])
+    time_phys = state["time"] / mu
+    nx, ny, nz = winding.shape
+
+    mask = np.abs(winding) > 0.5
+    flat = np.flatnonzero(mask.ravel())
+    if flat.size == 0:
+        print(f"    [3d-strings-dense] No string voxels at step {step}")
+        return
+
+    n_show = int(min(flat.size, max_points))
+    if flat.size > n_show:
+        rng = np.random.default_rng(step if isinstance(step, (int, np.integer)) else 0)
+        flat = rng.choice(flat, n_show, replace=False)
+    coords = np.column_stack(np.unravel_index(flat, winding.shape))
+    signs = np.sign(winding[coords[:, 0], coords[:, 1], coords[:, 2]])
+    # Blue = +, red = −
+    colors = np.where(signs >= 0, "#2166ac", "#b2182b")
+    ms = max(0.4, min(4.0, 8000.0 / max(1, n_show)))
+
+    fig = plt.figure(figsize=(12, 10), facecolor="white")
+    ax = fig.add_subplot(111, projection="3d")
+    ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        coords[:, 2],
+        c=colors,
+        s=ms,
+        alpha=0.35,
+        linewidths=0,
+        depthshade=False,
+    )
+    ax.set_xlim(0, nx)
+    ax.set_ylim(0, ny)
+    ax.set_zlim(0, nz)
+    ax.set_box_aspect([nx, ny, nz])
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.set_title(
+        f"Winding voxels (3D, no loop IDs) | Step {step:,} | "
+        f"t={time_phys:.2e} | T={T_val:.1f}\n"
+        f"dense: {n_string_vox:,} voxels, showing {n_show:,} subsampled  "
+        f"(blue +, red −)",
+        fontsize=11,
+        pad=12,
+    )
+    ax.view_init(elev=elev, azim=azim)
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _write_string_csv(csv_path, strings, step, time_val, temperature):
     """Write per-step CSV with one row per string loop."""
     with open(csv_path, "w") as f:
@@ -698,9 +774,9 @@ def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None
             strings = plot_strings_2d(state, metadata, out_2d)
             n_loops = len(strings)
 
-        # 3D view only when string density is manageable (skip false-vacuum noise)
+        # 3D: labeled when sparse; dense subsample (no IDs) otherwise
+        out_3d = os.path.join(output_3d, f"strings3d_step_{step:010d}.png")
         if n_loops > 0 and n_string_vox <= 80_000:
-            out_3d = os.path.join(output_3d, f"strings3d_step_{step:010d}.png")
             plot_strings_3d(state, metadata, out_3d, elev=elev, azim=azim)
 
             csv_path = os.path.join(csv_dir, f"strings_step_{step:010d}.csv")
@@ -712,16 +788,20 @@ def revisualize_strings(sim_dir, elev=25, azim=135, step_min=None, step_max=None
             _write_string_csv(
                 csv_path, strings, step, state["time"], state["temperature"]
             )
-        elif n_loops > 0 and n_string_vox <= 500_000:
-            csv_path = os.path.join(csv_dir, f"strings_step_{step:010d}.csv")
-            mu = 1000.0
-            if metadata is not None and "mu" in metadata:
-                mu = float(metadata["mu"])
-            elif metadata is not None and "mphi" in metadata:
-                mu = float(metadata["mphi"])
-            _write_string_csv(
-                csv_path, strings, step, state["time"], state["temperature"]
+        elif n_string_vox > 0:
+            _plot_strings_3d_dense(
+                state, metadata, out_3d, n_string_vox, elev=elev, azim=azim
             )
+            if n_loops > 0 and n_string_vox <= 500_000:
+                csv_path = os.path.join(csv_dir, f"strings_step_{step:010d}.csv")
+                mu = 1000.0
+                if metadata is not None and "mu" in metadata:
+                    mu = float(metadata["mu"])
+                elif metadata is not None and "mphi" in metadata:
+                    mu = float(metadata["mphi"])
+                _write_string_csv(
+                    csv_path, strings, step, state["time"], state["temperature"]
+                )
 
         top_lens = [s["n_voxels"] for s in strings[:3]] if strings and n_loops > 0 else []
         top_str = ", ".join(str(v) for v in top_lens) if top_lens else "-"

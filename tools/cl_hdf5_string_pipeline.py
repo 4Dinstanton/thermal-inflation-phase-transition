@@ -26,11 +26,14 @@ from __future__ import annotations
 import argparse
 import csv
 import gc
+import logging
 import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -53,9 +56,44 @@ from tools.cl_field_snapshot_io import (
 from tools.export_cl_snapshots import load_run_params, write_metadata
 from tools.winding import string_voxel_fraction
 
+KST = ZoneInfo("Asia/Seoul")
+LOG = logging.getLogger("cl_hdf5_string")
 
-def _log(msg: str) -> None:
-    print(msg, flush=True)
+
+class _KSTFormatter(logging.Formatter):
+    """Timestamps in Korea Standard Time (Asia/Seoul)."""
+
+    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:
+        dt = datetime.fromtimestamp(record.created, tz=KST)
+        if datefmt:
+            return dt.strftime(datefmt)
+        # Explicit KST label (Asia/Seoul %Z is often "KST")
+        return dt.strftime("%Y-%m-%d %H:%M:%S") + " KST"
+
+
+def setup_logging(log_file: Optional[str] = None, level: int = logging.INFO) -> None:
+    """Configure stdout (+ optional file) logging with KST timestamps."""
+    LOG.handlers.clear()
+    LOG.setLevel(level)
+    LOG.propagate = False
+    fmt = _KSTFormatter("%(asctime)s | %(levelname)-7s | %(message)s")
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    sh.flush = sys.stdout.flush  # type: ignore[method-assign]
+    LOG.addHandler(sh)
+    if log_file:
+        parent = os.path.dirname(os.path.abspath(log_file))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        fh = logging.FileHandler(log_file, encoding="utf-8")
+        fh.setFormatter(fmt)
+        LOG.addHandler(fh)
+        LOG.info("log file: %s", os.path.abspath(log_file))
+
+
+def _pool_logging_init() -> None:
+    """Stdout KST logging in ProcessPool workers (no shared file handle)."""
+    setup_logging(log_file=None, level=logging.INFO)
 
 
 def _fmt_s(dt: float) -> str:
@@ -205,9 +243,11 @@ def _analyze_one_h5(
     step = int(float(row["step"]))
     tag = f"[{idx}/{n_total}] step {step}"
     t0 = time.time()
+    if not LOG.handlers:
+        _pool_logging_init()
     try:
         kind = source_kind or "monolith"
-        _log(f"  {tag}: start ({kind})  file={os.path.basename(h5_path)}")
+        LOG.info(f"  {tag}: start ({kind})  file={os.path.basename(h5_path)}")
 
         t_load = time.time()
         if time_index is None and kind == "monolith":
@@ -215,7 +255,7 @@ def _analyze_one_h5(
         snap = read_h5_snapshot(
             h5_path, row, time_index=time_index if kind == "monolith" else None
         )
-        _log(
+        LOG.info(
             f"  {tag}: loaded N={snap.get('N')}  "
             f"T={snap['temperature']:.1f}  ({_fmt_s(time.time() - t_load)})"
         )
@@ -223,7 +263,7 @@ def _analyze_one_h5(
         t_met = time.time()
         metrics = _metrics_from_snap(snap)
         n_string_vox = int(metrics["n_string_voxels"])
-        _log(
+        LOG.info(
             f"  {tag}: winding done  voxels={n_string_vox:,}  "
             f"frac={metrics['string_voxel_fraction']:.3e}  "
             f"({_fmt_s(time.time() - t_met)})"
@@ -232,6 +272,7 @@ def _analyze_one_h5(
         if do_plots:
             from postprocess.revisualize_snapshots import (
                 _plot_strings_2d_dense,
+                _plot_strings_3d_dense,
                 plot_strings_2d,
                 plot_strings_3d,
             )
@@ -258,42 +299,52 @@ def _analyze_one_h5(
 
             t_plot = time.time()
             if n_string_vox > dense_cut:
-                _log(
-                    f"  {tag}: dense winding (>{dense_cut:,}) → light 2D plot"
+                LOG.info(
+                    f"  {tag}: dense winding (>{dense_cut:,}) → "
+                    f"light 2D + dense 3D (no loop IDs)"
                 )
                 _plot_strings_2d_dense(state, meta, png2d, n_string_vox)
                 metrics["n_loops"] = -1
-                _log(f"  {tag}: 2D PNG done  ({_fmt_s(time.time() - t_plot)})")
+                LOG.info(f"  {tag}: 2D PNG done  ({_fmt_s(time.time() - t_plot)})")
+                t3 = time.time()
+                LOG.info(f"  {tag}: dense 3D PNG (subsampled, no labeling) …")
+                _plot_strings_3d_dense(state, meta, png3d, n_string_vox)
+                LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
             else:
-                _log(f"  {tag}: full 2D labeling + plot …")
+                LOG.info(f"  {tag}: full 2D labeling + plot …")
                 strings = plot_strings_2d(state, meta, png2d)
                 metrics["n_loops"] = len(strings) if strings else 0
-                _log(
+                LOG.info(
                     f"  {tag}: 2D PNG done  loops={metrics['n_loops']}  "
                     f"({_fmt_s(time.time() - t_plot)})"
                 )
                 if strings and n_string_vox <= max3d_cut:
                     t3 = time.time()
-                    _log(f"  {tag}: 3D PNG …")
+                    LOG.info(f"  {tag}: 3D PNG (by loop ID) …")
                     plot_strings_3d(
                         state, meta, png3d, labelled=None, strings=strings
                     )
-                    _log(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
+                    LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
                 elif strings:
-                    _log(
-                        f"  {tag}: skip 3D (voxels={n_string_vox:,} > {max3d_cut:,})"
+                    # Above max3d_cut but below dense_cut: still show 3D without IDs
+                    t3 = time.time()
+                    LOG.info(
+                        f"  {tag}: voxels={n_string_vox:,} > 3D-label cut "
+                        f"{max3d_cut:,} → dense 3D (no loop IDs)"
                     )
+                    _plot_strings_3d_dense(state, meta, png3d, n_string_vox)
+                    LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
             del state, snap
         else:
             metrics["n_loops"] = ""
             del snap
 
         gc.collect()
-        _log(f"  {tag}: OK total {_fmt_s(time.time() - t0)}")
+        LOG.info(f"  {tag}: OK total {_fmt_s(time.time() - t0)}")
         return step, "ok", metrics
     except Exception as exc:
         gc.collect()
-        _log(f"  {tag}: FAIL after {_fmt_s(time.time() - t0)}: {exc}")
+        LOG.error(f"  {tag}: FAIL after {_fmt_s(time.time() - t0)}: {exc}")
         return step, f"fail:{exc}", None
 
 
@@ -303,9 +354,11 @@ def _split_one(
     h5_path, row, out_path, time_index, skip_existing, idx, n_total = args
     step = int(float(row["step"]))
     tag = f"[{idx}/{n_total}] step {step}"
+    if not LOG.handlers:
+        _pool_logging_init()
     if skip_existing and os.path.isfile(out_path):
         size_gb = os.path.getsize(out_path) / (1024 ** 3)
-        _log(f"  {tag}: skip (exists, {size_gb:.2f} GiB)")
+        LOG.info(f"  {tag}: skip (exists, {size_gb:.2f} GiB)")
         return step, "skip", out_path
     t0 = time.time()
     try:
@@ -314,24 +367,24 @@ def _split_one(
         if time_index is None:
             time_index = build_h5_time_index(h5_path, "phi_0")
         time_key = lookup_h5_key(t, time_index)
-        _log(f"  {tag}: reading phi_0 (t={time_key}) …")
+        LOG.info(f"  {tag}: reading phi_0 (t={time_key}) …")
         phi0 = read_h5_field(h5_path, "phi_0", time_key)
         phi1 = None
         if n_scalars >= 2:
-            _log(f"  {tag}: reading phi_1 …")
+            LOG.info(f"  {tag}: reading phi_1 …")
             phi1 = read_h5_field(h5_path, "phi_1", time_key, N=phi0.shape[0])
-        _log(f"  {tag}: writing {os.path.basename(out_path)} …")
+        LOG.info(f"  {tag}: writing {os.path.basename(out_path)} …")
         write_per_step_h5(out_path, row, phi0, phi1)
         del phi0, phi1
         gc.collect()
         size_gb = os.path.getsize(out_path) / (1024 ** 3)
-        _log(
+        LOG.info(
             f"  {tag}: OK  {size_gb:.2f} GiB  ({_fmt_s(time.time() - t0)})"
         )
         return step, "ok", out_path
     except Exception as exc:
         gc.collect()
-        _log(f"  {tag}: FAIL: {exc}")
+        LOG.error(f"  {tag}: FAIL: {exc}")
         return step, f"fail:{exc}", out_path
 
 
@@ -349,15 +402,15 @@ def split_hdf5(
 
     rows = _filter_rows(load_manifest_rows(run_dir), step_min, step_max)
     if not rows:
-        _log("No manifest rows to split.")
+        LOG.info("No manifest rows to split.")
         return 0
 
     h5_path = resolve_h5_path(run_dir, rows)
     size_gb = os.path.getsize(h5_path) / (1024 ** 3) if os.path.isfile(h5_path) else 0.0
-    _log(f"=== split monolith → per-step HDF5 ===")
-    _log(f"  source: {h5_path}  ({size_gb:.1f} GiB)")
-    _log(f"  dest:   {state_dir}/snapshot_step_XXXXXXXXXX.h5")
-    _log(f"  snaps:  {len(rows)}  workers={workers}")
+    LOG.info(f"=== split monolith → per-step HDF5 ===")
+    LOG.info(f"  source: {h5_path}  ({size_gb:.1f} GiB)")
+    LOG.info(f"  dest:   {state_dir}/snapshot_step_XXXXXXXXXX.h5")
+    LOG.info(f"  snaps:  {len(rows)}  workers={workers}")
 
     time_index = build_h5_time_index(h5_path, "phi_0")
     n_total = len(rows)
@@ -376,17 +429,19 @@ def split_hdf5(
             if status in ("ok", "skip"):
                 n_ok += 1
     else:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
+        with ProcessPoolExecutor(
+            max_workers=workers, initializer=_pool_logging_init
+        ) as pool:
             futures = {pool.submit(_split_one, t): t for t in tasks}
             for fut in as_completed(futures):
                 step, status, path = fut.result()
                 if status in ("ok", "skip"):
                     n_ok += 1
 
-    _log(
+    LOG.info(
         f"Split done: {n_ok}/{n_total}  total wall {_fmt_s(time.time() - t_all)}"
     )
-    _log(
+    LOG.info(
         "Tip: rsync individual field_states/snapshot_step_*.h5 + "
         "field_states/manifest.csv + cl_run_params.json"
     )
@@ -407,7 +462,7 @@ def export_hdf5(
 
     rows = _filter_rows(load_manifest_rows(run_dir), step_min, step_max)
     if not rows:
-        _log("No manifest rows to export.")
+        LOG.info("No manifest rows to export.")
         return 0
 
     h5_path = resolve_h5_path(run_dir, rows)
@@ -427,15 +482,15 @@ def export_hdf5(
 
     if N_hint:
         ram = estimate_ram_gb(N_hint, n_scalars=2)
-        _log(f"HDF5: {h5_path}")
-        _log(f"Grid N≈{N_hint}  est. RAM per worker ≈ {ram:.1f} GB")
+        LOG.info(f"HDF5: {h5_path}")
+        LOG.info(f"Grid N≈{N_hint}  est. RAM per worker ≈ {ram:.1f} GB")
         if ram > 12 and workers > 1:
-            _log(
+            LOG.warning(
                 f"WARNING: {workers} workers × {ram:.1f} GB may OOM; "
                 f"consider --workers 1"
             )
 
-    _log(f"Exporting {len(rows)} snapshots -> {state_dir}")
+    LOG.info(f"Exporting {len(rows)} snapshots -> {state_dir}")
     tasks = [
         (h5_path, row, state_dir, "", skip_existing, hubble)
         for row in rows
@@ -445,22 +500,24 @@ def export_hdf5(
     if workers <= 1:
         for task in tasks:
             step, status, path = _export_one(task)
-            _log(f"  step {step}: {status} {path}")
+            LOG.info(f"  step {step}: {status} {path}")
             if status == "ok" or status == "skip":
                 n_ok += 1
     else:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
+        with ProcessPoolExecutor(
+            max_workers=workers, initializer=_pool_logging_init
+        ) as pool:
             futures = {pool.submit(_export_one, t): t for t in tasks}
             for fut in as_completed(futures):
                 step, status, path = fut.result()
-                _log(f"  step {step}: {status}")
+                LOG.info(f"  step {step}: {status}")
                 if status == "ok" or status == "skip":
                     n_ok += 1
 
     params = load_run_params(run_dir)
     meta_path = write_metadata(run_dir, params, n_ok)
-    _log(f"Metadata: {meta_path}")
-    _log(f"Exported/skipped {n_ok}/{len(rows)} snapshots")
+    LOG.info(f"Metadata: {meta_path}")
+    LOG.info(f"Exported/skipped {n_ok}/{len(rows)} snapshots")
     return n_ok
 
 
@@ -490,13 +547,13 @@ def analyze_hdf5(
 
     rows = _filter_rows(load_manifest_rows(run_dir), step_min, step_max)
     if not rows:
-        _log("No manifest rows to analyze.")
+        LOG.info("No manifest rows to analyze.")
         return 0
 
     metadata = _load_or_build_metadata(run_dir, len(rows))
     n_scalars = int(metadata.get("n_scalars", int(float(rows[0]["n_scalars"]))))
     if n_scalars < 2:
-        _log("Run has n_scalars=1; string analysis needs complex (phi1+phi2).")
+        LOG.info("Run has n_scalars=1; string analysis needs complex (phi1+phi2).")
         return 0
 
     metrics_rows: List[Dict[str, Any]] = []
@@ -521,13 +578,13 @@ def analyze_hdf5(
 
     n_per = sum(1 for _, k in sources if k == "per_step")
     n_mono = sum(1 for _, k in sources if k == "monolith")
-    _log("=== string analyze ===")
-    _log(f"  run_dir: {run_dir}")
-    _log(
+    LOG.info("=== string analyze ===")
+    LOG.info(f"  run_dir: {run_dir}")
+    LOG.info(
         f"  snapshots: {len(rows)}  "
         f"(per-step={n_per}, monolith={n_mono}, missing={missing})"
     )
-    _log(f"  plots: {'on' if do_plots else 'off (metrics only)'}  workers={workers}")
+    LOG.info(f"  plots: {'on' if do_plots else 'off (metrics only)'}  workers={workers}")
 
     N_hint = None
     for path, kind in sources:
@@ -556,29 +613,29 @@ def analyze_hdf5(
     if N_hint:
         ram = estimate_ram_gb(N_hint, n_scalars=2)
         dense_cut, max3d_cut = _plot_thresholds(N_hint)
-        _log(f"  Grid N≈{N_hint}  est. RAM/snapshot ≈ {ram:.1f} GB")
+        LOG.info(f"  Grid N≈{N_hint}  est. RAM/snapshot ≈ {ram:.1f} GB")
         if do_plots:
-            _log(
+            LOG.info(
                 f"  Plot cuts: dense(light 2D) if voxels>{dense_cut:,}; "
                 f"3D if voxels≤{max3d_cut:,}"
             )
         if ram > 12 and workers > 1:
-            _log(
+            LOG.warning(
                 f"  WARNING: {workers} workers × {ram:.1f} GB may OOM; "
                 f"consider --workers 1"
             )
 
     time_index: Optional[Dict[float, str]] = None
     if n_mono > 0 and monolith_path and workers <= 1:
-        _log(f"  Building monolith time index: {monolith_path}")
+        LOG.info(f"  Building monolith time index: {monolith_path}")
         time_index = build_h5_time_index(monolith_path, "phi_0")
-        _log(f"  time keys: {len(time_index)}")
+        LOG.info(f"  time keys: {len(time_index)}")
 
     n_total = len(rows)
     tasks = []
     for i, (row, (path, kind)) in enumerate(zip(rows, sources), start=1):
         if kind == "missing":
-            _log(f"  [{i}/{n_total}] step {int(float(row['step']))}: MISSING HDF5 — skip")
+            LOG.info(f"  [{i}/{n_total}] step {int(float(row['step']))}: MISSING HDF5 — skip")
             continue
         ti = time_index if (kind == "monolith" and workers <= 1) else None
         tasks.append(
@@ -597,7 +654,9 @@ def analyze_hdf5(
             (path, row, run_dir, do_plots, metadata, None, kind, i, n_total)
             for (path, row, run_dir, do_plots, metadata, _ti, kind, i, n_total) in tasks
         ]
-        with ProcessPoolExecutor(max_workers=workers) as pool:
+        with ProcessPoolExecutor(
+            max_workers=workers, initializer=_pool_logging_init
+        ) as pool:
             futures = {pool.submit(_analyze_one_h5, t): t for t in tasks_par}
             for fut in as_completed(futures):
                 step, status, metrics = fut.result()
@@ -613,7 +672,7 @@ def analyze_hdf5(
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(metrics_rows)
-    _log(
+    LOG.info(
         f"Wrote {summary_path} ({len(metrics_rows)} rows)  "
         f"wall {_fmt_s(time.time() - t_all)}"
     )
@@ -642,10 +701,33 @@ def main():
                     help="CSV only, no PNGs (still reads HDF5)")
     ap.add_argument("--from-npz", action="store_true",
                     help="Analyze existing NPZ (skip HDF5 read)")
+    ap.add_argument(
+        "--log-file",
+        default=None,
+        help="Optional log path (KST timestamps). "
+             "Default: <run_dir>/strings/pipeline_<command>.log",
+    )
+    ap.add_argument(
+        "--no-log-file",
+        action="store_true",
+        help="Do not write a log file (stdout only)",
+    )
     args = ap.parse_args()
 
     skip_existing = not args.no_skip_existing
     run_dir = os.path.abspath(args.run_dir)
+
+    log_file = args.log_file
+    if log_file is None and not args.no_log_file:
+        log_dir = os.path.join(run_dir, "strings")
+        log_file = os.path.join(log_dir, f"pipeline_{args.command}.log")
+    setup_logging(log_file=None if args.no_log_file else log_file)
+    LOG.info(
+        "command=%s  run_dir=%s  workers=%s  timezone=KST (Asia/Seoul)",
+        args.command,
+        run_dir,
+        args.workers,
+    )
 
     if args.command == "split":
         split_hdf5(
