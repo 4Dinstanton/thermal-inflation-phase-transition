@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -142,17 +143,24 @@ def _load_or_build_metadata(run_dir: str, n_snapshots: int = 0) -> Dict[str, Any
     return dict(np.load(meta_path, allow_pickle=True))
 
 
+# Skip expensive loop labeling / 3D scatter above these counts (1024³ early TI).
+DENSE_STRING_VOX = 500_000
+MAX_3D_STRING_VOX = 80_000
+
+
 def _analyze_one_h5(
-    args: Tuple[str, Dict[str, Any], str, bool, Optional[Dict[str, Any]]],
+    args: Tuple[str, Dict[str, Any], str, bool, Optional[Dict[str, Any]], Optional[Dict[float, str]]],
 ) -> Tuple[int, str, Optional[Dict[str, Any]]]:
-    h5_path, row, run_dir, do_plots, metadata = args
+    h5_path, row, run_dir, do_plots, metadata, time_index = args
     step = int(float(row["step"]))
     try:
-        time_index = build_h5_time_index(h5_path, "phi_0")
+        if time_index is None:
+            time_index = build_h5_time_index(h5_path, "phi_0")
         snap = read_h5_snapshot(h5_path, row, time_index=time_index)
         metrics = _metrics_from_snap(snap)
         if do_plots:
             from postprocess.revisualize_snapshots import (
+                _plot_strings_2d_dense,
                 plot_strings_2d,
                 plot_strings_3d,
             )
@@ -174,13 +182,25 @@ def _analyze_one_h5(
             os.makedirs(strings3d_dir, exist_ok=True)
             png2d = os.path.join(strings_dir, f"strings_step_{step:010d}.png")
             png3d = os.path.join(strings3d_dir, f"strings3d_step_{step:010d}.png")
-            strings = plot_strings_2d(state, meta, png2d)
-            plot_strings_3d(state, meta, png3d)
-            metrics["n_loops"] = len(strings) if strings else ""
+            n_string_vox = int(metrics["n_string_voxels"])
+            if n_string_vox > DENSE_STRING_VOX:
+                _plot_strings_2d_dense(state, meta, png2d, n_string_vox)
+                metrics["n_loops"] = -1
+            else:
+                strings = plot_strings_2d(state, meta, png2d)
+                metrics["n_loops"] = len(strings) if strings else 0
+                if strings and n_string_vox <= MAX_3D_STRING_VOX:
+                    plot_strings_3d(
+                        state, meta, png3d, labelled=None, strings=strings
+                    )
+            del state, snap
         else:
             metrics["n_loops"] = ""
+            del snap
+        gc.collect()
         return step, "ok", metrics
     except Exception as exc:
+        gc.collect()
         return step, f"fail:{exc}", None
 
 
@@ -318,8 +338,9 @@ def analyze_hdf5(
             )
 
     print(f"Analyzing {len(rows)} HDF5 snapshots (no NPZ export)")
+    time_index = build_h5_time_index(h5_path, "phi_0")
     tasks = [
-        (h5_path, row, run_dir, do_plots, metadata)
+        (h5_path, row, run_dir, do_plots, metadata, time_index)
         for row in rows
     ]
 
@@ -335,9 +356,15 @@ def analyze_hdf5(
                 )
             else:
                 print(f"  step {step}: {status}", flush=True)
+            gc.collect()
     else:
+        # Parallel workers cannot share time_index safely; each rebuilds it.
+        tasks_par = [
+            (h5_path, row, run_dir, do_plots, metadata, None)
+            for row in rows
+        ]
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_analyze_one_h5, t): t for t in tasks}
+            futures = {pool.submit(_analyze_one_h5, t): t for t in tasks_par}
             for fut in as_completed(futures):
                 step, status, metrics = fut.result()
                 if metrics:

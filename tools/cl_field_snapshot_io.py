@@ -181,6 +181,8 @@ def read_h5_snapshot(
     h5_path: str,
     row: Dict[str, Any],
     time_index: Optional[Dict[float, str]] = None,
+    *,
+    field_dtype=np.float32,
 ) -> Dict[str, Any]:
     """Read one complex-field snapshot from field_snapshot.h5."""
     from tools.winding import compute_winding_number
@@ -201,12 +203,14 @@ def read_h5_snapshot(
     N = phi0_prog.shape[0]
 
     if n_scalars >= 2:
-        phi1_prog = phi0_prog
+        phi1_gev = np.asarray(phi0_prog, dtype=field_dtype) * np.float32(f_star)
+        del phi0_prog
         phi2_prog = read_h5_field(h5_path, "phi_1", time_key, N=N)
-        phi1_gev = phi1_prog.astype(np.float64) * f_star
-        phi2_gev = phi2_prog.astype(np.float64) * f_star
-        rho = np.sqrt(phi1_gev ** 2 + phi2_gev ** 2)
-        winding = compute_winding_number(phi1_gev, phi2_gev)
+        phi2_gev = np.asarray(phi2_prog, dtype=field_dtype) * np.float32(f_star)
+        del phi2_prog
+        rho = np.sqrt(phi1_gev * phi1_gev + phi2_gev * phi2_gev, dtype=field_dtype)
+        winding = compute_winding_number(phi1_gev, phi2_gev, dtype=field_dtype)
+        theta = np.arctan2(phi2_gev, phi1_gev, dtype=field_dtype)
         out = {
             "step": step,
             "time": t,
@@ -219,11 +223,12 @@ def read_h5_snapshot(
             "phi1": phi1_gev,
             "phi2": phi2_gev,
             "rho": rho,
-            "theta": np.arctan2(phi2_gev, phi1_gev),
+            "theta": theta,
             "winding": winding,
         }
     else:
-        phi_gev = phi0_prog.astype(np.float64) * f_star
+        phi_gev = np.asarray(phi0_prog, dtype=field_dtype) * np.float32(f_star)
+        del phi0_prog
         out = {
             "step": step,
             "time": t,
@@ -239,11 +244,12 @@ def read_h5_snapshot(
 
 
 def estimate_ram_gb(N: int, n_scalars: int = 2, with_winding: bool = True) -> float:
-    """Rough peak RAM per snapshot worker (float64 fields + winding)."""
+    """Rough peak RAM per snapshot worker (float32 fields + optional PNG path)."""
     n3 = N ** 3
-    bytes_per = 8 * n_scalars * n3
+    # phi1, phi2, rho, theta (float32) + winding + HDF5 decode buffer
+    bytes_per = 4 * (n_scalars + 2) * n3 + 4 * n3
     if with_winding:
-        bytes_per += 4 * n3 + 8 * n3  # winding float32 + theta scratch
+        bytes_per += 8 * n3  # labelled int64 during loop-ID PNGs (worst case)
     return bytes_per / (1024 ** 3)
 
 
