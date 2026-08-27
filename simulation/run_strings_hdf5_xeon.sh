@@ -146,8 +146,14 @@ if [ "$INSTALL_DEPS" = "1" ]; then
   PY=python
   pip install --upgrade pip setuptools wheel >/dev/null
   # Prefer binary wheels (much faster than building h5py against system HDF5)
-  echo "Ensuring numpy h5py matplotlib scipy ..."
-  pip install --upgrade "numpy" "h5py" "matplotlib" "scipy"
+  REQ="$REPO/requirements.txt"
+  if [ -f "$REQ" ]; then
+    echo "Installing from $REQ ..."
+    pip install -r "$REQ"
+  else
+    echo "Ensuring numpy h5py matplotlib scipy (no requirements.txt) ..."
+    pip install --upgrade "numpy" "h5py" "matplotlib" "scipy" "pillow"
+  fi
 else
   if [ -d "$VENV_DIR" ]; then
     # shellcheck disable=SC1091

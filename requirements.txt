@@ -1,0 +1,31 @@
+# PhaseTransition — Python deps for postprocessing on a fresh VM / analysis node
+#
+# Tested target: Python 3.9–3.12, Linux x86_64 (128–376 GiB RAM for 1024³ strings)
+#
+# Quick setup:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install --upgrade pip setuptools wheel
+#   pip install -r requirements.txt
+#
+# String analysis only (1024³ HDF5):
+#   python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --workers 1
+#   bash simulation/run_strings_hdf5_xeon.sh data/lattice/set8/<run_dir>
+#
+# GW spectrum plots:
+#   python postprocess/plot_cl_gw_spectrum.py <run_dir> --physical --T_rh 1000
+
+# ── Core (string HDF5 pipeline: cl_hdf5_string_pipeline, cl_field_snapshot_io) ──
+numpy>=1.23,<3
+h5py>=3.10
+matplotlib>=3.8
+scipy>=1.11
+
+# ── PNG / GIF postprocess (revisualize_snapshots, make_gif, bubble comparison) ──
+pillow>=10.0
+
+# ── GW & analysis plots (gwSpectrum, plot_cl_gw_spectrum, computeGW_gamma) ──
+pandas>=2.0
+
+# ── Tunneling / semi-analytical scripts (analysis/, optional) ──
+sympy>=1.12
