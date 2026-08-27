@@ -26,6 +26,74 @@ import sys
 NUMBA_PHI_VMIN = -2e11
 NUMBA_PHI_VMAX = 2e11
 
+# Broken-phase |Φ| reference for string 2D PNGs (set8 φ₀ = γ M_Pl ≈ 1e15 GeV).
+# Color is pinned at this VEV so post-Langevin ringing around φ₀ is visible.
+DEFAULT_PHI0_GEV = 1.0e15
+# Fixed window for (ρ − φ₀)/φ₀ midplane: ±10% shows langoff oscillations;
+# false-vacuum / string cores saturate at the blue end.
+STRING_RHO_DELTA_FRAC = 0.10
+
+
+def _meta_float(metadata, *keys, default=None):
+    """Read first present scalar from metadata dict / npz."""
+    if metadata is None:
+        return default
+    for k in keys:
+        if k not in metadata:
+            continue
+        try:
+            return float(np.asarray(metadata[k]).reshape(-1)[0])
+        except Exception:
+            continue
+    return default
+
+
+def resolve_phi0_vev(metadata=None, default=DEFAULT_PHI0_GEV) -> float:
+    """Broken-phase |Φ| scale (GeV) for fixed string-plot colorbars.
+
+    Preference: explicit ``vev`` / ``phi0`` → ``sqrt(mphi²/lam)`` →
+    ``gamma * M_Pl`` → default 1e15.
+    """
+    v = _meta_float(metadata, "vev", "phi0", "phi_0")
+    if v is not None and v > 0:
+        return v
+    mphi = _meta_float(metadata, "mphi", "mu")
+    lam = _meta_float(metadata, "lam", "lambda")
+    if mphi is not None and lam is not None and lam > 0:
+        return float(np.sqrt(mphi * mphi / lam))
+    gamma = _meta_float(metadata, "gamma")
+    if gamma is not None and gamma > 0:
+        return float(gamma * 2.4e18)  # M_Pl reduced
+    return float(default)
+
+
+def _imshow_rho_vev_centered(ax, rho_2d, vev, fig, *, title=None,
+                             delta_frac: float = STRING_RHO_DELTA_FRAC):
+    """Midplane of (ρ − φ₀)/φ₀ with fixed diverging color (φ₀ → white).
+
+    After Langevin off, the bulk sits near φ₀≈1e15 and small radial
+    oscillations show as red/blue. False vacuum / string cores (ρ≪φ₀)
+    saturate at the blue end by design.
+    """
+    vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
+    frac = float(delta_frac) if delta_frac and delta_frac > 0 else STRING_RHO_DELTA_FRAC
+    delta = (np.asarray(rho_2d, dtype=np.float64) - vev) / vev
+    im = ax.imshow(
+        delta,
+        origin="lower",
+        cmap="RdBu_r",
+        vmin=-frac,
+        vmax=frac,
+        interpolation="nearest",
+    )
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label(rf"$(\rho-\phi_0)/\phi_0$")
+    cbar.ax.axhline(0.0, color="k", lw=0.8, ls="--")
+    if title is None:
+        title = rf"$(\rho-\phi_0)/\phi_0$  ($\phi_0={vev:.2e}$, $\pm{100*frac:.0f}\%$)"
+    ax.set_title(title)
+    return im
+
 
 def load_metadata(sim_dir):
     """Load simulation metadata, searching parent directories if needed."""
@@ -410,9 +478,14 @@ def _plot_strings_2d_dense(state, metadata, output_file, n_string_vox):
     zmid = rho.shape[2] // 2
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-    im0 = axes[0].imshow(rho[:, :, zmid].T, origin="lower", cmap="viridis")
-    axes[0].set_title(r"$\rho = |\Phi|$")
-    fig.colorbar(im0, ax=axes[0], shrink=0.8)
+    vev = resolve_phi0_vev(metadata)
+    _imshow_rho_vev_centered(
+        axes[0],
+        rho[:, :, zmid].T,
+        vev,
+        fig,
+        title=rf"$(\rho-\phi_0)/\phi_0$  ($\phi_0={vev:.2e}$ fixed)",
+    )
     im1 = axes[1].imshow(
         theta[:, :, zmid].T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
     )
@@ -463,12 +536,17 @@ def plot_strings_2d(state, metadata, output_file):
     n_loops = len(strings)
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
+    vev = resolve_phi0_vev(metadata)
 
-    # Panel 0: rho slice
+    # Panel 0: |Φ| with φ₀-centered fixed color (post-langoff oscillations)
     rho_sl = rho[:, :, zmid]
-    im0 = axes[0, 0].imshow(rho_sl.T, origin="lower", cmap="viridis")
-    axes[0, 0].set_title(r"$\rho = |\Phi|$  (z-midplane)")
-    fig.colorbar(im0, ax=axes[0, 0], shrink=0.8)
+    _imshow_rho_vev_centered(
+        axes[0, 0],
+        rho_sl.T,
+        vev,
+        fig,
+        title=rf"$(\rho-\phi_0)/\phi_0$  ($\phi_0={vev:.2e}$ fixed)",
+    )
 
     # Panel 1: theta slice
     theta_sl = theta[:, :, zmid]
@@ -501,12 +579,14 @@ def plot_strings_2d(state, metadata, output_file):
     axes[1, 0].imshow(np.transpose(loop_display, (1, 0, 2)), origin="lower")
     axes[1, 0].set_title(f"String loops by ID  ({n_loops} distinct loops)")
 
-    # Panel 4: rho histogram
+    # Panel 4: rho histogram + φ₀ marker; also δρ/φ₀ zoom inset note
     rho_flat = rho.flatten()
     axes[1, 1].hist(rho_flat, bins=100, density=True, color="steelblue", alpha=0.8)
-    axes[1, 1].set_xlabel(r"$\rho = |\Phi|$")
+    axes[1, 1].axvline(vev, color="crimson", ls="--", lw=1.2, label=rf"$\phi_0={vev:.2e}$")
+    axes[1, 1].set_xlabel(r"$\rho = |\Phi|$ [GeV]")
     axes[1, 1].set_ylabel("Density")
-    axes[1, 1].set_title(r"$\rho$ histogram")
+    axes[1, 1].set_title(r"$|\Phi|$ histogram")
+    axes[1, 1].legend(fontsize=8, loc="best")
 
     # Panel 5: string length bar chart (top 20)
     if n_loops > 0:

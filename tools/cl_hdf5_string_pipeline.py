@@ -5,20 +5,24 @@ Primary path: read ``field_snapshot.h5`` + ``manifest.csv`` directly (no NPZ).
 Optional ``export`` command still writes NPZ for revisualize_snapshots.py.
 Optional ``split`` writes per-step HDF5 under ``field_states/`` for easier transfer.
 
-  **analyze** — winding + ``strings/string_summary.csv`` + optional PNGs
-  **split**   — monolith ``field_snapshot.h5`` → ``field_states/snapshot_step_*.h5``
-  **export**  — HDF5 → ``state_step_*.npz`` (optional)
-  **all**     — export then analyze
+  **analyze**      — winding + network metrics CSV + optional PNGs + timeseries plot
+  **plot-network** — re-plot ``strings/string_network_timeseries.png`` from CSV
+  **split**        — monolith ``field_snapshot.h5`` → ``field_states/snapshot_step_*.h5``
+  **export**       — HDF5 → ``state_step_*.npz`` (optional)
+  **all**          — export then analyze
+
+Network metrics (length, ξ, core E, v²) are computed from φ (+ π) for each
+slice — CosmoLattice energy dumps (often O(100 GB)) are never opened.
 
 Examples
 --------
-  # Split large monolith for transfer (on KISTI)
-  python tools/cl_hdf5_string_pipeline.py split <run_dir>
+  # Split large monolith for transfer (on KISTI); add --with-pi for E_kin/v² off-site
+  python tools/cl_hdf5_string_pipeline.py split <run_dir> [--with-pi]
 
-  # Strings from HDF5 (monolith or per-step files)
+  # Strings + network observables from HDF5
   python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --workers 1
 
-  # CSV only
+  # CSV + network plot only (no 2D/3D PNGs)
   python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --metrics-only
 """
 from __future__ import annotations
@@ -44,6 +48,7 @@ if REPO not in sys.path:
 from tools.cl_field_snapshot_io import (
     build_h5_time_index,
     estimate_ram_gb,
+    h5_has_group,
     load_manifest_rows,
     lookup_h5_key,
     per_step_h5_path,
@@ -54,7 +59,11 @@ from tools.cl_field_snapshot_io import (
     write_per_step_h5,
 )
 from tools.export_cl_snapshots import load_run_params, write_metadata
-from tools.winding import string_voxel_fraction
+from tools.string_network_metrics import (
+    NETWORK_CSV_FIELDS,
+    compute_network_metrics,
+    plot_network_timeseries,
+)
 
 KST = ZoneInfo("Asia/Seoul")
 LOG = logging.getLogger("cl_hdf5_string")
@@ -178,16 +187,33 @@ def _export_one(
         return step, f"fail:{exc}", out_path
 
 
-def _metrics_from_snap(snap: Dict[str, Any]) -> Dict[str, Any]:
-    winding = np.asarray(snap["winding"])
-    n_string_vox = int(np.sum(np.abs(winding) > 0.5))
-    return {
-        "step": snap["step"],
-        "time": snap["time"],
-        "temperature": snap["temperature"],
-        "n_string_voxels": n_string_vox,
-        "string_voxel_fraction": string_voxel_fraction(winding),
-    }
+def _metrics_from_snap(
+    snap: Dict[str, Any],
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    do_loops: bool = True,
+    max_label_voxels: int = 32_000_000,
+) -> Dict[str, Any]:
+    """Winding + network observables (length, ξ, core E, v², loops)."""
+    return compute_network_metrics(
+        snap,
+        params,
+        do_loops=do_loops,
+        max_label_voxels=max_label_voxels,
+    )
+
+
+def _run_params_for_metrics(run_dir: str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Merge cl_run_params.json with simulation_metadata for lattice scales."""
+    params = dict(load_run_params(run_dir) or {})
+    if metadata:
+        for k in ("mphi", "mu", "lam", "dx_phys", "omegaStar", "fStar", "gamma", "Nx"):
+            if k in metadata and k not in params:
+                try:
+                    params[k] = float(np.asarray(metadata[k]).reshape(-1)[0])
+                except Exception:
+                    params[k] = metadata[k]
+    return params
 
 
 def _load_or_build_metadata(run_dir: str, n_snapshots: int = 0) -> Dict[str, Any]:
@@ -227,6 +253,9 @@ def _analyze_one_h5(
         Optional[str],
         int,
         int,
+        bool,
+        bool,
+        Dict[str, Any],
     ],
 ) -> Tuple[int, str, Optional[Dict[str, Any]]]:
     (
@@ -239,6 +268,9 @@ def _analyze_one_h5(
         source_kind,
         idx,
         n_total,
+        load_pi,
+        do_network_loops,
+        run_params,
     ) = args
     step = int(float(row["step"]))
     tag = f"[{idx}/{n_total}] step {step}"
@@ -247,13 +279,28 @@ def _analyze_one_h5(
         _pool_logging_init()
     try:
         kind = source_kind or "monolith"
-        LOG.info(f"  {tag}: start ({kind})  file={os.path.basename(h5_path)}")
+        want_pi = bool(load_pi)
+        if want_pi and not (
+            h5_has_group(h5_path, "pi_0") and h5_has_group(h5_path, "pi_1")
+        ):
+            LOG.info(
+                f"  {tag}: no pi_* in HDF5 — core E_kin / v² skipped "
+                "(use monolith field_snapshot.h5, or re-split with --with-pi)"
+            )
+            want_pi = False
+        LOG.info(
+            f"  {tag}: start ({kind})  file={os.path.basename(h5_path)}"
+            f"  load_pi={want_pi}"
+        )
 
         t_load = time.time()
         if time_index is None and kind == "monolith":
             time_index = build_h5_time_index(h5_path, "phi_0")
         snap = read_h5_snapshot(
-            h5_path, row, time_index=time_index if kind == "monolith" else None
+            h5_path,
+            row,
+            time_index=time_index if kind == "monolith" else None,
+            load_pi=want_pi,
         )
         LOG.info(
             f"  {tag}: loaded N={snap.get('N')}  "
@@ -261,11 +308,20 @@ def _analyze_one_h5(
         )
 
         t_met = time.time()
-        metrics = _metrics_from_snap(snap)
+        # Free theta early if we only need metrics (plots need it)
+        metrics = _metrics_from_snap(
+            snap,
+            run_params,
+            do_loops=do_network_loops,
+            max_label_voxels=_plot_thresholds(int(snap.get("N", 256)))[0],
+        )
         n_string_vox = int(metrics["n_string_voxels"])
         LOG.info(
-            f"  {tag}: winding done  voxels={n_string_vox:,}  "
-            f"frac={metrics['string_voxel_fraction']:.3e}  "
+            f"  {tag}: network  voxels={n_string_vox:,}  "
+            f"L={metrics['L_comoving']:.3e}  "
+            f"xi={metrics['xi_comoving']:.3e}  "
+            f"mu_eff={metrics['mu_eff']}  "
+            f"v2={metrics['v2_mean']}  "
             f"({_fmt_s(time.time() - t_met)})"
         )
 
@@ -304,7 +360,8 @@ def _analyze_one_h5(
                     f"light 2D + dense 3D (no loop IDs)"
                 )
                 _plot_strings_2d_dense(state, meta, png2d, n_string_vox)
-                metrics["n_loops"] = -1
+                if metrics.get("n_loops", "") == "" or metrics.get("n_loops", -1) < 0:
+                    metrics["n_loops"] = -1
                 LOG.info(f"  {tag}: 2D PNG done  ({_fmt_s(time.time() - t_plot)})")
                 t3 = time.time()
                 LOG.info(f"  {tag}: dense 3D PNG (subsampled, no labeling) …")
@@ -313,9 +370,10 @@ def _analyze_one_h5(
             else:
                 LOG.info(f"  {tag}: full 2D labeling + plot …")
                 strings = plot_strings_2d(state, meta, png2d)
-                metrics["n_loops"] = len(strings) if strings else 0
+                if not do_network_loops:
+                    metrics["n_loops"] = len(strings) if strings else 0
                 LOG.info(
-                    f"  {tag}: 2D PNG done  loops={metrics['n_loops']}  "
+                    f"  {tag}: 2D PNG done  loops={metrics.get('n_loops')}  "
                     f"({_fmt_s(time.time() - t_plot)})"
                 )
                 if strings and n_string_vox <= max3d_cut:
@@ -326,7 +384,6 @@ def _analyze_one_h5(
                     )
                     LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
                 elif strings:
-                    # Above max3d_cut but below dense_cut: still show 3D without IDs
                     t3 = time.time()
                     LOG.info(
                         f"  {tag}: voxels={n_string_vox:,} > 3D-label cut "
@@ -336,7 +393,8 @@ def _analyze_one_h5(
                     LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
             del state, snap
         else:
-            metrics["n_loops"] = ""
+            if metrics.get("n_loops", "") == "":
+                metrics["n_loops"] = ""
             del snap
 
         gc.collect()
@@ -349,9 +407,11 @@ def _analyze_one_h5(
 
 
 def _split_one(
-    args: Tuple[str, Dict[str, Any], str, Optional[Dict[float, str]], bool, int, int],
+    args: Tuple[
+        str, Dict[str, Any], str, Optional[Dict[float, str]], bool, int, int, bool
+    ],
 ) -> Tuple[int, str, str]:
-    h5_path, row, out_path, time_index, skip_existing, idx, n_total = args
+    h5_path, row, out_path, time_index, skip_existing, idx, n_total, with_pi = args
     step = int(float(row["step"]))
     tag = f"[{idx}/{n_total}] step {step}"
     if not LOG.handlers:
@@ -373,9 +433,16 @@ def _split_one(
         if n_scalars >= 2:
             LOG.info(f"  {tag}: reading phi_1 …")
             phi1 = read_h5_field(h5_path, "phi_1", time_key, N=phi0.shape[0])
+        pi0 = pi1 = None
+        if with_pi:
+            LOG.info(f"  {tag}: reading pi_0 …")
+            pi0 = read_h5_field(h5_path, "pi_0", time_key, N=phi0.shape[0])
+            if n_scalars >= 2:
+                LOG.info(f"  {tag}: reading pi_1 …")
+                pi1 = read_h5_field(h5_path, "pi_1", time_key, N=phi0.shape[0])
         LOG.info(f"  {tag}: writing {os.path.basename(out_path)} …")
-        write_per_step_h5(out_path, row, phi0, phi1)
-        del phi0, phi1
+        write_per_step_h5(out_path, row, phi0, phi1, pi0=pi0, pi1=pi1)
+        del phi0, phi1, pi0, pi1
         gc.collect()
         size_gb = os.path.getsize(out_path) / (1024 ** 3)
         LOG.info(
@@ -394,6 +461,7 @@ def split_hdf5(
     step_min: Optional[int] = None,
     step_max: Optional[int] = None,
     skip_existing: bool = True,
+    with_pi: bool = False,
 ) -> int:
     """Split monolith field_snapshot.h5 into field_states/snapshot_step_*.h5."""
     run_dir = os.path.abspath(run_dir)
@@ -410,7 +478,7 @@ def split_hdf5(
     LOG.info(f"=== split monolith → per-step HDF5 ===")
     LOG.info(f"  source: {h5_path}  ({size_gb:.1f} GiB)")
     LOG.info(f"  dest:   {state_dir}/snapshot_step_XXXXXXXXXX.h5")
-    LOG.info(f"  snaps:  {len(rows)}  workers={workers}")
+    LOG.info(f"  snaps:  {len(rows)}  workers={workers}  with_pi={with_pi}")
 
     time_index = build_h5_time_index(h5_path, "phi_0")
     n_total = len(rows)
@@ -419,7 +487,9 @@ def split_hdf5(
         step = int(float(row["step"]))
         out_path = per_step_h5_path(run_dir, step)
         ti = time_index if workers <= 1 else None
-        tasks.append((h5_path, row, out_path, ti, skip_existing, i, n_total))
+        tasks.append(
+            (h5_path, row, out_path, ti, skip_existing, i, n_total, with_pi)
+        )
 
     n_ok = 0
     t_all = time.time()
@@ -529,6 +599,9 @@ def analyze_hdf5(
     skip_plots: bool = False,
     metrics_only: bool = False,
     from_npz: bool = False,
+    load_pi: bool = True,
+    do_network_loops: bool = True,
+    skip_network_plot: bool = False,
 ) -> int:
     run_dir = os.path.abspath(run_dir)
     strings_dir = os.path.join(run_dir, "strings")
@@ -551,6 +624,7 @@ def analyze_hdf5(
         return 0
 
     metadata = _load_or_build_metadata(run_dir, len(rows))
+    run_params = _run_params_for_metrics(run_dir, metadata)
     n_scalars = int(metadata.get("n_scalars", int(float(rows[0]["n_scalars"]))))
     if n_scalars < 2:
         LOG.info("Run has n_scalars=1; string analysis needs complex (phi1+phi2).")
@@ -584,7 +658,15 @@ def analyze_hdf5(
         f"  snapshots: {len(rows)}  "
         f"(per-step={n_per}, monolith={n_mono}, missing={missing})"
     )
-    LOG.info(f"  plots: {'on' if do_plots else 'off (metrics only)'}  workers={workers}")
+    LOG.info(
+        f"  plots: {'on' if do_plots else 'off (metrics only)'}  "
+        f"workers={workers}  load_pi={load_pi}  "
+        f"network_loops={do_network_loops}"
+    )
+    LOG.info(
+        "  NOTE: core energies from phi(+pi) only — "
+        "does NOT read CosmoLattice E_S_* / potential dumps"
+    )
 
     N_hint = None
     for path, kind in sources:
@@ -611,13 +693,14 @@ def analyze_hdf5(
             continue
 
     if N_hint:
-        ram = estimate_ram_gb(N_hint, n_scalars=2)
+        ram = estimate_ram_gb(N_hint, n_scalars=2, with_pi=load_pi)
         dense_cut, max3d_cut = _plot_thresholds(N_hint)
         LOG.info(f"  Grid N≈{N_hint}  est. RAM/snapshot ≈ {ram:.1f} GB")
         if do_plots:
             LOG.info(
-                f"  Plot cuts: dense(light 2D) if voxels>{dense_cut:,}; "
-                f"3D if voxels≤{max3d_cut:,}"
+                f"  Plot cuts: voxels>{dense_cut:,} → light 2D + dense 3D "
+                f"(no loop IDs); ≤{max3d_cut:,} → labeled 2D+3D; "
+                f"in between → labeled 2D + dense 3D (no loop IDs)"
             )
         if ram > 12 and workers > 1:
             LOG.warning(
@@ -639,7 +722,20 @@ def analyze_hdf5(
             continue
         ti = time_index if (kind == "monolith" and workers <= 1) else None
         tasks.append(
-            (path, row, run_dir, do_plots, metadata, ti, kind, i, n_total)
+            (
+                path,
+                row,
+                run_dir,
+                do_plots,
+                metadata,
+                ti,
+                kind,
+                i,
+                n_total,
+                load_pi,
+                do_network_loops,
+                run_params,
+            )
         )
 
     t_all = time.time()
@@ -651,8 +747,34 @@ def analyze_hdf5(
             gc.collect()
     else:
         tasks_par = [
-            (path, row, run_dir, do_plots, metadata, None, kind, i, n_total)
-            for (path, row, run_dir, do_plots, metadata, _ti, kind, i, n_total) in tasks
+            (
+                path,
+                row,
+                run_dir,
+                do_plots,
+                metadata,
+                None,
+                kind,
+                i,
+                n_total,
+                load_pi,
+                do_network_loops,
+                run_params,
+            )
+            for (
+                path,
+                row,
+                run_dir,
+                do_plots,
+                metadata,
+                _ti,
+                kind,
+                i,
+                n_total,
+                load_pi,
+                do_network_loops,
+                run_params,
+            ) in tasks
         ]
         with ProcessPoolExecutor(
             max_workers=workers, initializer=_pool_logging_init
@@ -664,19 +786,42 @@ def analyze_hdf5(
                     metrics_rows.append(metrics)
 
     metrics_rows.sort(key=lambda r: r["step"])
-    fieldnames = [
-        "step", "time", "temperature", "n_loops",
-        "n_string_voxels", "string_voxel_fraction",
-    ]
+    # Keep only known CSV columns (extras ignored)
+    fieldnames = list(NETWORK_CSV_FIELDS)
     with open(summary_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(metrics_rows)
     LOG.info(
         f"Wrote {summary_path} ({len(metrics_rows)} rows)  "
         f"wall {_fmt_s(time.time() - t_all)}"
     )
+
+    if not skip_network_plot and metrics_rows:
+        fig_path = os.path.join(strings_dir, "string_network_timeseries.png")
+        try:
+            plot_network_timeseries(
+                summary_path,
+                fig_path,
+                title=os.path.basename(run_dir),
+            )
+            LOG.info(f"Network plot: {fig_path}")
+        except Exception as exc:
+            LOG.warning(f"Network plot failed: {exc}")
+
     return len(metrics_rows)
+
+
+def plot_network(run_dir: str, csv_name: str = "string_summary.csv") -> str:
+    """Re-plot network timeseries from an existing CSV."""
+    run_dir = os.path.abspath(run_dir)
+    csv_path = os.path.join(run_dir, "strings", csv_name)
+    fig_path = os.path.join(run_dir, "strings", "string_network_timeseries.png")
+    plot_network_timeseries(
+        csv_path, fig_path, title=os.path.basename(run_dir)
+    )
+    LOG.info(f"Network plot: {fig_path}")
+    return fig_path
 
 
 def main():
@@ -685,8 +830,9 @@ def main():
     )
     ap.add_argument(
         "command",
-        choices=["export", "analyze", "split", "all"],
-        help="analyze=strings; split=per-step h5; export=NPZ; all=export+analyze",
+        choices=["export", "analyze", "split", "all", "plot-network"],
+        help="analyze=strings+network; split=per-step h5; "
+             "plot-network=replot CSV; export=NPZ; all=export+analyze",
     )
     ap.add_argument("run_dir", help="CosmoLattice output directory")
     ap.add_argument("--workers", type=int, default=1,
@@ -701,6 +847,27 @@ def main():
                     help="CSV only, no PNGs (still reads HDF5)")
     ap.add_argument("--from-npz", action="store_true",
                     help="Analyze existing NPZ (skip HDF5 read)")
+    ap.add_argument(
+        "--no-pi",
+        action="store_true",
+        help="Do not load pi_* (saves RAM; skips E_kin and v²)",
+    )
+    ap.add_argument(
+        "--no-network-loops",
+        action="store_true",
+        help="Skip connected-component loop census (faster on dense windings)",
+    )
+    ap.add_argument(
+        "--skip-network-plot",
+        action="store_true",
+        help="Do not write strings/string_network_timeseries.png",
+    )
+    ap.add_argument(
+        "--with-pi",
+        action="store_true",
+        help="When splitting, also write pi_0/pi_1 into per-step HDF5 "
+             "(needed for E_kin/v² without the monolith)",
+    )
     ap.add_argument(
         "--log-file",
         default=None,
@@ -729,6 +896,10 @@ def main():
         args.workers,
     )
 
+    if args.command == "plot-network":
+        plot_network(run_dir)
+        return
+
     if args.command == "split":
         split_hdf5(
             run_dir,
@@ -736,6 +907,7 @@ def main():
             step_min=args.step_min,
             step_max=args.step_max,
             skip_existing=skip_existing,
+            with_pi=args.with_pi,
         )
         return
 
@@ -757,6 +929,9 @@ def main():
             skip_plots=args.skip_plots,
             metrics_only=args.metrics_only,
             from_npz=args.from_npz and args.command == "analyze",
+            load_pi=not args.no_pi,
+            do_network_loops=not args.no_network_loops,
+            skip_network_plot=args.skip_network_plot,
         )
 
 

@@ -167,6 +167,8 @@ def write_per_step_h5(
     phi0: np.ndarray,
     phi1: Optional[np.ndarray] = None,
     *,
+    pi0: Optional[np.ndarray] = None,
+    pi1: Optional[np.ndarray] = None,
     dtype=np.float32,
     compression: Optional[str] = "gzip",
     compression_opts: int = 1,
@@ -191,6 +193,10 @@ def write_per_step_h5(
         f.create_dataset("phi_0", data=np.asarray(phi0, dtype=dtype), **kw)
         if n_scalars >= 2 and phi1 is not None:
             f.create_dataset("phi_1", data=np.asarray(phi1, dtype=dtype), **kw)
+        if pi0 is not None:
+            f.create_dataset("pi_0", data=np.asarray(pi0, dtype=dtype), **kw)
+        if n_scalars >= 2 and pi1 is not None:
+            f.create_dataset("pi_1", data=np.asarray(pi1, dtype=dtype), **kw)
     return out_path
 
 
@@ -267,14 +273,31 @@ def read_h5_field(
         return _as_3d(obj[time_key][()], N=N)
 
 
+def h5_has_group(h5_path: str, group: str) -> bool:
+    """True if monolith group or per-step dataset ``group`` exists."""
+    h5py = _require_h5py()
+    with h5py.File(h5_path, "r") as f:
+        return group in f
+
+
 def read_h5_snapshot(
     h5_path: str,
     row: Dict[str, Any],
     time_index: Optional[Dict[float, str]] = None,
     *,
     field_dtype=np.float32,
+    load_pi: bool = False,
 ) -> Dict[str, Any]:
-    """Read one complex-field snapshot (monolith or per-step HDF5)."""
+    """Read one complex-field snapshot (monolith or per-step HDF5).
+
+    Parameters
+    ----------
+    load_pi :
+        If True, also load ``pi_0``/``pi_1`` when present (CosmoLattice monolith
+        always has them; our per-step ``snapshot_step_*.h5`` may not).
+        Pi stay in **program units** (not × fStar); kinetic conversion is done
+        in ``tools.string_network_metrics``.
+    """
     from tools.winding import compute_winding_number
 
     t = float(row["t"])
@@ -319,6 +342,13 @@ def read_h5_snapshot(
             "theta": theta,
             "winding": winding,
         }
+        if load_pi and h5_has_group(h5_path, "pi_0") and h5_has_group(h5_path, "pi_1"):
+            out["pi1"] = np.asarray(
+                read_h5_field(h5_path, "pi_0", time_key, N=N), dtype=field_dtype
+            )
+            out["pi2"] = np.asarray(
+                read_h5_field(h5_path, "pi_1", time_key, N=N), dtype=field_dtype
+            )
     else:
         phi_gev = np.asarray(phi0_prog, dtype=field_dtype) * np.float32(f_star)
         del phi0_prog
@@ -333,16 +363,28 @@ def read_h5_snapshot(
             "n_scalars": 1,
             "phi": phi_gev,
         }
+        if load_pi and h5_has_group(h5_path, "pi_0"):
+            out["pi"] = np.asarray(
+                read_h5_field(h5_path, "pi_0", time_key, N=N), dtype=field_dtype
+            )
     return out
 
 
-def estimate_ram_gb(N: int, n_scalars: int = 2, with_winding: bool = True) -> float:
+def estimate_ram_gb(
+    N: int,
+    n_scalars: int = 2,
+    with_winding: bool = True,
+    with_pi: bool = False,
+) -> float:
     """Rough peak RAM per snapshot worker (float32 fields + optional PNG path)."""
     n3 = N ** 3
     # phi1, phi2, rho, theta (float32) + winding + HDF5 decode buffer
     bytes_per = 4 * (n_scalars + 2) * n3 + 4 * n3
     if with_winding:
         bytes_per += 8 * n3  # labelled int64 during loop-ID PNGs (worst case)
+    if with_pi:
+        bytes_per += 4 * n_scalars * n3  # pi fields
+        bytes_per += 4 * n3  # one finite-diff scratch during E_grad
     return bytes_per / (1024 ** 3)
 
 
