@@ -27,11 +27,25 @@ NUMBA_PHI_VMIN = -2e11
 NUMBA_PHI_VMAX = 2e11
 
 # Broken-phase |Φ| reference for string 2D PNGs (set8 φ₀ = γ M_Pl ≈ 1e15 GeV).
-# Color is pinned at this VEV so post-Langevin ringing around φ₀ is visible.
 DEFAULT_PHI0_GEV = 1.0e15
-# Fixed window for (ρ − φ₀)/φ₀ midplane: ±10% shows langoff oscillations;
-# false-vacuum / string cores saturate at the blue end.
-STRING_RHO_DELTA_FRAC = 0.10
+# Fixed |Φ| color scale (GeV) with anchored colors (same every snapshot):
+#   0       → dark navy   (false vacuum)
+#   ~7e14   → light blue  (wall / transition; 0.7×φ₀ when φ₀=1e15)
+#   φ₀≈1e15 → yellow      (broken-phase bulk)
+#   1.5e15  → red         (overshoot / vmax)
+STRING_RHO_VMIN_GEV = 0.0
+STRING_RHO_VMAX_GEV = 1.5e15
+STRING_RHO_WALL_FRAC = 0.70   # wall anchor = WALL_FRAC × φ₀  (~7×10¹⁴ GeV)
+STRING_RHO_CMAP_COLORS = (
+    (0.00, "#0a1628"),   # false vacuum
+    (None, "#89CFF0"),   # light blue at wall anchor (position set from φ₀)
+    (None, "#FFD700"),   # yellow at φ₀
+    (1.00, "#E53935"),   # red at vmax
+)
+# Bulk-only oscillation panel: ±OSC_FRAC around φ₀, masked outside [BULK_LO, BULK_HI]×φ₀
+STRING_RHO_OSC_FRAC = 0.01
+STRING_RHO_BULK_LO = 0.85
+STRING_RHO_BULK_HI = 1.15
 
 
 def _meta_float(metadata, *keys, default=None):
@@ -67,33 +81,149 @@ def resolve_phi0_vev(metadata=None, default=DEFAULT_PHI0_GEV) -> float:
     return float(default)
 
 
-def _imshow_rho_vev_centered(ax, rho_2d, vev, fig, *, title=None,
-                             delta_frac: float = STRING_RHO_DELTA_FRAC):
-    """Midplane of (ρ − φ₀)/φ₀ with fixed diverging color (φ₀ → white).
+def _grad_rho_2d(rho_2d: np.ndarray) -> np.ndarray:
+    """|∇ρ| on a 2D midplane slice (forward diff, same as network metrics)."""
+    r = np.asarray(rho_2d, dtype=np.float64)
+    g2 = np.zeros_like(r)
+    for ax in range(2):
+        d = np.roll(r, -1, axis=ax) - r
+        g2 += d * d
+    return np.sqrt(g2)
 
-    After Langevin off, the bulk sits near φ₀≈1e15 and small radial
-    oscillations show as red/blue. False vacuum / string cores (ρ≪φ₀)
-    saturate at the blue end by design.
+
+def _rho_expansion_cmap(vev: float, vmax: float = STRING_RHO_VMAX_GEV):
+    """Piecewise colormap: 0 dark → wall light blue → φ₀ yellow → vmax red."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    vev = float(vev) if vev > 0 else DEFAULT_PHI0_GEV
+    vmax = float(vmax) if vmax > 0 else STRING_RHO_VMAX_GEV
+    wall = STRING_RHO_WALL_FRAC * vev
+    t_wall = min(max(wall / vmax, 0.02), 0.98)
+    t_vev = min(max(vev / vmax, t_wall + 0.01), 0.99)
+    stops = [
+        (0.0, STRING_RHO_CMAP_COLORS[0][1]),
+        (t_wall, STRING_RHO_CMAP_COLORS[1][1]),
+        (t_vev, STRING_RHO_CMAP_COLORS[2][1]),
+        (1.0, STRING_RHO_CMAP_COLORS[3][1]),
+    ]
+    return LinearSegmentedColormap.from_list("rho_expansion", stops, N=256)
+
+
+def _imshow_rho_fixed_gev(
+    ax,
+    rho_2d,
+    vev,
+    fig,
+    *,
+    title=None,
+    vmin: float = STRING_RHO_VMIN_GEV,
+    vmax: float = STRING_RHO_VMAX_GEV,
+):
+    """Fixed ρ = |Φ| [GeV] on [0, 1.5×10¹⁵] with anchored colors.
+
+    Yellow is always at φ₀ (~10¹⁵), light blue at ~0.7 φ₀ (~7×10¹⁴),
+    red at 1.5×10¹⁵ — same map on every snapshot after percolation.
     """
     vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
-    frac = float(delta_frac) if delta_frac and delta_frac > 0 else STRING_RHO_DELTA_FRAC
-    delta = (np.asarray(rho_2d, dtype=np.float64) - vev) / vev
+    rho = np.asarray(rho_2d, dtype=np.float64)
+    vmin = float(vmin)
+    vmax = float(vmax) if vmax > vmin else STRING_RHO_VMAX_GEV
+    wall = STRING_RHO_WALL_FRAC * vev
+    cmap = _rho_expansion_cmap(vev, vmax)
     im = ax.imshow(
-        delta,
+        rho,
         origin="lower",
-        cmap="RdBu_r",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label(r"$\rho = |\Phi|$ [GeV]")
+    tick_vals = [0.0, wall, vev, vmax]
+    cbar.set_ticks(tick_vals)
+    cbar.set_ticklabels([f"{v:.2e}" for v in tick_vals])
+    if title is None:
+        title = (
+            rf"$|\Phi|$  (0=navy, {wall:.1e}=blue, "
+            rf"$\phi_0$=yellow, {vmax:.1e}=red)"
+        )
+    ax.set_title(title, fontsize=9)
+    return im
+
+
+# Alias for callers expecting the old name
+_imshow_rho_ratio = _imshow_rho_fixed_gev
+
+def _imshow_grad_rho(ax, rho_2d, vev, fig, *, title=None):
+    """|∇ρ|/φ₀ — highlights walls / rings without bulk saturation."""
+    vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
+    grad = _grad_rho_2d(rho_2d) / vev
+    # Robust cap: 99.5th percentile of positive gradient (ignore string cores)
+    pos = grad[grad > 0]
+    vmax = float(np.percentile(pos, 99.5)) if pos.size > 100 else 0.05
+    vmax = max(vmax, 1e-4)
+    im = ax.imshow(
+        grad,
+        origin="lower",
+        cmap="magma",
+        vmin=0.0,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label(r"$|\nabla\rho|/\phi_0$")
+    if title is None:
+        title = r"$|\nabla\rho|/\phi_0$  (walls / shells)"
+    ax.set_title(title)
+    return im
+
+
+def _imshow_bulk_oscillation(ax, rho_2d, vev, fig, *, title=None,
+                             osc_frac: float = STRING_RHO_OSC_FRAC,
+                             bulk_lo: float = STRING_RHO_BULK_LO,
+                             bulk_hi: float = STRING_RHO_BULK_HI):
+    """(ρ−φ₀)/φ₀ with ±osc_frac, only where bulk_lo·φ₀ < ρ < bulk_hi·φ₀.
+
+    Gray = false vacuum or far from φ₀. Use to inspect post-langoff ringing
+    in the broken-phase bulk without false-vac interference fringes.
+    """
+    import numpy.ma as ma
+
+    vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
+    frac = float(osc_frac) if osc_frac > 0 else STRING_RHO_OSC_FRAC
+    r = np.asarray(rho_2d, dtype=np.float64)
+    delta = (r - vev) / vev
+    bulk = (r >= bulk_lo * vev) & (r <= bulk_hi * vev)
+    plot = ma.masked_where(~bulk, delta)
+    cmap = plt.cm.RdBu_r.copy()
+    cmap.set_bad(color="0.82")
+    im = ax.imshow(
+        plot,
+        origin="lower",
+        cmap=cmap,
         vmin=-frac,
         vmax=frac,
         interpolation="nearest",
     )
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
-    cbar.set_label(rf"$(\rho-\phi_0)/\phi_0$")
-    cbar.ax.axhline(0.0, color="k", lw=0.8, ls="--")
+    cbar.set_label(rf"$(\rho-\phi_0)/\phi_0$  (bulk only, $\pm{100*frac:.1f}\%$)")
     if title is None:
-        title = rf"$(\rho-\phi_0)/\phi_0$  ($\phi_0={vev:.2e}$, $\pm{100*frac:.0f}\%$)"
-    ax.set_title(title)
+        title = (
+            rf"bulk $(\rho-\phi_0)/\phi_0$  "
+            rf"({bulk_lo:.0%}–{bulk_hi:.0%}$\phi_0$; gray=masked)"
+        )
+    ax.set_title(title, fontsize=9)
     return im
 
+
+def _imshow_rho_vev_centered(ax, rho_2d, vev, fig, *, title=None,
+                             delta_frac: float = STRING_RHO_OSC_FRAC):
+    """Legacy full-slice deviation map (kept for API compatibility)."""
+    return _imshow_bulk_oscillation(
+        ax, rho_2d, vev, fig, title=title, osc_frac=delta_frac,
+        bulk_lo=0.0, bulk_hi=1e30 / max(float(vev or DEFAULT_PHI0_GEV), 1.0),
+    )
 
 def load_metadata(sim_dir):
     """Load simulation metadata, searching parent directories if needed."""
@@ -477,27 +607,23 @@ def _plot_strings_2d_dense(state, metadata, output_file, n_string_vox):
     time_phys = state["time"] / mu
     zmid = rho.shape[2] // 2
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    fig, axes = plt.subplots(1, 4, figsize=(20, 4.5))
     vev = resolve_phi0_vev(metadata)
-    _imshow_rho_vev_centered(
-        axes[0],
-        rho[:, :, zmid].T,
-        vev,
-        fig,
-        title=rf"$(\rho-\phi_0)/\phi_0$  ($\phi_0={vev:.2e}$ fixed)",
-    )
-    im1 = axes[1].imshow(
+    sl = rho[:, :, zmid].T
+    _imshow_rho_fixed_gev(axes[0], sl, vev, fig)
+    _imshow_grad_rho(axes[1], sl, vev, fig)
+    im1 = axes[2].imshow(
         theta[:, :, zmid].T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
     )
-    axes[1].set_title(r"$\theta = \arg(\Phi)$")
-    fig.colorbar(im1, ax=axes[1], shrink=0.8)
+    axes[2].set_title(r"$\theta = \arg(\Phi)$")
+    fig.colorbar(im1, ax=axes[2], shrink=0.8)
     wind_sl = winding[:, :, zmid]
     wmax = max(float(np.max(np.abs(wind_sl))), 0.1)
-    im2 = axes[2].imshow(
+    im2 = axes[3].imshow(
         wind_sl.T, origin="lower", cmap="RdBu_r", vmin=-wmax, vmax=wmax
     )
-    axes[2].set_title(f"Winding (dense: {n_string_vox} voxels)")
-    fig.colorbar(im2, ax=axes[2], shrink=0.8)
+    axes[3].set_title(f"Winding (dense: {n_string_vox} voxels)")
+    fig.colorbar(im2, ax=axes[3], shrink=0.8)
     fig.suptitle(
         f"Step {step:,} | t={time_phys:.4e} | T={T_val:.1f} | "
         f"winding too dense for loop labeling",
@@ -537,18 +663,11 @@ def plot_strings_2d(state, metadata, output_file):
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
     vev = resolve_phi0_vev(metadata)
+    rho_sl = rho[:, :, zmid].T
 
-    # Panel 0: |Φ| with φ₀-centered fixed color (post-langoff oscillations)
-    rho_sl = rho[:, :, zmid]
-    _imshow_rho_vev_centered(
-        axes[0, 0],
-        rho_sl.T,
-        vev,
-        fig,
-        title=rf"$(\rho-\phi_0)/\phi_0$  ($\phi_0={vev:.2e}$ fixed)",
-    )
+    # Row 0: expansion (ρ/φ₀), phase, winding
+    _imshow_rho_fixed_gev(axes[0, 0], rho_sl, vev, fig)
 
-    # Panel 1: theta slice
     theta_sl = theta[:, :, zmid]
     im1 = axes[0, 1].imshow(
         theta_sl.T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
@@ -556,7 +675,6 @@ def plot_strings_2d(state, metadata, output_file):
     axes[0, 1].set_title(r"$\theta = \arg(\Phi)$  (z-midplane)")
     fig.colorbar(im1, ax=axes[0, 1], shrink=0.8)
 
-    # Panel 2: winding number slice
     wind_sl = winding[:, :, zmid]
     wmax = max(float(np.max(np.abs(wind_sl))), 0.1)
     im2 = axes[0, 2].imshow(
@@ -565,51 +683,36 @@ def plot_strings_2d(state, metadata, output_file):
     axes[0, 2].set_title(f"Winding  (|W|>0.5 total: {n_total_vox})")
     fig.colorbar(im2, ax=axes[0, 2], shrink=0.8)
 
-    # Panel 3: string loops colored by ID (z-midplane) — vectorized
-    loop_sl = labelled[:, :, zmid]
-    loop_display = np.zeros((nx, ny, 4), dtype=np.float32)
-    if n_loops > 0:
-        mask = loop_sl > 0
-        if np.any(mask):
-            lids = loop_sl[mask]
-            loop_display[mask] = plt.cm.tab20((lids.astype(np.float64) - 1.0) % 20 / 20.0)
-    axes[1, 0].imshow(
-        np.zeros((nx, ny)), origin="lower", cmap="gray_r", vmin=0, vmax=1, alpha=0.3
-    )
-    axes[1, 0].imshow(np.transpose(loop_display, (1, 0, 2)), origin="lower")
-    axes[1, 0].set_title(f"String loops by ID  ({n_loops} distinct loops)")
+    # Row 1: walls (|∇ρ|), bulk oscillation (masked), histogram
+    _imshow_grad_rho(axes[1, 0], rho_sl, vev, fig)
+    _imshow_bulk_oscillation(axes[1, 1], rho_sl, vev, fig)
 
-    # Panel 4: rho histogram + φ₀ marker; also δρ/φ₀ zoom inset note
     rho_flat = rho.flatten()
-    axes[1, 1].hist(rho_flat, bins=100, density=True, color="steelblue", alpha=0.8)
-    axes[1, 1].axvline(vev, color="crimson", ls="--", lw=1.2, label=rf"$\phi_0={vev:.2e}$")
-    axes[1, 1].set_xlabel(r"$\rho = |\Phi|$ [GeV]")
-    axes[1, 1].set_ylabel("Density")
-    axes[1, 1].set_title(r"$|\Phi|$ histogram")
-    axes[1, 1].legend(fontsize=8, loc="best")
+    frac_broken = float(np.mean(rho_flat > 0.5 * vev))
+    axes[1, 2].hist(rho_flat, bins=100, density=True, color="steelblue", alpha=0.8)
+    axes[1, 2].axvline(vev, color="crimson", ls="--", lw=1.2, label=rf"$\phi_0={vev:.2e}$")
+    axes[1, 2].set_xlabel(r"$\rho = |\Phi|$ [GeV]")
+    axes[1, 2].set_ylabel("Density")
+    axes[1, 2].set_title(
+        rf"$|\Phi|$ histogram  (broken fraction $\rho>0.5\phi_0$: {100*frac_broken:.1f}\%)"
+    )
+    axes[1, 2].legend(fontsize=8, loc="best")
 
-    # Panel 5: string length bar chart (top 20)
-    if n_loops > 0:
+    # Optional loop-length bars only when loop count is modest
+    loop_png = output_file.replace(".png", "_loops.png")
+    if 0 < n_loops <= 500:
+        fig_loops, ax_loops = plt.subplots(figsize=(6, max(4, 0.25 * min(n_loops, 20))))
         top_n = min(20, n_loops)
         top_strings = strings[:top_n]
         loop_ids = [f"#{s['loop_id']}" for s in top_strings]
         lengths = [s["n_voxels"] for s in top_strings]
         bar_colors = [plt.cm.tab20(i % 20) for i in range(top_n)]
-        axes[1, 2].barh(loop_ids[::-1], lengths[::-1], color=bar_colors[::-1])
-        axes[1, 2].set_xlabel("Voxels (string length)")
-        axes[1, 2].set_title(f"Top {top_n} string loops")
-    else:
-        axes[1, 2].text(
-            0.5,
-            0.5,
-            "No strings detected",
-            ha="center",
-            va="center",
-            transform=axes[1, 2].transAxes,
-            fontsize=14,
-            color="gray",
-        )
-        axes[1, 2].set_title("String lengths")
+        ax_loops.barh(loop_ids[::-1], lengths[::-1], color=bar_colors[::-1])
+        ax_loops.set_xlabel("Voxels (string length)")
+        ax_loops.set_title(f"Top {top_n} string loops")
+        fig_loops.tight_layout()
+        fig_loops.savefig(loop_png, dpi=120)
+        plt.close(fig_loops)
 
     fig.suptitle(
         f"Step {step:,} | t={time_phys:.4e} | T={T_val:.1f} | "
