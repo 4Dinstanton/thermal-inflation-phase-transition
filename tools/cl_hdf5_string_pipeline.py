@@ -19,8 +19,11 @@ Examples
   # Split large monolith for transfer (on KISTI); add --with-pi for E_kin/v² off-site
   python tools/cl_hdf5_string_pipeline.py split <run_dir> [--with-pi]
 
-  # Strings + network observables from HDF5
+  # Strings + network observables from HDF5 (default: step >= 3500, post-percolation)
   python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --workers 1
+
+  # All manifest snapshots (override default step floor)
+  python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --from-first
 
   # CSV + network plot only (no 2D/3D PNGs)
   python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --metrics-only
@@ -72,7 +75,9 @@ LOG = logging.getLogger("cl_hdf5_string")
 class _KSTFormatter(logging.Formatter):
     """Timestamps in Korea Standard Time (Asia/Seoul)."""
 
-    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:
+    def formatTime(
+        self, record: logging.LogRecord, datefmt: Optional[str] = None
+    ) -> str:
         dt = datetime.fromtimestamp(record.created, tz=KST)
         if datefmt:
             return dt.strftime(datefmt)
@@ -131,11 +136,100 @@ def _filter_rows(
     return out
 
 
+# First step for **analyze** / **all** when --step-min is omitted.
+# Skips pre-percolation / pre-langoff snapshots on set8-style 1024³ runs.
+# Override: --step-min N, --from-first, or analyze_step_min in cl_run_params.json.
+ANALYZE_STEP_MIN_DEFAULT = 3500
+
+
+def resolve_analyze_step_min(
+    run_dir: str,
+    step_min: Optional[int],
+    *,
+    from_first: bool = False,
+) -> Optional[int]:
+    """Step floor for analyze/all. Split/export leave step_min unchanged (no default)."""
+    if from_first:
+        return None
+    if step_min is not None:
+        return int(step_min)
+    params = load_run_params(run_dir) or {}
+    if params.get("analyze_step_min") is not None:
+        return int(params["analyze_step_min"])
+    return ANALYZE_STEP_MIN_DEFAULT
+
+
+class _IncrementalSummaryCsv:
+    """Append one metrics row per snapshot (flush/fsync) for crash-safe progress."""
+
+    def __init__(
+        self,
+        path: str,
+        fieldnames: List[str],
+        *,
+        resume: bool = False,
+    ) -> None:
+        self.path = path
+        self.fieldnames = list(fieldnames)
+        self._completed: set[int] = set()
+        if resume and os.path.isfile(path):
+            with open(path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames:
+                    for row in reader:
+                        try:
+                            self._completed.add(int(float(row["step"])))
+                        except (KeyError, TypeError, ValueError):
+                            continue
+            self._fp = open(path, "a", newline="", encoding="utf-8")
+            self._writer = csv.DictWriter(
+                self._fp, fieldnames=self.fieldnames, extrasaction="ignore"
+            )
+            LOG.info(
+                "CSV resume: %s (%d rows on disk)", path, len(self._completed)
+            )
+        else:
+            self._fp = open(path, "w", newline="", encoding="utf-8")
+            self._writer = csv.DictWriter(
+                self._fp, fieldnames=self.fieldnames, extrasaction="ignore"
+            )
+            self._writer.writeheader()
+            self._fp.flush()
+            LOG.info("CSV opened (incremental): %s", path)
+
+    def has_step(self, step: int) -> bool:
+        return int(step) in self._completed
+
+    def append(self, metrics: Dict[str, Any]) -> None:
+        self._writer.writerow(metrics)
+        self._fp.flush()
+        os.fsync(self._fp.fileno())
+        step = int(metrics["step"])
+        self._completed.add(step)
+        LOG.info("  CSV saved step %s  (%d rows total)", step, len(self._completed))
+
+    @property
+    def n_rows(self) -> int:
+        return len(self._completed)
+
+    def close(self) -> None:
+        if self._fp and not self._fp.closed:
+            self._fp.close()
+
+    def __enter__(self) -> "_IncrementalSummaryCsv":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
 def _npz_path(state_dir: str, step: int) -> str:
     return os.path.join(state_dir, f"state_step_{step:010d}.npz")
 
 
-def _save_npz_from_snap(snap: Dict[str, Any], out_path: str, hubble: bool = True) -> None:
+def _save_npz_from_snap(
+    snap: Dict[str, Any], out_path: str, hubble: bool = True
+) -> None:
     if snap.get("n_scalars", 1) >= 2:
         phi1 = snap["phi1"]
         phi2 = snap["phi2"]
@@ -203,7 +297,9 @@ def _metrics_from_snap(
     )
 
 
-def _run_params_for_metrics(run_dir: str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _run_params_for_metrics(
+    run_dir: str, metadata: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     """Merge cl_run_params.json with simulation_metadata for lattice scales."""
     params = dict(load_run_params(run_dir) or {})
     if metadata:
@@ -229,8 +325,8 @@ def _load_or_build_metadata(run_dir: str, n_snapshots: int = 0) -> Dict[str, Any
 
 
 # Plot density cuts — fractions of N³ (matched to old 256³ absolute cuts).
-DENSE_STRING_FRAC = 500_000 / (256 ** 3)      # ~0.0298
-MAX_3D_STRING_FRAC = 80_000 / (256 ** 3)      # ~0.00477
+DENSE_STRING_FRAC = 500_000 / (256**3)  # ~0.0298
+MAX_3D_STRING_FRAC = 80_000 / (256**3)  # ~0.00477
 MAX_3D_STRING_ABS = 2_000_000
 
 
@@ -332,7 +428,12 @@ def _analyze_one_h5(
                 plot_strings_2d,
                 plot_strings_3d,
             )
-            meta = metadata if metadata is not None else {}
+
+            meta = dict(metadata) if metadata is not None else {}
+            if run_params:
+                for k in ("analyze_step_min", "percolation_step", "mphi", "lam", "gamma"):
+                    if k in run_params and k not in meta:
+                        meta[k] = run_params[k]
             state = {
                 "phi1": snap["phi1"],
                 "phi2": snap["phi2"],
@@ -379,9 +480,7 @@ def _analyze_one_h5(
                 if strings and n_string_vox <= max3d_cut:
                     t3 = time.time()
                     LOG.info(f"  {tag}: 3D PNG (by loop ID) …")
-                    plot_strings_3d(
-                        state, meta, png3d, labelled=None, strings=strings
-                    )
+                    plot_strings_3d(state, meta, png3d, labelled=None, strings=strings)
                     LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
                 elif strings:
                     t3 = time.time()
@@ -417,7 +516,7 @@ def _split_one(
     if not LOG.handlers:
         _pool_logging_init()
     if skip_existing and os.path.isfile(out_path):
-        size_gb = os.path.getsize(out_path) / (1024 ** 3)
+        size_gb = os.path.getsize(out_path) / (1024**3)
         LOG.info(f"  {tag}: skip (exists, {size_gb:.2f} GiB)")
         return step, "skip", out_path
     t0 = time.time()
@@ -444,10 +543,8 @@ def _split_one(
         write_per_step_h5(out_path, row, phi0, phi1, pi0=pi0, pi1=pi1)
         del phi0, phi1, pi0, pi1
         gc.collect()
-        size_gb = os.path.getsize(out_path) / (1024 ** 3)
-        LOG.info(
-            f"  {tag}: OK  {size_gb:.2f} GiB  ({_fmt_s(time.time() - t0)})"
-        )
+        size_gb = os.path.getsize(out_path) / (1024**3)
+        LOG.info(f"  {tag}: OK  {size_gb:.2f} GiB  ({_fmt_s(time.time() - t0)})")
         return step, "ok", out_path
     except Exception as exc:
         gc.collect()
@@ -474,7 +571,7 @@ def split_hdf5(
         return 0
 
     h5_path = resolve_h5_path(run_dir, rows)
-    size_gb = os.path.getsize(h5_path) / (1024 ** 3) if os.path.isfile(h5_path) else 0.0
+    size_gb = os.path.getsize(h5_path) / (1024**3) if os.path.isfile(h5_path) else 0.0
     LOG.info(f"=== split monolith → per-step HDF5 ===")
     LOG.info(f"  source: {h5_path}  ({size_gb:.1f} GiB)")
     LOG.info(f"  dest:   {state_dir}/snapshot_step_XXXXXXXXXX.h5")
@@ -487,9 +584,7 @@ def split_hdf5(
         step = int(float(row["step"]))
         out_path = per_step_h5_path(run_dir, step)
         ti = time_index if workers <= 1 else None
-        tasks.append(
-            (h5_path, row, out_path, ti, skip_existing, i, n_total, with_pi)
-        )
+        tasks.append((h5_path, row, out_path, ti, skip_existing, i, n_total, with_pi))
 
     n_ok = 0
     t_all = time.time()
@@ -508,9 +603,7 @@ def split_hdf5(
                 if status in ("ok", "skip"):
                     n_ok += 1
 
-    LOG.info(
-        f"Split done: {n_ok}/{n_total}  total wall {_fmt_s(time.time() - t_all)}"
-    )
+    LOG.info(f"Split done: {n_ok}/{n_total}  total wall {_fmt_s(time.time() - t_all)}")
     LOG.info(
         "Tip: rsync individual field_states/snapshot_step_*.h5 + "
         "field_states/manifest.csv + cl_run_params.json"
@@ -539,6 +632,7 @@ def export_hdf5(
     N_hint = None
     try:
         import h5py
+
         with h5py.File(h5_path, "r") as f:
             if "phi_0" in f and len(f["phi_0"].keys()) > 0:
                 k0 = next(iter(f["phi_0"].keys()))
@@ -561,10 +655,7 @@ def export_hdf5(
             )
 
     LOG.info(f"Exporting {len(rows)} snapshots -> {state_dir}")
-    tasks = [
-        (h5_path, row, state_dir, "", skip_existing, hubble)
-        for row in rows
-    ]
+    tasks = [(h5_path, row, state_dir, "", skip_existing, hubble) for row in rows]
 
     n_ok = 0
     if workers <= 1:
@@ -602,6 +693,7 @@ def analyze_hdf5(
     load_pi: bool = True,
     do_network_loops: bool = True,
     skip_network_plot: bool = False,
+    resume_csv: bool = False,
 ) -> int:
     run_dir = os.path.abspath(run_dir)
     strings_dir = os.path.join(run_dir, "strings")
@@ -610,6 +702,7 @@ def analyze_hdf5(
 
     if from_npz:
         from tools.compute_strings_cl import process_run
+
         process_run(
             run_dir,
             step_min=step_min,
@@ -630,8 +723,8 @@ def analyze_hdf5(
         LOG.info("Run has n_scalars=1; string analysis needs complex (phi1+phi2).")
         return 0
 
-    metrics_rows: List[Dict[str, Any]] = []
     do_plots = not skip_plots and not metrics_only
+    fieldnames = list(NETWORK_CSV_FIELDS)
 
     # Prefer per-step files when available; fall back to monolith.
     monolith_path: Optional[str] = None
@@ -674,6 +767,7 @@ def analyze_hdf5(
             continue
         try:
             import h5py
+
             with h5py.File(path, "r") as f:
                 if "phi_0" not in f:
                     continue
@@ -718,9 +812,12 @@ def analyze_hdf5(
     tasks = []
     for i, (row, (path, kind)) in enumerate(zip(rows, sources), start=1):
         if kind == "missing":
-            LOG.info(f"  [{i}/{n_total}] step {int(float(row['step']))}: MISSING HDF5 — skip")
+            LOG.info(
+                f"  [{i}/{n_total}] step {int(float(row['step']))}: MISSING HDF5 — skip"
+            )
             continue
         ti = time_index if (kind == "monolith" and workers <= 1) else None
+        step_key = int(float(row["step"]))
         tasks.append(
             (
                 path,
@@ -739,65 +836,80 @@ def analyze_hdf5(
         )
 
     t_all = time.time()
-    if workers <= 1:
-        for task in tasks:
-            step, status, metrics = _analyze_one_h5(task)
-            if metrics:
-                metrics_rows.append(metrics)
-            gc.collect()
-    else:
-        tasks_par = [
-            (
-                path,
-                row,
-                run_dir,
-                do_plots,
-                metadata,
-                None,
-                kind,
-                i,
-                n_total,
-                load_pi,
-                do_network_loops,
-                run_params,
-            )
-            for (
-                path,
-                row,
-                run_dir,
-                do_plots,
-                metadata,
-                _ti,
-                kind,
-                i,
-                n_total,
-                load_pi,
-                do_network_loops,
-                run_params,
-            ) in tasks
-        ]
-        with ProcessPoolExecutor(
-            max_workers=workers, initializer=_pool_logging_init
-        ) as pool:
-            futures = {pool.submit(_analyze_one_h5, t): t for t in tasks_par}
-            for fut in as_completed(futures):
-                step, status, metrics = fut.result()
-                if metrics:
-                    metrics_rows.append(metrics)
+    n_written = 0
+    with _IncrementalSummaryCsv(
+        summary_path, fieldnames, resume=resume_csv
+    ) as csvw:
+        if resume_csv:
+            tasks = [
+                t for t in tasks
+                if not csvw.has_step(int(float(t[1]["step"])))
+            ]
+            if not tasks:
+                LOG.info("All steps already in CSV — nothing to do.")
+                n_written = csvw.n_rows
+            else:
+                LOG.info("Resume: %d snapshots remaining", len(tasks))
 
-    metrics_rows.sort(key=lambda r: r["step"])
-    # Keep only known CSV columns (extras ignored)
-    fieldnames = list(NETWORK_CSV_FIELDS)
-    with open(summary_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(metrics_rows)
+        if tasks:
+            if workers <= 1:
+                for task in tasks:
+                    step, status, metrics = _analyze_one_h5(task)
+                    if metrics:
+                        csvw.append(metrics)
+                        n_written = csvw.n_rows
+                    gc.collect()
+            else:
+                tasks_par = [
+                    (
+                        path,
+                        row,
+                        run_dir,
+                        do_plots,
+                        metadata,
+                        None,
+                        kind,
+                        i,
+                        n_total,
+                        load_pi,
+                        do_network_loops,
+                        run_params,
+                    )
+                    for (
+                        path,
+                        row,
+                        run_dir,
+                        do_plots,
+                        metadata,
+                        _ti,
+                        kind,
+                        i,
+                        n_total,
+                        load_pi,
+                        do_network_loops,
+                        run_params,
+                    ) in tasks
+                ]
+                with ProcessPoolExecutor(
+                    max_workers=workers, initializer=_pool_logging_init
+                ) as pool:
+                    futures = {
+                        pool.submit(_analyze_one_h5, t): t for t in tasks_par
+                    }
+                    for fut in as_completed(futures):
+                        step, status, metrics = fut.result()
+                        if metrics:
+                            csvw.append(metrics)
+                            n_written = csvw.n_rows
+        else:
+            n_written = csvw.n_rows
+
     LOG.info(
-        f"Wrote {summary_path} ({len(metrics_rows)} rows)  "
+        f"CSV {summary_path} ({n_written} rows)  "
         f"wall {_fmt_s(time.time() - t_all)}"
     )
 
-    if not skip_network_plot and metrics_rows:
+    if not skip_network_plot and n_written > 0:
         fig_path = os.path.join(strings_dir, "string_network_timeseries.png")
         try:
             plot_network_timeseries(
@@ -809,7 +921,7 @@ def analyze_hdf5(
         except Exception as exc:
             LOG.warning(f"Network plot failed: {exc}")
 
-    return len(metrics_rows)
+    return n_written
 
 
 def plot_network(run_dir: str, csv_name: str = "string_summary.csv") -> str:
@@ -817,9 +929,7 @@ def plot_network(run_dir: str, csv_name: str = "string_summary.csv") -> str:
     run_dir = os.path.abspath(run_dir)
     csv_path = os.path.join(run_dir, "strings", csv_name)
     fig_path = os.path.join(run_dir, "strings", "string_network_timeseries.png")
-    plot_network_timeseries(
-        csv_path, fig_path, title=os.path.basename(run_dir)
-    )
+    plot_network_timeseries(csv_path, fig_path, title=os.path.basename(run_dir))
     LOG.info(f"Network plot: {fig_path}")
     return fig_path
 
@@ -832,21 +942,43 @@ def main():
         "command",
         choices=["export", "analyze", "split", "all", "plot-network"],
         help="analyze=strings+network; split=per-step h5; "
-             "plot-network=replot CSV; export=NPZ; all=export+analyze",
+        "plot-network=replot CSV; export=NPZ; all=export+analyze",
     )
     ap.add_argument("run_dir", help="CosmoLattice output directory")
-    ap.add_argument("--workers", type=int, default=1,
-                    help="Parallel snapshot workers (default 1 for 1024³)")
-    ap.add_argument("--step-min", type=int, default=None)
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Parallel snapshot workers (default 1 for 1024³)",
+    )
+    ap.add_argument(
+        "--step-min",
+        type=int,
+        default=None,
+        help=f"Only snapshots with step >= N. "
+        f"Default for analyze/all: {ANALYZE_STEP_MIN_DEFAULT} "
+        f"(post-percolation); use --from-first for step 0.",
+    )
+    ap.add_argument(
+        "--from-first",
+        action="store_true",
+        help="Analyze/export from the first manifest snapshot (step_min=0)",
+    )
     ap.add_argument("--step-max", type=int, default=None)
-    ap.add_argument("--no-skip-existing", action="store_true",
-                    help="Re-write even if output file exists")
-    ap.add_argument("--skip-plots", action="store_true",
-                    help="Skip 2D/3D string PNGs")
-    ap.add_argument("--metrics-only", action="store_true",
-                    help="CSV only, no PNGs (still reads HDF5)")
-    ap.add_argument("--from-npz", action="store_true",
-                    help="Analyze existing NPZ (skip HDF5 read)")
+    ap.add_argument(
+        "--no-skip-existing",
+        action="store_true",
+        help="Re-write even if output file exists",
+    )
+    ap.add_argument("--skip-plots", action="store_true", help="Skip 2D/3D string PNGs")
+    ap.add_argument(
+        "--metrics-only",
+        action="store_true",
+        help="CSV only, no PNGs (still reads HDF5)",
+    )
+    ap.add_argument(
+        "--from-npz", action="store_true", help="Analyze existing NPZ (skip HDF5 read)"
+    )
     ap.add_argument(
         "--no-pi",
         action="store_true",
@@ -866,13 +998,18 @@ def main():
         "--with-pi",
         action="store_true",
         help="When splitting, also write pi_0/pi_1 into per-step HDF5 "
-             "(needed for E_kin/v² without the monolith)",
+        "(needed for E_kin/v² without the monolith)",
+    )
+    ap.add_argument(
+        "--resume-csv",
+        action="store_true",
+        help="Append to existing string_summary.csv; skip steps already saved",
     )
     ap.add_argument(
         "--log-file",
         default=None,
         help="Optional log path (KST timestamps). "
-             "Default: <run_dir>/strings/pipeline_<command>.log",
+        "Default: <run_dir>/strings/pipeline_<command>.log",
     )
     ap.add_argument(
         "--no-log-file",
@@ -883,6 +1020,14 @@ def main():
 
     skip_existing = not args.no_skip_existing
     run_dir = os.path.abspath(args.run_dir)
+
+    # Default step floor applies to analyze/all only (not split / plot-network).
+    step_min = args.step_min
+    step_max = args.step_max
+    if args.command in ("analyze", "all"):
+        step_min = resolve_analyze_step_min(
+            run_dir, args.step_min, from_first=args.from_first
+        )
 
     log_file = args.log_file
     if log_file is None and not args.no_log_file:
@@ -895,6 +1040,21 @@ def main():
         run_dir,
         args.workers,
     )
+    if args.command in ("analyze", "all"):
+        if step_min is not None:
+            src = (
+                "cli"
+                if args.step_min is not None
+                else (
+                    "cl_run_params"
+                    if (load_run_params(run_dir) or {}).get("analyze_step_min")
+                    is not None
+                    else "default"
+                )
+            )
+            LOG.info("step_min=%s (%s)  step_max=%s", step_min, src, step_max)
+        else:
+            LOG.info("step_min=none (--from-first)  step_max=%s", step_max)
 
     if args.command == "plot-network":
         plot_network(run_dir)
@@ -904,8 +1064,8 @@ def main():
         split_hdf5(
             run_dir,
             workers=args.workers,
-            step_min=args.step_min,
-            step_max=args.step_max,
+            step_min=step_min,
+            step_max=step_max,
             skip_existing=skip_existing,
             with_pi=args.with_pi,
         )
@@ -916,7 +1076,7 @@ def main():
             run_dir,
             workers=args.workers,
             step_min=args.step_min,
-            step_max=args.step_max,
+            step_max=step_max,
             skip_existing=skip_existing,
         )
 
@@ -924,14 +1084,15 @@ def main():
         analyze_hdf5(
             run_dir,
             workers=args.workers,
-            step_min=args.step_min,
-            step_max=args.step_max,
+            step_min=step_min,
+            step_max=step_max,
             skip_plots=args.skip_plots,
             metrics_only=args.metrics_only,
             from_npz=args.from_npz and args.command == "analyze",
             load_pi=not args.no_pi,
             do_network_loops=not args.no_network_loops,
             skip_network_plot=args.skip_network_plot,
+            resume_csv=args.resume_csv,
         )
 
 

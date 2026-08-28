@@ -21,6 +21,7 @@ import glob
 import os
 import re
 import sys
+from typing import Optional, Tuple
 
 # Fixed φ colorbar range used by latticeSimeRescale_numba.py inline snapshots.
 NUMBA_PHI_VMIN = -2e11
@@ -36,6 +37,9 @@ DEFAULT_PHI0_GEV = 1.0e15
 STRING_RHO_VMIN_GEV = 0.0
 STRING_RHO_VMAX_GEV = 1.5e15
 STRING_RHO_WALL_FRAC = 0.70   # wall anchor = WALL_FRAC × φ₀  (~7×10¹⁴ GeV)
+# Step >= this → post-percolation fixed colorbar; below → vmax from field max
+STRING_PERCOLATION_STEP_DEFAULT = 3500
+STRING_PRE_PERC_VMAX_PAD = 1.10   # pre-percolation vmax = PAD × max(ρ) on slice
 STRING_RHO_CMAP_COLORS = (
     (0.00, "#0a1628"),   # false vacuum
     (None, "#89CFF0"),   # light blue at wall anchor (position set from φ₀)
@@ -91,6 +95,41 @@ def _grad_rho_2d(rho_2d: np.ndarray) -> np.ndarray:
     return np.sqrt(g2)
 
 
+def _meta_int(metadata, *keys, default=None):
+    v = _meta_float(metadata, *keys, default=None)
+    if v is None:
+        return default
+    return int(v)
+
+
+def resolve_percolation_step(metadata=None, default: int = STRING_PERCOLATION_STEP_DEFAULT) -> int:
+    """First step treated as post-percolation for the |Φ| colorbar."""
+    v = _meta_int(metadata, "percolation_step", "analyze_step_min", default=default)
+    return int(v) if v is not None else int(default)
+
+
+def resolve_rho_color_vmax(
+    rho_2d: np.ndarray,
+    vev: float,
+    step: Optional[int],
+    metadata=None,
+) -> Tuple[float, bool]:
+    """Return (vmax GeV, post_percolation).
+
+    Post-percolation (step >= percolation_step): fixed vmax = 1.5×10¹⁵.
+    Pre-percolation: vmax = PAD × max(ρ) on this slice so nucleation growth
+    is visible before φ₀ is reached.
+    """
+    vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
+    perc = resolve_percolation_step(metadata)
+    post = step is not None and int(step) >= perc
+    if post:
+        return STRING_RHO_VMAX_GEV, True
+    rmax = float(np.max(np.asarray(rho_2d, dtype=np.float64)))
+    vmax = max(rmax * STRING_PRE_PERC_VMAX_PAD, vev * 0.02, 1e10)
+    return vmax, False
+
+
 def _rho_expansion_cmap(vev: float, vmax: float = STRING_RHO_VMAX_GEV):
     """Piecewise colormap: 0 dark → wall light blue → φ₀ yellow → vmax red."""
     from matplotlib.colors import LinearSegmentedColormap
@@ -115,18 +154,31 @@ def _imshow_rho_fixed_gev(
     vev,
     fig,
     *,
+    step: Optional[int] = None,
+    metadata=None,
     title=None,
     vmin: float = STRING_RHO_VMIN_GEV,
-    vmax: float = STRING_RHO_VMAX_GEV,
+    vmax: Optional[float] = None,
+    post_percolation: Optional[bool] = None,
 ):
-    """Fixed ρ = |Φ| [GeV] on [0, 1.5×10¹⁵] with anchored colors.
+    """ρ = |Φ| [GeV] with anchored colors (navy / blue / yellow / red).
 
-    Yellow is always at φ₀ (~10¹⁵), light blue at ~0.7 φ₀ (~7×10¹⁴),
-    red at 1.5×10¹⁵ — same map on every snapshot after percolation.
+    **Post-percolation** (step >= percolation_step, default 3500):
+      fixed [0, 1.5×10¹⁵]; yellow at φ₀, red at 1.5×10¹⁵.
+
+    **Pre-percolation**:
+      vmax = 1.1 × max(ρ) on the slice — colors track the current field
+      maximum while keeping the same anchor *fractions* (blue at 0.7φ₀ if in range).
     """
     vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
     rho = np.asarray(rho_2d, dtype=np.float64)
     vmin = float(vmin)
+    if vmax is None or post_percolation is None:
+        vmax_auto, post = resolve_rho_color_vmax(rho, vev, step, metadata)
+        if vmax is None:
+            vmax = vmax_auto
+        if post_percolation is None:
+            post_percolation = post
     vmax = float(vmax) if vmax > vmin else STRING_RHO_VMAX_GEV
     wall = STRING_RHO_WALL_FRAC * vev
     cmap = _rho_expansion_cmap(vev, vmax)
@@ -140,14 +192,23 @@ def _imshow_rho_fixed_gev(
     )
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label(r"$\rho = |\Phi|$ [GeV]")
-    tick_vals = [0.0, wall, vev, vmax]
+    tick_vals = sorted({0.0, wall, vev, vmax})
+    tick_vals = [v for v in tick_vals if vmin <= v <= vmax * 1.001]
+    if len(tick_vals) < 2:
+        tick_vals = [vmin, vmax]
     cbar.set_ticks(tick_vals)
     cbar.set_ticklabels([f"{v:.2e}" for v in tick_vals])
     if title is None:
-        title = (
-            rf"$|\Phi|$  (0=navy, {wall:.1e}=blue, "
-            rf"$\phi_0$=yellow, {vmax:.1e}=red)"
-        )
+        if post_percolation:
+            title = (
+                rf"$|\Phi|$  post-perc: fixed $0$–${vmax:.1e}$ "
+                rf"($\phi_0$=yellow)"
+            )
+        else:
+            title = (
+                rf"$|\Phi|$  pre-perc: vmax={vmax:.2e} "
+                rf"(1.1×slice max; step<{resolve_percolation_step(metadata)})"
+            )
     ax.set_title(title, fontsize=9)
     return im
 
@@ -610,7 +671,7 @@ def _plot_strings_2d_dense(state, metadata, output_file, n_string_vox):
     fig, axes = plt.subplots(1, 4, figsize=(20, 4.5))
     vev = resolve_phi0_vev(metadata)
     sl = rho[:, :, zmid].T
-    _imshow_rho_fixed_gev(axes[0], sl, vev, fig)
+    _imshow_rho_fixed_gev(axes[0], sl, vev, fig, step=step, metadata=metadata)
     _imshow_grad_rho(axes[1], sl, vev, fig)
     im1 = axes[2].imshow(
         theta[:, :, zmid].T, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi
@@ -666,7 +727,9 @@ def plot_strings_2d(state, metadata, output_file):
     rho_sl = rho[:, :, zmid].T
 
     # Row 0: expansion (ρ/φ₀), phase, winding
-    _imshow_rho_fixed_gev(axes[0, 0], rho_sl, vev, fig)
+    _imshow_rho_fixed_gev(
+        axes[0, 0], rho_sl, vev, fig, step=step, metadata=metadata
+    )
 
     theta_sl = theta[:, :, zmid]
     im1 = axes[0, 1].imshow(

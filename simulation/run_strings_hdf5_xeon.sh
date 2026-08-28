@@ -44,7 +44,8 @@ if [ "${1:-}" != "" ] && [ "${1#-}" = "$1" ]; then
   shift
 fi
 RUN_DIR="${RUN_DIR:-}"
-STEP_MIN="${STEP_MIN:-}"
+# Optional env: STEP_MIN overrides pipeline default (analyze only)
+STEP_MIN="${STEP_MIN:-}"   # empty → pipeline uses ANALYZE_STEP_MIN_DEFAULT (3500)
 STEP_MAX="${STEP_MAX:-}"
 SKIP_PLOTS="${SKIP_PLOTS:-0}"       # 0 = write PNGs
 METRICS_ONLY="${METRICS_ONLY:-0}"   # 1 = CSV only
