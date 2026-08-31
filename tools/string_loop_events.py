@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import math
 import os
@@ -1073,6 +1074,12 @@ def run(
         LOG.info("Wrote %s", png)
     except Exception as exc:
         LOG.warning("plot failed: %s", exc)
+
+    if not skip_budget:
+        try:
+            print_dissipation(dissipation_summary(out_dir))
+        except Exception as exc:
+            LOG.warning("dissipation summary failed: %s", exc)
     return out_dir
 
 
@@ -1094,6 +1101,179 @@ def _col(rows: Sequence[Dict[str, str]], key: str) -> np.ndarray:
         except (TypeError, ValueError):
             out.append(np.nan)
     return np.asarray(out, dtype=float)
+
+
+def dissipation_summary(
+    out_dir: str,
+    *,
+    t_min: Optional[float] = None,
+    t_max: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Energy released by the string network, estimated three independent ways.
+
+    All ``E_*`` columns are physical energy *densities* integrated over the
+    **comoving** volume, i.e. ``E_csv = E_phys / a³``. For a network of fixed
+    comoving length ``a²·E_core`` is constant, and for free massless radiation
+    ``a⁴·E_bulk`` is constant, so those factors are removed before differencing
+    — otherwise expansion alone looks like dissipation.
+
+    The three estimates are:
+
+    ``events``   Σ over collapse events of μ_eff·L, the string energy carried by
+                 each loop that vanished. Counts only annihilation.
+    ``core``     drop in the total core energy across the window. Counts every
+                 way the network loses length, including shrinking without
+                 collapsing.
+    ``goldstone`` rise in bulk Goldstone energy. This is the radiation side of
+                 the ledger, but it also picks up any non-string phase gradients,
+                 so treat it as an upper bound.
+
+    Agreement between ``events`` and ``core`` means loop collapse dominates the
+    loss. ``goldstone`` matching them means the budget closes.
+    """
+    tracks = _read_csv(os.path.join(out_dir, "loop_tracks.csv"))
+    events = _read_csv(os.path.join(out_dir, "loop_events.csv"))
+    budget = _read_csv(os.path.join(out_dir, "radiation_budget.csv"))
+    if not budget:
+        raise RuntimeError(f"no radiation_budget.csv in {out_dir} (ran with --skip-budget?)")
+
+    def in_window(t: float) -> bool:
+        return (t_min is None or t >= t_min) and (t_max is None or t <= t_max)
+
+    # --- per-step network state -------------------------------------------
+    L_by_step: Dict[int, float] = {}
+    nvox_by_step: Dict[int, float] = {}
+    for r in tracks:
+        try:
+            s = int(float(r["step"]))
+        except (TypeError, ValueError):
+            continue
+        L_by_step[s] = L_by_step.get(s, 0.0) + float(r.get("L_comoving") or 0.0)
+        nvox_by_step[s] = nvox_by_step.get(s, 0.0) + float(r.get("n_voxels") or 0.0)
+
+    steps: List[Dict[str, float]] = []
+    for r in budget:
+        t = float(r["time"])
+        if not in_window(t):
+            continue
+        s = int(float(r["step"]))
+        a = float(r["a"])
+        core = sum(
+            float(r[k] or 0.0)
+            for k in ("E_kin_core", "E_grad_rad_core", "E_grad_gold_core", "E_pot_core")
+        )
+        n_str = float(r["n_string_voxels"] or 0.0)
+        L = L_by_step.get(s, float("nan"))
+        steps.append(
+            {
+                "step": s,
+                "time": t,
+                "a": a,
+                "E_core": core,
+                "E_core_scaled": core * a * a,
+                "E_gold_bulk_scaled": float(r["E_grad_gold_bulk"] or 0.0) * a**4,
+                "L_total": L,
+                "mu_eff": core / L if L and np.isfinite(L) and L > 0 else float("nan"),
+                "coverage": nvox_by_step.get(s, 0.0) / n_str if n_str > 0 else float("nan"),
+            }
+        )
+    if len(steps) < 2:
+        raise RuntimeError("need at least two snapshots in the window")
+    steps.sort(key=lambda d: d["time"])
+    mu_at_step = {int(d["step"]): d["mu_eff"] for d in steps}
+    a_at_step = {int(d["step"]): d["a"] for d in steps}
+    prev_step_of = {
+        int(steps[i]["step"]): int(steps[i - 1]["step"]) for i in range(1, len(steps))
+    }
+
+    # --- 1) sum over collapse events --------------------------------------
+    e_events = 0.0
+    n_events = 0
+    n_priced = 0
+    n_relativistic = 0
+    n_small = 0
+    for r in events:
+        t = float(r["time"])
+        if not in_window(t):
+            continue
+        n_events += 1
+        rg = float(r.get("R_gyr_vox") or "nan")
+        if np.isfinite(rg) and rg < 3.0:
+            n_small += 1
+        sr = float(r.get("shrink_rate_dR_dt") or "nan")
+        if np.isfinite(sr) and abs(sr) > 0.5:
+            n_relativistic += 1
+        s = int(float(r["step"]))
+        # the loop was last seen (and last measured) one snapshot earlier
+        mu = mu_at_step.get(prev_step_of.get(s, s), float("nan"))
+        a_prev = a_at_step.get(prev_step_of.get(s, s), 1.0)
+        L = float(r.get("L_comoving") or "nan")
+        if np.isfinite(mu) and np.isfinite(L):
+            e_events += mu * L * a_prev * a_prev
+            n_priced += 1
+
+    # --- 2) core-energy drop, 3) Goldstone rise ---------------------------
+    first, last = steps[0], steps[-1]
+    e_core_drop = first["E_core_scaled"] - last["E_core_scaled"]
+    e_gold_rise = last["E_gold_bulk_scaled"] - first["E_gold_bulk_scaled"]
+
+    coverage = [d["coverage"] for d in steps if np.isfinite(d["coverage"])]
+    summary = {
+        "window": {"t_first": first["time"], "t_last": last["time"],
+                   "n_snapshots": len(steps)},
+        "note": "energies are a^n-corrected comoving integrals; see docstring",
+        "E_diss_from_events": e_events,
+        "E_core_drop": e_core_drop,
+        "E_gold_bulk_rise": e_gold_rise,
+        "events_over_core_drop": (
+            e_events / e_core_drop if e_core_drop else float("nan")
+        ),
+        "gold_over_core_drop": (
+            e_gold_rise / e_core_drop if e_core_drop else float("nan")
+        ),
+        "n_events": n_events,
+        "n_events_priced": n_priced,
+        "n_events_relativistic": n_relativistic,
+        "n_events_below_3vox": n_small,
+        "frac_events_below_3vox": n_small / n_events if n_events else float("nan"),
+        "mu_eff_median_GeV2": float(
+            np.nanmedian([d["mu_eff"] for d in steps])
+        ),
+        "E_core_first": first["E_core_scaled"],
+        "E_core_last": last["E_core_scaled"],
+        "census_coverage_median": float(np.median(coverage)) if coverage else float("nan"),
+    }
+
+    path = os.path.join(out_dir, "dissipation_summary.json")
+    with open(path, "w") as f:
+        json.dump(summary, f, indent=2, default=str)
+    return summary
+
+
+def print_dissipation(s: Dict[str, Any]) -> None:
+    w = s["window"]
+    print("\n=== string energy dissipation ===")
+    print(f"  window        t ∈ [{w['t_first']:.1f}, {w['t_last']:.1f}]  "
+          f"({w['n_snapshots']} snapshots)")
+    print(f"  mu_eff        {s['mu_eff_median_GeV2']:.3e} GeV²  (median)")
+    print(f"  core energy   {s['E_core_first']:.4e} -> {s['E_core_last']:.4e}")
+    print("  --- energy released, three ways ---")
+    print(f"  from events   {s['E_diss_from_events']:.4e}   "
+          f"({s['n_events_priced']}/{s['n_events']} events priced)")
+    print(f"  core drop     {s['E_core_drop']:.4e}")
+    print(f"  Goldstone     {s['E_gold_bulk_rise']:.4e}   (upper bound)")
+    print(f"  events/core   {s['events_over_core_drop']:.3f}   "
+          f"gold/core {s['gold_over_core_drop']:.3f}")
+    print("  --- health checks ---")
+    print(f"  relativistic collapses (|dR/dt|>0.5): {s['n_events_relativistic']}"
+          f"/{s['n_events']}")
+    print(f"  collapses at R_gyr < 3 vox:           {s['n_events_below_3vox']}"
+          f"/{s['n_events']}  "
+          f"({100 * s['frac_events_below_3vox']:.0f}% — resolution limited)")
+    cov = s["census_coverage_median"]
+    if np.isfinite(cov) and cov < 0.9:
+        print(f"  WARNING: loop census covers only {100 * cov:.0f}% of string "
+              "voxels; raise --max-loops or lower --min-voxels")
 
 
 def plot_events(out_dir: str, out_png: str) -> str:
@@ -1250,6 +1430,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="z-planes per energy-pass slab; peak RAM ~ 12·N²·slab·8 B")
     ap.add_argument("--plot-only", action="store_true",
                     help="Only re-plot from existing CSVs in --out-dir")
+    ap.add_argument("--summarize", action="store_true",
+                    help="Only recompute the dissipation summary from existing CSVs")
+    ap.add_argument("--window", type=float, nargs=2, metavar=("T_MIN", "T_MAX"),
+                    default=None, help="Restrict --summarize to this time window")
     args = ap.parse_args(argv)
 
     logging.basicConfig(
@@ -1262,6 +1446,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.plot_only:
         png = plot_events(out_dir, os.path.join(out_dir, "string_loop_events.png"))
         print(f"wrote {png}")
+        return 0
+
+    if args.summarize:
+        lo, hi = args.window if args.window else (None, None)
+        print_dissipation(dissipation_summary(out_dir, t_min=lo, t_max=hi))
         return 0
 
     run(
