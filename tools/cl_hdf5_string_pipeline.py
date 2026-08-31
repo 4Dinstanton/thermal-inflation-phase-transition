@@ -65,6 +65,7 @@ from tools.export_cl_snapshots import load_run_params, write_metadata
 from tools.string_network_metrics import (
     NETWORK_CSV_FIELDS,
     compute_network_metrics,
+    load_transition_markers,
     plot_network_timeseries,
 )
 
@@ -352,6 +353,7 @@ def _analyze_one_h5(
         bool,
         bool,
         Dict[str, Any],
+        bool,
     ],
 ) -> Tuple[int, str, Optional[Dict[str, Any]]]:
     (
@@ -367,6 +369,7 @@ def _analyze_one_h5(
         load_pi,
         do_network_loops,
         run_params,
+        paper_plots,
     ) = args
     step = int(float(row["step"]))
     tag = f"[{idx}/{n_total}] step {step}"
@@ -421,11 +424,12 @@ def _analyze_one_h5(
             f"({_fmt_s(time.time() - t_met)})"
         )
 
-        if do_plots:
+        if do_plots or paper_plots:
             from postprocess.revisualize_snapshots import (
                 _plot_strings_2d_dense,
                 _plot_strings_3d_dense,
                 plot_strings_2d,
+                plot_strings_2d_paper,
                 plot_strings_3d,
             )
 
@@ -454,42 +458,49 @@ def _analyze_one_h5(
             N = int(snap.get("N", state["winding"].shape[0]))
             dense_cut, max3d_cut = _plot_thresholds(N)
 
-            t_plot = time.time()
-            if n_string_vox > dense_cut:
-                LOG.info(
-                    f"  {tag}: dense winding (>{dense_cut:,}) → "
-                    f"light 2D + dense 3D (no loop IDs)"
-                )
-                _plot_strings_2d_dense(state, meta, png2d, n_string_vox)
-                if metrics.get("n_loops", "") == "" or metrics.get("n_loops", -1) < 0:
-                    metrics["n_loops"] = -1
-                LOG.info(f"  {tag}: 2D PNG done  ({_fmt_s(time.time() - t_plot)})")
-                t3 = time.time()
-                LOG.info(f"  {tag}: dense 3D PNG (subsampled, no labeling) …")
-                _plot_strings_3d_dense(state, meta, png3d, n_string_vox)
-                LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
-            else:
-                LOG.info(f"  {tag}: full 2D labeling + plot …")
-                strings = plot_strings_2d(state, meta, png2d)
-                if not do_network_loops:
-                    metrics["n_loops"] = len(strings) if strings else 0
-                LOG.info(
-                    f"  {tag}: 2D PNG done  loops={metrics.get('n_loops')}  "
-                    f"({_fmt_s(time.time() - t_plot)})"
-                )
-                if strings and n_string_vox <= max3d_cut:
-                    t3 = time.time()
-                    LOG.info(f"  {tag}: 3D PNG (by loop ID) …")
-                    plot_strings_3d(state, meta, png3d, labelled=None, strings=strings)
-                    LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
-                elif strings:
-                    t3 = time.time()
+            if do_plots:
+                t_plot = time.time()
+                if n_string_vox > dense_cut:
                     LOG.info(
-                        f"  {tag}: voxels={n_string_vox:,} > 3D-label cut "
-                        f"{max3d_cut:,} → dense 3D (no loop IDs)"
+                        f"  {tag}: dense winding (>{dense_cut:,}) → "
+                        f"light 2D + dense 3D (no loop IDs)"
                     )
+                    _plot_strings_2d_dense(state, meta, png2d, n_string_vox)
+                    if metrics.get("n_loops", "") == "" or metrics.get("n_loops", -1) < 0:
+                        metrics["n_loops"] = -1
+                    LOG.info(f"  {tag}: 2D PNG done  ({_fmt_s(time.time() - t_plot)})")
+                    t3 = time.time()
+                    LOG.info(f"  {tag}: dense 3D PNG (subsampled, no labeling) …")
                     _plot_strings_3d_dense(state, meta, png3d, n_string_vox)
                     LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
+                else:
+                    LOG.info(f"  {tag}: full 2D labeling + plot …")
+                    strings = plot_strings_2d(state, meta, png2d)
+                    if not do_network_loops:
+                        metrics["n_loops"] = len(strings) if strings else 0
+                    LOG.info(
+                        f"  {tag}: 2D PNG done  loops={metrics.get('n_loops')}  "
+                        f"({_fmt_s(time.time() - t_plot)})"
+                    )
+                    if strings and n_string_vox <= max3d_cut:
+                        t3 = time.time()
+                        LOG.info(f"  {tag}: 3D PNG (by loop ID) …")
+                        plot_strings_3d(state, meta, png3d, labelled=None, strings=strings)
+                        LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
+                    elif strings:
+                        t3 = time.time()
+                        LOG.info(
+                            f"  {tag}: voxels={n_string_vox:,} > 3D-label cut "
+                            f"{max3d_cut:,} → dense 3D (no loop IDs)"
+                        )
+                        _plot_strings_3d_dense(state, meta, png3d, n_string_vox)
+                        LOG.info(f"  {tag}: 3D PNG done  ({_fmt_s(time.time() - t3)})")
+            if paper_plots:
+                pub_png = os.path.join(
+                    strings_dir, f"strings_pub_step_{step:010d}.png"
+                )
+                plot_strings_2d_paper(state, meta, pub_png)
+                LOG.info(f"  {tag}: paper PNG -> {os.path.basename(pub_png)}")
             del state, snap
         else:
             if metrics.get("n_loops", "") == "":
@@ -694,6 +705,7 @@ def analyze_hdf5(
     do_network_loops: bool = True,
     skip_network_plot: bool = False,
     resume_csv: bool = False,
+    paper_plots: bool = False,
 ) -> int:
     run_dir = os.path.abspath(run_dir)
     strings_dir = os.path.join(run_dir, "strings")
@@ -753,6 +765,7 @@ def analyze_hdf5(
     )
     LOG.info(
         f"  plots: {'on' if do_plots else 'off (metrics only)'}  "
+        f"paper_plots={paper_plots}  "
         f"workers={workers}  load_pi={load_pi}  "
         f"network_loops={do_network_loops}"
     )
@@ -832,6 +845,7 @@ def analyze_hdf5(
                 load_pi,
                 do_network_loops,
                 run_params,
+                paper_plots,
             )
         )
 
@@ -874,6 +888,7 @@ def analyze_hdf5(
                         load_pi,
                         do_network_loops,
                         run_params,
+                        paper_plots,
                     )
                     for (
                         path,
@@ -888,6 +903,7 @@ def analyze_hdf5(
                         load_pi,
                         do_network_loops,
                         run_params,
+                        _pp,
                     ) in tasks
                 ]
                 with ProcessPoolExecutor(
@@ -916,6 +932,7 @@ def analyze_hdf5(
                 summary_path,
                 fig_path,
                 title=os.path.basename(run_dir),
+                run_dir=run_dir,
             )
             LOG.info(f"Network plot: {fig_path}")
         except Exception as exc:
@@ -924,12 +941,15 @@ def analyze_hdf5(
     return n_written
 
 
-def plot_network(run_dir: str, csv_name: str = "string_summary.csv") -> str:
+def plot_network(run_dir: str, csv_name: str = "string_summary.csv", *, recompute_markers: bool = False) -> str:
     """Re-plot network timeseries from an existing CSV."""
     run_dir = os.path.abspath(run_dir)
     csv_path = os.path.join(run_dir, "strings", csv_name)
     fig_path = os.path.join(run_dir, "strings", "string_network_timeseries.png")
-    plot_network_timeseries(csv_path, fig_path, title=os.path.basename(run_dir))
+    markers = load_transition_markers(run_dir, force=recompute_markers)
+    plot_network_timeseries(
+        csv_path, fig_path, title=os.path.basename(run_dir), run_dir=run_dir, markers=markers
+    )
     LOG.info(f"Network plot: {fig_path}")
     return fig_path
 
@@ -1006,6 +1026,16 @@ def main():
         help="Append to existing string_summary.csv; skip steps already saved",
     )
     ap.add_argument(
+        "--paper-plots",
+        action="store_true",
+        help="Also write strings_pub_step_*.png (crisp 2×2 PT + string figure)",
+    )
+    ap.add_argument(
+        "--recompute-markers",
+        action="store_true",
+        help="Re-scan manifest/HDF5 for TIPT/langoff/T_c1 vertical lines on network plot",
+    )
+    ap.add_argument(
         "--log-file",
         default=None,
         help="Optional log path (KST timestamps). "
@@ -1057,7 +1087,7 @@ def main():
             LOG.info("step_min=none (--from-first)  step_max=%s", step_max)
 
     if args.command == "plot-network":
-        plot_network(run_dir)
+        plot_network(run_dir, recompute_markers=args.recompute_markers)
         return
 
     if args.command == "split":
@@ -1093,6 +1123,7 @@ def main():
             do_network_loops=not args.no_network_loops,
             skip_network_plot=args.skip_network_plot,
             resume_csv=args.resume_csv,
+            paper_plots=args.paper_plots,
         )
 
 

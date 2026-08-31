@@ -32,10 +32,9 @@ DEFAULT_PHI0_GEV = 1.0e15
 # Fixed |Φ| color scale (GeV) with anchored colors (same every snapshot):
 #   0       → dark navy   (false vacuum)
 #   ~7e14   → light blue  (wall / transition; 0.7×φ₀ when φ₀=1e15)
-#   φ₀≈1e15 → yellow      (broken-phase bulk)
-#   1.5e15  → red         (overshoot / vmax)
+#   φ₀≈1e15 → yellow      (broken-phase bulk / colorbar max post-percolation)
 STRING_RHO_VMIN_GEV = 0.0
-STRING_RHO_VMAX_GEV = 1.5e15
+STRING_RHO_VMAX_GEV = 1.0e15
 STRING_RHO_WALL_FRAC = 0.70   # wall anchor = WALL_FRAC × φ₀  (~7×10¹⁴ GeV)
 # Step >= this → post-percolation fixed colorbar; below → vmax from field max
 STRING_PERCOLATION_STEP_DEFAULT = 3500
@@ -116,7 +115,7 @@ def resolve_rho_color_vmax(
 ) -> Tuple[float, bool]:
     """Return (vmax GeV, post_percolation).
 
-    Post-percolation (step >= percolation_step): fixed vmax = 1.5×10¹⁵.
+    Post-percolation (step >= percolation_step): fixed vmax = φ₀ (≈1×10¹⁵ GeV).
     Pre-percolation: vmax = PAD × max(ρ) on this slice so nucleation growth
     is visible before φ₀ is reached.
     """
@@ -124,14 +123,14 @@ def resolve_rho_color_vmax(
     perc = resolve_percolation_step(metadata)
     post = step is not None and int(step) >= perc
     if post:
-        return STRING_RHO_VMAX_GEV, True
+        return vev, True
     rmax = float(np.max(np.asarray(rho_2d, dtype=np.float64)))
     vmax = max(rmax * STRING_PRE_PERC_VMAX_PAD, vev * 0.02, 1e10)
     return vmax, False
 
 
 def _rho_expansion_cmap(vev: float, vmax: float = STRING_RHO_VMAX_GEV):
-    """Piecewise colormap: 0 dark → wall light blue → φ₀ yellow → vmax red."""
+    """Piecewise colormap: 0 dark → wall light blue → φ₀ yellow (top at vmax=φ₀)."""
     from matplotlib.colors import LinearSegmentedColormap
 
     vev = float(vev) if vev > 0 else DEFAULT_PHI0_GEV
@@ -139,12 +138,19 @@ def _rho_expansion_cmap(vev: float, vmax: float = STRING_RHO_VMAX_GEV):
     wall = STRING_RHO_WALL_FRAC * vev
     t_wall = min(max(wall / vmax, 0.02), 0.98)
     t_vev = min(max(vev / vmax, t_wall + 0.01), 0.99)
-    stops = [
-        (0.0, STRING_RHO_CMAP_COLORS[0][1]),
-        (t_wall, STRING_RHO_CMAP_COLORS[1][1]),
-        (t_vev, STRING_RHO_CMAP_COLORS[2][1]),
-        (1.0, STRING_RHO_CMAP_COLORS[3][1]),
-    ]
+    if t_vev >= 0.995:
+        stops = [
+            (0.0, STRING_RHO_CMAP_COLORS[0][1]),
+            (t_wall, STRING_RHO_CMAP_COLORS[1][1]),
+            (1.0, STRING_RHO_CMAP_COLORS[2][1]),
+        ]
+    else:
+        stops = [
+            (0.0, STRING_RHO_CMAP_COLORS[0][1]),
+            (t_wall, STRING_RHO_CMAP_COLORS[1][1]),
+            (t_vev, STRING_RHO_CMAP_COLORS[2][1]),
+            (1.0, STRING_RHO_CMAP_COLORS[3][1]),
+        ]
     return LinearSegmentedColormap.from_list("rho_expansion", stops, N=256)
 
 
@@ -161,10 +167,10 @@ def _imshow_rho_fixed_gev(
     vmax: Optional[float] = None,
     post_percolation: Optional[bool] = None,
 ):
-    """ρ = |Φ| [GeV] with anchored colors (navy / blue / yellow / red).
+    """ρ = |Φ| [GeV] with anchored colors (navy / blue / yellow).
 
     **Post-percolation** (step >= percolation_step, default 3500):
-      fixed [0, 1.5×10¹⁵]; yellow at φ₀, red at 1.5×10¹⁵.
+      fixed [0, φ₀]; yellow at φ₀ (≈1×10¹⁵ GeV).
 
     **Pre-percolation**:
       vmax = 1.1 × max(ρ) on the slice — colors track the current field
@@ -201,8 +207,8 @@ def _imshow_rho_fixed_gev(
     if title is None:
         if post_percolation:
             title = (
-                rf"$|\Phi|$  post-perc: fixed $0$–${vmax:.1e}$ "
-                rf"($\phi_0$=yellow)"
+                rf"$|\Phi|$  post-perc: fixed $0$–$\phi_0$ "
+                rf"(${vmax:.1e}$ GeV; yellow at VEV)"
             )
         else:
             title = (
@@ -692,6 +698,157 @@ def _plot_strings_2d_dense(state, metadata, output_file, n_string_vox):
     )
     fig.tight_layout()
     fig.savefig(output_file, dpi=120)
+    plt.close(fig)
+
+
+STRING_RHO_BULK_LO = 0.85
+STRING_RHO_BULK_HI = 1.15
+# Trinary PT map (paper): ρ/φ₀ below FALSE → navy; mid → wall cyan; above BROKEN → gold
+STRING_RHO_FALSE_FRAC = 0.25
+STRING_RHO_BROKEN_FRAC = 0.85
+STRING_PUB_DPI = 200
+
+
+def _rho_2d_for_paper(rho_3d, *, z_slice="max"):
+    """2D map for publication: max-|Φ| projection avoids fuzzy wall rings on a single slice."""
+    r = np.asarray(rho_3d, dtype=np.float64)
+    if z_slice == "mid":
+        zmid = r.shape[2] // 2
+        return r[:, :, zmid].T
+    if z_slice == "max":
+        return np.max(r, axis=2).T
+    raise ValueError(f"unknown z_slice={z_slice!r}")
+
+
+def _theta_2d_for_paper(theta_3d, *, z_slice="mid"):
+    t = np.asarray(theta_3d, dtype=np.float64)
+    if z_slice == "mid":
+        zmid = t.shape[2] // 2
+        return t[:, :, zmid].T
+    raise ValueError(f"theta paper view only supports z_slice='mid', got {z_slice!r}")
+
+
+def _winding_2d_for_paper(winding_3d, *, z_slice="mid"):
+    w = np.asarray(winding_3d, dtype=np.float64)
+    if z_slice == "mid":
+        zmid = w.shape[2] // 2
+        return w[:, :, zmid].T
+    if z_slice == "any":
+        return (np.max(np.abs(w), axis=2) > 0.5).T.astype(np.float64)
+    raise ValueError(f"unknown z_slice={z_slice!r}")
+
+
+def _imshow_rho_phases_trinary(ax, rho_2d, vev, fig, *, title=None):
+    """Crisp three-phase map: false vacuum | wall band | broken phase (no gradient fuzz)."""
+    from matplotlib.colors import ListedColormap, BoundaryNorm
+
+    vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
+    ratio = np.asarray(rho_2d, dtype=np.float64) / vev
+    phase = np.zeros(ratio.shape, dtype=np.uint8)
+    phase[ratio >= STRING_RHO_FALSE_FRAC] = 1
+    phase[ratio >= STRING_RHO_BROKEN_FRAC] = 2
+    colors = ["#0a1628", "#5eb6d9", "#FFD700"]  # false / wall / broken
+    cmap = ListedColormap(colors)
+    norm = BoundaryNorm([0, 1, 2, 3], cmap.N)
+    im = ax.imshow(phase, origin="lower", cmap=cmap, norm=norm, interpolation="nearest")
+    cbar = fig.colorbar(im, ax=ax, shrink=0.75, ticks=[0.33, 1.0, 1.67])
+    cbar.ax.set_yticklabels(
+        [
+            rf"false ($\rho<{STRING_RHO_FALSE_FRAC:.0%}\phi_0$)",
+            "wall",
+            rf"broken ($>{STRING_RHO_BROKEN_FRAC:.0%}\phi_0$)",
+        ],
+        fontsize=7,
+    )
+    if title is None:
+        title = r"PT phases (trinary; max-$|\Phi|$ proj.)"
+    ax.set_title(title, fontsize=10)
+    return im
+
+
+def _imshow_rho_contour_pt(ax, rho_2d, vev, fig, *, step=None, metadata=None, title=None):
+    """Broken-phase bulk (flat gold) + contour lines at 0.5φ₀ and φ₀ — crisp bubble edges."""
+    vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
+    r = np.asarray(rho_2d, dtype=np.float64)
+    # Flat background: gold inside broken phase, navy outside
+    bg = np.where(r >= STRING_RHO_BROKEN_FRAC * vev, 0.85, 0.08)
+    ax.imshow(bg, origin="lower", cmap="gray", vmin=0, vmax=1, interpolation="nearest")
+    levels = sorted({0.5 * vev, vev})
+    cs = ax.contour(
+        r,
+        levels=levels,
+        colors=["#89CFF0", "#E53935"],
+        linewidths=[0.7, 0.9],
+        origin="lower",
+    )
+    ax.clabel(cs, inline=True, fontsize=7, fmt={0.5 * vev: r"0.5$\phi_0$", vev: r"$\phi_0$"})
+    if title is None:
+        title = r"$|\Phi|$ contours on broken bulk (max-$|\Phi|$ proj.)"
+    ax.set_title(title, fontsize=10)
+    return cs
+
+
+def plot_strings_2d_paper(state, metadata, output_file, *, dpi: int = STRING_PUB_DPI):
+    """2×2 publication layout — max-|Φ| PT maps + θ/strings on z-midplane."""
+    rho = np.asarray(state["rho"], dtype=np.float64)
+    theta = np.asarray(state["theta"], dtype=np.float64)
+    winding = np.asarray(state["winding"], dtype=np.float64)
+    step = state["step"]
+    T_val = state["temperature"]
+    mu = 1000.0
+    if metadata is not None:
+        if "mu" in metadata:
+            mu = float(metadata["mu"])
+        elif "mphi" in metadata:
+            mu = float(metadata["mphi"])
+    time_phys = state["time"] / mu
+    vev = resolve_phi0_vev(metadata)
+    rho_2d = _rho_2d_for_paper(rho, z_slice="max")
+    theta_sl = _theta_2d_for_paper(theta, z_slice="mid")
+    wind_sl = _winding_2d_for_paper(winding, z_slice="mid")
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 9))
+    _imshow_rho_phases_trinary(axes[0, 0], rho_2d, vev, fig)
+
+    im1 = axes[0, 1].imshow(
+        theta_sl, origin="lower", cmap="hsv", vmin=-np.pi, vmax=np.pi,
+        interpolation="nearest",
+    )
+    string_mask = np.abs(wind_sl) > 0.5
+    if np.any(string_mask):
+        overlay = np.ma.masked_where(~string_mask, string_mask.astype(np.float64))
+        axes[0, 1].imshow(
+            overlay, origin="lower", cmap="gray", vmin=0, vmax=1,
+            interpolation="nearest", alpha=0.95,
+        )
+    axes[0, 1].set_title(r"$\arg(\Phi)$  (z-mid; black = string core)")
+    fig.colorbar(im1, ax=axes[0, 1], shrink=0.8)
+
+    _imshow_rho_contour_pt(
+        axes[1, 0], rho_2d, vev, fig, step=step, metadata=metadata
+    )
+
+    rho_flat = rho.flatten()
+    frac_broken = float(np.mean(rho_flat > 0.5 * vev))
+    n_string_vox = int(np.sum(np.abs(winding) > 0.5))
+    wmax = max(float(np.max(np.abs(wind_sl))), 0.5)
+    im_w = axes[1, 1].imshow(
+        wind_sl, origin="lower", cmap="Greys", vmin=-wmax, vmax=wmax,
+        interpolation="nearest",
+    )
+    axes[1, 1].set_title(
+        rf"Winding ($|W|>0.5$: {n_string_vox:,} voxels, z-midplane)"
+    )
+    fig.colorbar(im_w, ax=axes[1, 1], shrink=0.8)
+
+    fig.suptitle(
+        rf"Step {step:,}  $t={time_phys:.3e}$  $T={T_val:.0f}$ GeV  "
+        rf"$\phi_0={vev:.2e}$ GeV  "
+        rf"$f_{{\rm broken}}={100*frac_broken:.1f}\%$",
+        fontsize=11,
+    )
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=dpi)
     plt.close(fig)
 
 

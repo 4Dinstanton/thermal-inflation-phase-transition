@@ -373,12 +373,222 @@ NETWORK_CSV_FIELDS: Sequence[str] = (
     "has_pi",
 )
 
+TC1_FRAC_DEFAULT = 1.0e-5
+TIPT_START_FRAC_DEFAULT = 0.999  # first ~0.1% broken phase (nucleation onset)
+
+
+def _false_vac_stats(
+    phi1: np.ndarray,
+    phi2: np.ndarray,
+    escape_phi: float,
+    *,
+    stride: int = 4,
+) -> Tuple[float, float]:
+    """Return (false_vac_fraction, max_rho) on a strided subsample."""
+    s = max(int(stride), 1)
+    p1 = np.asarray(phi1, dtype=np.float64)[::s, ::s, ::s]
+    p2 = np.asarray(phi2, dtype=np.float64)[::s, ::s, ::s]
+    rho = np.sqrt(p1 * p1 + p2 * p2)
+    esc = float(escape_phi)
+    return float(np.mean(rho <= esc)), float(np.max(rho))
+
+
+def compute_transition_markers(
+    run_dir: str,
+    *,
+    stride: int = 4,
+    tc1_frac: float = TC1_FRAC_DEFAULT,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Find program times for TIPT start, Langevin off, and T_c1.
+
+    Markers (from CosmoLattice thermal_inflation.h conventions):
+      - tipt_start: first snapshot with max(rho) > expansion_phi_esc
+      - langoff: first snapshot with false-vac fraction <= langevin_off_f_switch
+      - tc1: first snapshot with false-vac fraction <= tc1_frac (default 1e-5)
+
+    Cached to ``<run_dir>/strings/transition_markers.json``.
+    """
+    import json
+    import os
+
+    from tools.cl_field_snapshot_io import (
+        build_h5_time_index,
+        load_manifest_rows,
+        lookup_h5_key,
+        read_h5_field,
+        resolve_h5_path,
+        resolve_snapshot_h5,
+    )
+    from tools.export_cl_snapshots import load_run_params
+
+    run_dir = os.path.abspath(run_dir)
+    cache_path = os.path.join(run_dir, "strings", "transition_markers.json")
+    if not force and os.path.isfile(cache_path):
+        with open(cache_path) as f:
+            return json.load(f)
+
+    params = load_run_params(run_dir) or {}
+    escape_phi = float(
+        params.get("langevin_off_phi_esc")
+        or params.get("expansion_phi_esc")
+        or 1.0e4
+    )
+    langoff_f = float(params.get("langevin_off_f_switch", 0.99))
+    langoff_enabled = bool(params.get("langevin_off_after_nucleation", False))
+
+    rows = load_manifest_rows(run_dir)
+    rows = sorted(rows, key=lambda r: float(r["t"]))
+    monolith = resolve_h5_path(run_dir, rows)
+    time_index = build_h5_time_index(monolith, "phi_0")
+
+    markers: Dict[str, Any] = {
+        "escape_phi_GeV": escape_phi,
+        "langoff_f_switch": langoff_f,
+        "tc1_frac": tc1_frac,
+        "tipt_start": None,
+        "langoff": None,
+        "tc1": None,
+    }
+
+    for row in rows:
+        t = float(row["t"])
+        step = int(float(row["step"]))
+        T = float(row["T"])
+        h5_path, kind = resolve_snapshot_h5(run_dir, row, monolith_path=monolith)
+        time_key = None
+        if kind == "monolith":
+            time_key = lookup_h5_key(t, time_index)
+        phi1 = read_h5_field(h5_path, "phi_0", time_key=time_key)
+        phi2 = read_h5_field(h5_path, "phi_1", time_key=time_key)
+        frac_false, rho_max = _false_vac_stats(phi1, phi2, escape_phi, stride=stride)
+
+        def _set(key: str, note: str) -> None:
+            markers[key] = {
+                "t": t,
+                "step": step,
+                "T_GeV": T,
+                "false_vac_frac": frac_false,
+                "rho_max_GeV": rho_max,
+                "note": note,
+            }
+
+        if markers["tipt_start"] is None and rho_max > escape_phi:
+            _set("tipt_start", f"max(rho) > phi_esc={escape_phi:g} GeV")
+        if (
+            langoff_enabled
+            and markers["langoff"] is None
+            and frac_false <= langoff_f
+        ):
+            _set(
+                "langoff",
+                f"false-vac frac <= langevin_off_f_switch={langoff_f:g}",
+            )
+        if markers["tc1"] is None and frac_false <= tc1_frac:
+            _set("tc1", f"false-vac frac <= {tc1_frac:g}")
+
+        if (
+            markers["tipt_start"] is not None
+            and (not langoff_enabled or markers["langoff"] is not None)
+            and markers["tc1"] is not None
+        ):
+            break
+
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, "w") as f:
+        json.dump(markers, f, indent=2)
+    return markers
+
+
+def load_transition_markers(
+    run_dir: Optional[str],
+    *,
+    stride: int = 4,
+    force: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Load cached markers or compute from manifest + HDF5."""
+    if not run_dir:
+        return None
+    import os
+
+    cache_path = os.path.join(os.path.abspath(run_dir), "strings", "transition_markers.json")
+    if not force and os.path.isfile(cache_path):
+        import json
+
+        with open(cache_path) as f:
+            return json.load(f)
+    try:
+        return compute_transition_markers(run_dir, stride=stride, force=force)
+    except Exception:
+        return None
+
+
+def _marker_entries(
+    markers: Optional[Dict[str, Any]],
+) -> List[Tuple[float, str, str, str]]:
+    """Return sorted (t, color, linestyle, label) marker entries."""
+    if not markers:
+        return []
+    specs = (
+        ("tipt_start", "tab:green", "-", "TIPT start"),
+        ("langoff", "tab:orange", "--", "Langevin off"),
+        ("tc1", "black", ":", r"$T_{c_1}$"),
+    )
+    out: List[Tuple[float, str, str, str]] = []
+    for key, color, ls, label in specs:
+        entry = markers.get(key)
+        if not entry or entry.get("t") is None:
+            continue
+        out.append((float(entry["t"]), color, ls, label))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def _draw_transition_vlines(axes, markers: Optional[Dict[str, Any]]) -> None:
+    """Draw vertical marker lines on all axes."""
+    for t, color, ls, _label in _marker_entries(markers):
+        for ax in np.ravel(axes):
+            ax.axvline(t, color=color, ls=ls, lw=1.3, alpha=0.9, zorder=1)
+
+
+def _draw_transition_labels(axes, markers: Optional[Dict[str, Any]]) -> None:
+    """Draw marker text on every panel (call AFTER plotting / scale changes)."""
+    entries = _marker_entries(markers)
+    if not entries:
+        return
+    for ax in np.ravel(axes):
+        for i, (t, color, _ls, label) in enumerate(entries):
+            y_frac = 0.97 - 0.12 * i
+            ax.annotate(
+                label,
+                xy=(t, y_frac),
+                xycoords=("data", "axes fraction"),
+                color=color,
+                fontsize=6.5,
+                fontweight="bold",
+                ha="center",
+                va="top",
+                rotation=90,
+                clip_on=False,
+                zorder=10,
+                annotation_clip=False,
+                bbox=dict(
+                    boxstyle="round,pad=0.15",
+                    facecolor="white",
+                    edgecolor=color,
+                    linewidth=0.6,
+                    alpha=0.9,
+                ),
+            )
+
 
 def plot_network_timeseries(
     csv_path: str,
     out_path: str,
     *,
     title: Optional[str] = None,
+    run_dir: Optional[str] = None,
+    markers: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Plot network observables vs time from ``string_summary.csv``."""
     import csv
@@ -386,6 +596,9 @@ def plot_network_timeseries(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    if markers is None and run_dir:
+        markers = load_transition_markers(run_dir)
 
     rows: List[Dict[str, str]] = []
     with open(csv_path, newline="") as f:
@@ -411,9 +624,13 @@ def plot_network_timeseries(
     def y(name: str) -> np.ndarray:
         return col(name)[order]
 
-    fig, axes = plt.subplots(2, 3, figsize=(12.5, 7.2), constrained_layout=True)
+    fig, axes = plt.subplots(2, 3, figsize=(12.5, 7.5), constrained_layout=True)
     if title:
-        fig.suptitle(title, fontsize=12)
+        # Shorten ultra-long CosmoLattice run names so they don't collide with labels.
+        short = title if len(title) <= 80 else title[:37] + "…" + title[-40:]
+        fig.suptitle(short, fontsize=10)
+
+    _draw_transition_vlines(axes, markers)
 
     ax = axes[0, 0]
     ax.plot(t, y("L_comoving"), "C0-", lw=1.5, label=r"$L$ (winding)")
@@ -476,6 +693,9 @@ def plot_network_timeseries(
         ax.set_xlabel(r"$t$ (program)")
     for ax in axes[0, :]:
         ax.set_xlabel(r"$t$ (program)")
+
+    # Labels after scales/limits/legends so they are not dropped by log-scale changes.
+    _draw_transition_labels(axes, markers)
 
     import os
     os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
