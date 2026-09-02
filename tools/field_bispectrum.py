@@ -35,16 +35,20 @@ triangle sum Σ_{k₁+k₂+k₃=0} ⟨δ̃(k₁)δ̃(k₂)δ̃(k₃)⟩.
 **Squeezed proxy** (optional): ⟨ δ_soft(x)² · δ_hard(x) ⟩ vs k_hard — a cheap
 wall-modulation diagnostic, not the full squeezed B(k_s, k_h, k_h).
 
-Field choices (--field)
------------------------
+Field choices (--field / --fields)
+---------------------------------
     rho_norm   |Φ|_prog/φ₀_prog − ⟨|Φ|/φ₀⟩   **default** — PT contrast, O(1)
     phi0_prog  φ₀_prog − ⟨φ₀⟩                 cross-check vs spectra_scalar_0
     phi1_prog  φ₁_prog − ⟨φ₁⟩                 cross-check vs spectra_scalar_1
     theta_bulk θ − ⟨θ⟩_bulk on |Φ|/φ₀ > frac  Goldstone / wall ripples
 
+Use ``--fields rho_norm theta_bulk`` to analyze both in one run (HDF5 loaded once
+per snapshot; outputs under ``out_dir/<field>/``).
+
 Usage
 -----
     python tools/field_bispectrum.py <run_dir> --times 450 520 581
+    python tools/field_bispectrum.py <run_dir> --fields rho_norm theta_bulk --times 450 520 581
     python tools/field_bispectrum.py <run_dir> --all-times --stride 10 --t-min 300
 """
 from __future__ import annotations
@@ -60,6 +64,8 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+FIELD_CHOICES = ("rho_norm", "phi0_prog", "phi1_prog", "theta_bulk")
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
@@ -314,20 +320,17 @@ def build_delta_field(
     raise ValueError(f"unknown field={field!r}")
 
 
-def load_delta_from_h5(
+def _load_phi_snapshot(
     h5_path: str,
     row: Dict[str, Any],
     time_key: Optional[str],
     params: Dict[str, Any],
-    *,
-    field: str = "rho_norm",
-    downsample: int = 1,
-    bulk_frac: float = 0.5,
-) -> Tuple[np.ndarray, Dict[str, Any]]:
+) -> Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]]:
+    """Load φ₀/φ₁ once; return arrays + shared snapshot meta (no δ yet)."""
     f_star = float(row["fStar"])
     n_scalars = int(float(row["n_scalars"]))
     phi0 = np.asarray(read_h5_field(h5_path, "phi_0", time_key), dtype=np.float32)
-    N = phi0.shape[0]
+    N = int(phi0.shape[0])
     phi1: Optional[np.ndarray] = None
     if n_scalars >= 2:
         phi1 = np.asarray(read_h5_field(h5_path, "phi_1", time_key, N=N), dtype=np.float32)
@@ -339,32 +342,69 @@ def load_delta_from_h5(
             phi0.astype(np.float64) ** 2 + phi1.astype(np.float64) ** 2
         ).astype(np.float32)
     vev_prog, vev_from_params, _ = _infer_vev_prog(params, f_star, rho_for_vev)
-    delta, extra = build_delta_field(phi0, phi1, field=field, vev_prog=vev_prog, bulk_frac=bulk_frac)
-    del phi0
-    if phi1 is not None:
-        del phi1
     if rho_for_vev is not None:
         del rho_for_vev
 
-    ds = max(int(downsample), 1)
-    if ds > 1:
-        delta = np.ascontiguousarray(delta[::ds, ::ds, ::ds])
-
-    meta = {
-        "N": int(delta.shape[0]),
-        "N_full": int(N),
-        "downsample": ds,
-        "field": field,
+    snap_meta = {
+        "N_full": N,
         "step": int(float(row["step"])),
         "time": float(row["t"]),
         "temperature": float(row["T"]),
         "a": float(row["a"]),
         "fStar": f_star,
+        "vev_prog": vev_prog,
         "vev_prog_params": vev_from_params,
-        "var_delta": float(np.mean(delta.astype(np.float64) ** 2)),
         **fstats,
+    }
+    return phi0, phi1, snap_meta
+
+
+def delta_from_phi(
+    phi0: np.ndarray,
+    phi1: Optional[np.ndarray],
+    snap_meta: Dict[str, Any],
+    *,
+    field: str = "rho_norm",
+    downsample: int = 1,
+    bulk_frac: float = 0.5,
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """Build mean-subtracted δ from already-loaded φ arrays."""
+    vev_prog = float(snap_meta["vev_prog"])
+    delta, extra = build_delta_field(
+        phi0, phi1, field=field, vev_prog=vev_prog, bulk_frac=bulk_frac
+    )
+    ds = max(int(downsample), 1)
+    if ds > 1:
+        delta = np.ascontiguousarray(delta[::ds, ::ds, ::ds])
+    meta = {
+        **snap_meta,
+        "N": int(delta.shape[0]),
+        "downsample": ds,
+        "field": field,
+        "var_delta": float(np.mean(delta.astype(np.float64) ** 2)),
         **extra,
     }
+    return delta, meta
+
+
+def load_delta_from_h5(
+    h5_path: str,
+    row: Dict[str, Any],
+    time_key: Optional[str],
+    params: Dict[str, Any],
+    *,
+    field: str = "rho_norm",
+    downsample: int = 1,
+    bulk_frac: float = 0.5,
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    phi0, phi1, snap_meta = _load_phi_snapshot(h5_path, row, time_key, params)
+    delta, meta = delta_from_phi(
+        phi0, phi1, snap_meta,
+        field=field, downsample=downsample, bulk_frac=bulk_frac,
+    )
+    del phi0
+    if phi1 is not None:
+        del phi1
     return delta, meta
 
 
@@ -856,6 +896,63 @@ def plot_summary(
     plt.close(fig)
 
 
+def _write_field_outputs(
+    out_dir: str,
+    results: List[Dict[str, Any]],
+    *,
+    run_dir: str,
+    fields: Sequence[str],
+    bulk_frac: float,
+    downsample: int,
+    n_bins: int,
+    all_times: bool,
+    stride: int,
+    t_min: Optional[float],
+    t_max: Optional[float],
+    skipped: int,
+) -> None:
+    os.makedirs(out_dir, exist_ok=True)
+    png = os.path.join(out_dir, "bispectrum_summary.png")
+    plot_summary(results, png)
+    LOG.info("wrote %s", png)
+    write_diagnostics_table(out_dir, results)
+    meta_path = os.path.join(out_dir, "bispectrum_meta.json")
+    field_tag = results[0]["meta"]["field"] if results else ",".join(fields)
+    with open(meta_path, "w") as f:
+        json.dump(
+            {
+                "run_dir": run_dir,
+                "field": field_tag,
+                "fields": list(fields),
+                "bulk_frac": bulk_frac,
+                "downsample": downsample,
+                "n_bins": n_bins,
+                "all_times": all_times,
+                "stride": stride,
+                "t_min": t_min,
+                "t_max": t_max,
+                "n_processed": len(results),
+                "n_skipped": skipped,
+                "snapshots": [r["meta"] for r in results],
+                "cross_checks": [r.get("cross_check", {}) for r in results],
+                "algorithm": {
+                    "P": "P_raw * n_modes/N^3 (matches spectra_scalar col 1)",
+                    "P_filt": "⟨δ_k(x)^2⟩ shell-filtered variance",
+                    "B_eq": "⟨δ_k(x)^3⟩ shell-filtered third moment",
+                    "Q_eq": "B_eq / (3 P_filt^2)  [Scoccimarro reduced equilateral bispectrum]",
+                    "skew": "B_eq / P_filt^{3/2}  [filtered-field skewness]",
+                    "reference": (
+                        "Scoccimarro 2000, Phys. ApJ 544, 597; "
+                        "Jeong & Komatsu shell-filter estimators"
+                    ),
+                },
+            },
+            f,
+            indent=2,
+            default=str,
+        )
+
+
 def run(
     run_dir: str,
     *,
@@ -865,6 +962,7 @@ def run(
     t_min: Optional[float] = None,
     t_max: Optional[float] = None,
     field: str = "rho_norm",
+    fields: Optional[Sequence[str]] = None,
     bulk_frac: float = 0.5,
     downsample: int = 1,
     n_bins: int = 32,
@@ -875,6 +973,21 @@ def run(
     out_dir = out_dir or os.path.join(run_dir, "strings", "bispectrum")
     os.makedirs(out_dir, exist_ok=True)
     params = load_run_params(run_dir) or {}
+
+    field_list = list(fields) if fields else [field]
+    for f in field_list:
+        if f not in FIELD_CHOICES:
+            raise ValueError(f"unknown field={f!r}; choose from {FIELD_CHOICES}")
+    # preserve order, drop duplicates
+    seen_f: set[str] = set()
+    uniq: List[str] = []
+    for f in field_list:
+        if f not in seen_f:
+            seen_f.add(f)
+            uniq.append(f)
+    field_list = uniq
+    multi = len(field_list) > 1
+    LOG.info("fields: %s", ", ".join(field_list))
 
     rows = _load_manifest_any(run_dir)
     rows.sort(key=lambda r: float(r["t"]))
@@ -909,7 +1022,7 @@ def run(
         else None
     )
 
-    results: List[Dict[str, Any]] = []
+    results_by_field: Dict[str, List[Dict[str, Any]]] = {f: [] for f in field_list}
     skipped = 0
     for i_row, row in enumerate(selected, start=1):
         step = int(float(row["step"]))
@@ -930,87 +1043,109 @@ def run(
 
             tkey = lookup_h5_key(t, time_index)
 
-        delta, meta = load_delta_from_h5(
-            h5_path, row, tkey, params,
-            field=field, downsample=downsample, bulk_frac=bulk_frac,
-        )
+        # Load φ once; analyze each requested field
+        phi0, phi1, snap_meta = _load_phi_snapshot(h5_path, row, tkey, params)
 
-        eq, sq = analyze_correlators(delta, n_bins=n_bins, do_squeezed=do_squeezed)
-        del delta
+        for fld in field_list:
+            LOG.info("  --- field=%s ---", fld)
+            delta, meta = delta_from_phi(
+                phi0, phi1, snap_meta,
+                field=fld, downsample=downsample, bulk_frac=bulk_frac,
+            )
+            if fld == "theta_bulk":
+                LOG.info(
+                    "  bulk_fraction=%.3f",
+                    float(meta.get("bulk_fraction", float("nan"))),
+                )
 
-        cl_pair: Optional[Tuple[np.ndarray, np.ndarray]] = None
-        cl_idx = meta.get("cl_scalar_index")
-        if cl_idx is not None:
-            cl_pair = load_cl_power_at_time(run_dir, t, scalar_index=int(cl_idx))
+            eq, sq = analyze_correlators(delta, n_bins=n_bins, do_squeezed=do_squeezed)
+            del delta
 
-        xcheck: Dict[str, float] = {}
-        if cl_pair is not None:
-            xcheck = cross_check_cl(eq["k"], eq["P"], cl_pair[0], cl_pair[1])
-            if xcheck.get("median_ratio", 1.0) > 5 or xcheck.get("median_ratio", 1.0) < 0.2:
-                LOG.warning("  P(k) disagrees with spectra_scalar_%d — check field/units", cl_idx)
+            cl_pair: Optional[Tuple[np.ndarray, np.ndarray]] = None
+            cl_idx = meta.get("cl_scalar_index")
+            if cl_idx is not None:
+                cl_pair = load_cl_power_at_time(run_dir, t, scalar_index=int(cl_idx))
 
-        log_snapshot_summary(meta, eq, xcheck)
+            xcheck: Dict[str, float] = {}
+            if cl_pair is not None:
+                xcheck = cross_check_cl(eq["k"], eq["P"], cl_pair[0], cl_pair[1])
+                if xcheck.get("median_ratio", 1.0) > 5 or xcheck.get("median_ratio", 1.0) < 0.2:
+                    LOG.warning(
+                        "  P(k) disagrees with spectra_scalar_%d — check field/units",
+                        cl_idx,
+                    )
 
-        csv_path = os.path.join(out_dir, f"bispectrum_t{t:07.1f}_step{step:010d}.csv")
-        sidecar_path = csv_path.replace(".csv", ".json")
-        write_csv(
-            csv_path, eq, sq,
-            cl_k=cl_pair[0] if cl_pair else None,
-            cl_P=cl_pair[1] if cl_pair else None,
-            meta=meta,
-            xcheck=xcheck,
-        )
-        write_snapshot_sidecar(sidecar_path, meta, xcheck, eq)
-        LOG.info("  wrote %s", csv_path)
-        LOG.info("  wrote %s", sidecar_path)
-        results.append({
-            "meta": meta,
-            "eq": eq,
-            "sq": sq,
-            "csv": csv_path,
-            "cl": cl_pair,
-            "cross_check": xcheck,
-        })
+            log_snapshot_summary(meta, eq, xcheck)
 
-    if not results:
+            field_out = os.path.join(out_dir, fld) if multi else out_dir
+            os.makedirs(field_out, exist_ok=True)
+            csv_path = os.path.join(field_out, f"bispectrum_t{t:07.1f}_step{step:010d}.csv")
+            sidecar_path = csv_path.replace(".csv", ".json")
+            write_csv(
+                csv_path, eq, sq,
+                cl_k=cl_pair[0] if cl_pair else None,
+                cl_P=cl_pair[1] if cl_pair else None,
+                meta=meta,
+                xcheck=xcheck,
+            )
+            write_snapshot_sidecar(sidecar_path, meta, xcheck, eq)
+            LOG.info("  wrote %s", csv_path)
+            results_by_field[fld].append({
+                "meta": meta,
+                "eq": eq,
+                "sq": sq,
+                "csv": csv_path,
+                "cl": cl_pair,
+                "cross_check": xcheck,
+            })
+
+        del phi0
+        if phi1 is not None:
+            del phi1
+
+    any_results = any(results_by_field[f] for f in field_list)
+    if not any_results:
         raise RuntimeError("no snapshots processed (HDF5 missing?)")
 
-    png = os.path.join(out_dir, "bispectrum_summary.png")
-    plot_summary(results, png)
-    LOG.info("wrote %s", png)
-
-    write_diagnostics_table(out_dir, results)
-
-    meta_path = os.path.join(out_dir, "bispectrum_meta.json")
-    with open(meta_path, "w") as f:
-        json.dump(
-            {
-                "run_dir": run_dir,
-                "field": field,
-                "bulk_frac": bulk_frac,
-                "downsample": downsample,
-                "n_bins": n_bins,
-                "all_times": all_times,
-                "stride": stride,
-                "t_min": t_min,
-                "t_max": t_max,
-                "n_processed": len(results),
-                "n_skipped": skipped,
-                "snapshots": [r["meta"] for r in results],
-                "cross_checks": [r.get("cross_check", {}) for r in results],
-                "algorithm": {
-                    "P": "P_raw * n_modes/N^3 (matches spectra_scalar col 1)",
-                    "P_filt": "⟨δ_k(x)^2⟩ shell-filtered variance",
-                    "B_eq": "⟨δ_k(x)^3⟩ shell-filtered third moment",
-                    "Q_eq": "B_eq / (3 P_filt^2)  [Scoccimarro reduced equilateral bispectrum]",
-                    "skew": "B_eq / P_filt^{3/2}  [filtered-field skewness]",
-                    "reference": "Scoccimarro 2000, Phys. ApJ 544, 597; Jeong & Komatsu shell-filter estimators",
-                },
-            },
-            f,
-            indent=2,
-            default=str,
+    for fld in field_list:
+        res = results_by_field[fld]
+        if not res:
+            LOG.warning("no results for field=%s", fld)
+            continue
+        field_out = os.path.join(out_dir, fld) if multi else out_dir
+        _write_field_outputs(
+            field_out,
+            res,
+            run_dir=run_dir,
+            fields=[fld],
+            bulk_frac=bulk_frac,
+            downsample=downsample,
+            n_bins=n_bins,
+            all_times=all_times,
+            stride=stride,
+            t_min=t_min,
+            t_max=t_max,
+            skipped=skipped,
         )
+
+    if multi:
+        top_meta = os.path.join(out_dir, "bispectrum_meta.json")
+        with open(top_meta, "w") as f:
+            json.dump(
+                {
+                    "run_dir": run_dir,
+                    "fields": field_list,
+                    "bulk_frac": bulk_frac,
+                    "downsample": downsample,
+                    "n_bins": n_bins,
+                    "subdirs": {fld: os.path.join(out_dir, fld) for fld in field_list},
+                    "n_skipped": skipped,
+                },
+                f,
+                indent=2,
+            )
+        LOG.info("multi-field outputs under %s/{%s}", out_dir, ",".join(field_list))
+
     return out_dir
 
 
@@ -1051,8 +1186,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--t-max", type=float, default=None)
     ap.add_argument(
         "--field",
-        choices=("rho_norm", "phi0_prog", "phi1_prog", "theta_bulk"),
+        choices=FIELD_CHOICES,
         default="rho_norm",
+        help="single field (ignored if --fields is set)",
+    )
+    ap.add_argument(
+        "--fields",
+        nargs="+",
+        choices=FIELD_CHOICES,
+        default=None,
+        help="one or more fields in one run, e.g. --fields rho_norm theta_bulk "
+             "(HDF5 loaded once per snapshot; writes out_dir/<field>/)",
     )
     ap.add_argument("--bulk-frac", type=float, default=0.5,
                     help="theta_bulk: min |Φ|/φ₀ for bulk mask")
@@ -1084,6 +1228,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         t_min=args.t_min,
         t_max=args.t_max,
         field=args.field,
+        fields=args.fields,
         bulk_frac=args.bulk_frac,
         downsample=args.downsample,
         n_bins=args.n_bins,
