@@ -17,12 +17,20 @@ With δ in **program units** (φ_prog, not φ_GeV).  ``P_raw`` is useful interna
 **Equilateral bispectrum** — Scoccimarro / Jeong *shell-filter* estimator:
 
     δ_k(x) = IFFT[ δ̃(k) · 𝟙_{|k|∈shell} ]
-    B_eq(k) = ⟨ δ_k(x)³ ⟩ · N³
-    Q_eq(k) = B_eq / P(k)³
+    P_filt(k) = ⟨ δ_k(x)² ⟩          (= P above for a sharp-k shell)
+    B_eq(k)   = ⟨ δ_k(x)³ ⟩            (filtered third moment)
+
+Reduced equilateral bispectrum (Scoccimarro 2000; hierarchical / tree-level):
+
+    Q(k1,k2,k3) = B / [P(k1)P(k2) + P(k1)P(k3) + P(k2)P(k3)]
+    Q_eq(k)     = B_eq / (3 P_filt²)     # equilateral limit
+
+Also report skewness of the filtered field:
+
+    skew(k) = ⟨δ_k³⟩ / ⟨δ_k²⟩^{3/2} = B_eq / P_filt^{3/2}
 
 This is a standard fast proxy for equilateral B(k,k,k), **not** the full
-triangle sum Σ_{k₁+k₂+k₃=0} ⟨δ̃(k₁)δ̃(k₂)δ̃(k₃)⟩. It captures non-Gaussian
-cubic statistics on scale k and is appropriate for bubble/wall diagnostics.
+triangle sum Σ_{k₁+k₂+k₃=0} ⟨δ̃(k₁)δ̃(k₂)δ̃(k₃)⟩.
 
 **Squeezed proxy** (optional): ⟨ δ_soft(x)² · δ_hard(x) ⟩ vs k_hard — a cheap
 wall-modulation diagnostic, not the full squeezed B(k_s, k_h, k_h).
@@ -413,6 +421,7 @@ def analyze_correlators(
     power.flat[0] = 0.0
 
     P_raw = np.zeros(n_bins, dtype=np.float64)
+    P_filt = np.zeros(n_bins, dtype=np.float64)
     B = np.zeros(n_bins, dtype=np.float64)
     n_modes = np.zeros(n_bins, dtype=np.int64)
 
@@ -421,7 +430,8 @@ def analyze_correlators(
         n_m = int(mask.sum())
         n_modes[i] = n_m
         P_raw[i] = _shell_mean_power(power, mask)
-        if not np.isfinite(P_raw[i]):
+        if not np.isfinite(P_raw[i]) or n_m < 8:
+            P_filt[i] = float("nan")
             B[i] = float("nan")
             continue
 
@@ -429,22 +439,26 @@ def analyze_correlators(
         shell[mask] = delta_k[mask]
         real = np.fft.ifftn(shell, axes=(0, 1, 2)).real.astype(np.float64)
         del shell
-        B[i] = float(np.mean(real ** 3)) * n3
+        # Filtered moments (Scoccimarro/Jeong shell-filter convention)
+        P_filt[i] = float(np.mean(real ** 2))
+        B[i] = float(np.mean(real ** 3))
         del real
         if (i + 1) % max(n_bins // 8, 1) == 0 or i == n_bins - 1:
-            p_cl = P_raw[i] * n_m / n3 if n_m > 0 else float("nan")
+            with np.errstate(divide="ignore", invalid="ignore"):
+                q_i = B[i] / (3.0 * P_filt[i] ** 2)
             LOG.info(
-                "  bin %2d/%d  k=%.4f  P=%.3e  P_raw=%.3e  n=%d  B=%.3e",
-                i + 1, n_bins, centers[i], p_cl, P_raw[i], n_m, B[i],
+                "  bin %2d/%d  k=%.4f  P=%.3e  B=%.3e  Q_eq=%.3e  n=%d",
+                i + 1, n_bins, centers[i], P_filt[i], B[i], q_i, n_m,
             )
 
-    # CL-style shell average: P(k) = P_raw * n_modes / N³
+    # CL-style shell average from FFT modes (cross-check vs P_filt)
     P = P_raw * n_modes.astype(np.float64) / n3
     parseval_mean = float(np.mean(power[np.isfinite(power)]))
 
+    # Scoccimarro reduced equilateral bispectrum: Q = B / (3 P²)
     with np.errstate(divide="ignore", invalid="ignore"):
-        # Q uses P_raw so it stays consistent with the shell-filter B estimator.
-        Q = B / (P_raw ** 3)
+        Q = B / (3.0 * P_filt ** 2)
+        skew = B / (P_filt ** 1.5)
 
     eq = {
         "k": centers,
@@ -452,8 +466,10 @@ def analyze_correlators(
         "k_hi": edges[1:],
         "P": P,
         "P_raw": P_raw,
+        "P_filt": P_filt,
         "B_eq": B,
         "Q_eq": Q,
+        "skew": skew,
         "n_modes": n_modes.astype(float),
         "parseval_mean_power": np.asarray([parseval_mean]),
     }
@@ -505,7 +521,7 @@ def analyze_correlators(
 # CSV / plots / driver
 # ---------------------------------------------------------------------------
 CSV_FIELDS = (
-    "k", "k_lo", "k_hi", "P", "P_raw", "B_eq", "Q_eq", "n_modes",
+    "k", "k_lo", "k_hi", "P", "P_filt", "P_raw", "B_eq", "Q_eq", "skew", "n_modes",
     "P_cl", "P_over_Pcl",
     "k_hard", "B_squeezed_proxy", "P_hard",
 )
@@ -552,10 +568,12 @@ def log_snapshot_summary(
         meta.get("fStar", float("nan")),
     )
     LOG.info(
-        "  lowest bin: k=%.4g  P=%.4e (CL-style)  P_raw=%.4e",
+        "  lowest bin: k=%.4g  P=%.4e  P_filt=%.4e  B=%.4e  Q_eq=%.4e",
         k_lo,
         p_lo,
-        pr_lo,
+        float(eq["P_filt"][ok][0]) if ok.any() else float("nan"),
+        float(eq["B_eq"][ok][0]) if ok.any() else float("nan"),
+        float(eq["Q_eq"][ok][0]) if ok.any() else float("nan"),
     )
     if xcheck:
         LOG.info(
@@ -720,7 +738,7 @@ def write_csv(
         for i in range(n_out):
             row = {k: "" for k in CSV_FIELDS}
             if i < n:
-                for key in ("k", "k_lo", "k_hi", "P", "P_raw", "B_eq", "Q_eq", "n_modes"):
+                for key in ("k", "k_lo", "k_hi", "P", "P_filt", "P_raw", "B_eq", "Q_eq", "skew", "n_modes"):
                     v = eq[key][i]
                     row[key] = f"{v:.10e}" if np.isfinite(v) else "nan"
                 if np.isfinite(P_cl_col[i]):
@@ -981,10 +999,12 @@ def run(
                 "snapshots": [r["meta"] for r in results],
                 "cross_checks": [r.get("cross_check", {}) for r in results],
                 "algorithm": {
-                    "P": "P_raw * n_modes/N^3 in k-shell (matches spectra_scalar col 1)",
-                    "P_raw": "mean(|delta_tilde|^2/N^3) per FFT mode in shell",
-                    "B_eq": "⟨δ_k(x)³⟩·N³ shell-filter equilateral proxy",
-                    "Q_eq": "B_eq / P³  (P uses CL-style normalization)",
+                    "P": "P_raw * n_modes/N^3 (matches spectra_scalar col 1)",
+                    "P_filt": "⟨δ_k(x)^2⟩ shell-filtered variance",
+                    "B_eq": "⟨δ_k(x)^3⟩ shell-filtered third moment",
+                    "Q_eq": "B_eq / (3 P_filt^2)  [Scoccimarro reduced equilateral bispectrum]",
+                    "skew": "B_eq / P_filt^{3/2}  [filtered-field skewness]",
+                    "reference": "Scoccimarro 2000, Phys. ApJ 544, 597; Jeong & Komatsu shell-filter estimators",
                 },
             },
             f,
@@ -1003,17 +1023,19 @@ def _synthetic_selftest() -> None:
     ng -= ng.mean()
     eq_g, _ = analyze_correlators(g, n_bins=12, do_squeezed=False)
     eq_n, _ = analyze_correlators(ng, n_bins=12, do_squeezed=False)
-    q_g = float(np.nanmean(np.abs(eq_g["Q_eq"])))
-    q_n = float(np.nanmean(np.abs(eq_n["Q_eq"])))
-    p_g = float(np.nanmax(eq_g["P"]))
-    p_n = float(np.nanmax(eq_n["P"]))
+    # IR bins with few modes are noise-dominated; compare well-sampled mid-k.
+    well = eq_g["n_modes"] >= 3000
+    q_g = float(np.nanmean(np.abs(eq_g["Q_eq"][well])))
+    q_n = float(np.nanmean(np.abs(eq_n["Q_eq"][well])))
+    s_g = float(np.nanmean(np.abs(eq_g["skew"][well])))
+    s_n = float(np.nanmean(np.abs(eq_n["skew"][well])))
     parseval_g = float(eq_g["parseval_mean_power"][0])
-    print(f"selftest: P_max gauss={p_g:.3e} NG={p_n:.3e} parseval={parseval_g:.3e}")
-    print(f"selftest: <|Q|> gauss={q_g:.3e} NG={q_n:.3e}")
+    print(f"selftest: parseval={parseval_g:.3e}  mid-k <|Q|> gauss={q_g:.3e} NG={q_n:.3e}")
+    print(f"selftest: mid-k <|skew|> gauss={s_g:.3e} NG={s_n:.3e}")
     if not np.isfinite(parseval_g) or not (0.5 < parseval_g < 2.0):
         raise RuntimeError("parseval mean should be O(1) for unit Gaussian")
-    if not (q_n > 2 * q_g):
-        raise RuntimeError("bispectrum selftest: NG should exceed Gaussian")
+    if not (q_n > 2 * q_g and s_n > 2 * s_g):
+        raise RuntimeError("bispectrum selftest: NG should exceed Gaussian at mid-k")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
