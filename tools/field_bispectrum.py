@@ -8,10 +8,11 @@ Algorithm (review)
 **Power spectrum** (same FFT pass as bispectrum):
 
     δ̃(k) = FFT[δ(x)]     (numpy unnormalised)
-    P(k)  = ⟨ |δ̃|² / N³ ⟩_{|k|∈shell}
+    P_raw(k) = ⟨ |δ̃|² / N³ ⟩_{|k|∈shell}     (per FFT mode — IR shells can be O(N³))
+    P(k)     = P_raw(k) · n_modes(k) / N³    (matches ``spectra_scalar_*.txt`` col 1)
 
-With δ in **program units** (φ_prog, not φ_GeV), P(k) matches CosmoLattice
-``spectra_scalar_*.txt`` (column 1, Δ²φ). Using GeV fields overflows P → inf.
+With δ in **program units** (φ_prog, not φ_GeV).  ``P_raw`` is useful internally;
+``P`` is what CosmoLattice writes and what we plot / cross-check.
 
 **Equilateral bispectrum** — Scoccimarro / Jeong *shell-filter* estimator:
 
@@ -130,13 +131,13 @@ def _load_cl_spectra_blocks(path: str) -> List[np.ndarray]:
     return blocks
 
 
-def load_cl_power_at_time(
+def load_cl_spectra_at_time(
     run_dir: str,
     time: float,
     *,
     scalar_index: int = 0,
-) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    """Return (k, P_cl) from spectra_scalar_{index}.txt at nearest time."""
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Return (k, P_cl, n_modes_cl) from spectra_scalar_{index}.txt at nearest time."""
     path = os.path.join(run_dir, f"spectra_scalar_{scalar_index}.txt")
     if not os.path.isfile(path):
         return None
@@ -151,7 +152,19 @@ def load_cl_power_at_time(
         times = times[:n]
     i = int(np.argmin(np.abs(times - float(time))))
     b = blocks[i]
-    return b[:, 0].copy(), b[:, 1].copy()
+    return b[:, 0].copy(), b[:, 1].copy(), b[:, 3].copy()
+
+
+def load_cl_power_at_time(
+    run_dir: str,
+    time: float,
+    *,
+    scalar_index: int = 0,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    cl = load_cl_spectra_at_time(run_dir, time, scalar_index=scalar_index)
+    if cl is None:
+        return None
+    return cl[0], cl[1]
 
 
 def cross_check_cl(
@@ -160,7 +173,7 @@ def cross_check_cl(
     cl_k: np.ndarray,
     cl_P: np.ndarray,
 ) -> Dict[str, float]:
-    """Interpolate our P onto CL k-grid and report agreement."""
+    """Interpolate our CL-style P onto CL k-grid and report agreement."""
     ok = np.isfinite(P) & (P > 0) & np.isfinite(k) & (k > 0)
     if not ok.any():
         return {"n_finite": 0.0, "median_ratio": float("nan"), "max_ratio": float("nan")}
@@ -172,17 +185,70 @@ def cross_check_cl(
     fin = np.isfinite(ratio) & (ratio > 0)
     if not fin.any():
         return {"n_finite": float(ok.sum()), "median_ratio": float("nan"), "max_ratio": float("nan")}
-    return {
+    out = {
         "n_finite": float(fin.sum()),
         "median_ratio": float(np.median(ratio[fin])),
         "max_ratio": float(np.max(ratio[fin])),
         "min_ratio": float(np.min(ratio[fin])),
     }
+    # Explicit low-k check (first CL bin)
+    i0 = int(np.argmin(cl_k[ok_cl]))
+    k0 = float(cl_k[ok_cl][i0])
+    p0 = float(P_interp[i0]) if np.isfinite(P_interp[i0]) else float("nan")
+    out["k_low_cl"] = k0
+    out["P_low_mine"] = p0
+    out["P_low_cl"] = float(cl_P[ok_cl][i0])
+    out["P_low_ratio"] = p0 / cl_P[ok_cl][i0] if cl_P[ok_cl][i0] > 0 else float("nan")
+    return out
 
 
-def _vev_prog(params: Dict[str, Any], f_star: float) -> float:
+def _vev_prog_from_params(params: Dict[str, Any], f_star: float) -> float:
     vev = float(params.get("vev", params.get("phi0", f_star)))
     return vev / max(float(f_star), 1e-30)
+
+
+def _infer_vev_prog(
+    params: Dict[str, Any],
+    f_star: float,
+    rho_prog: Optional[np.ndarray],
+) -> Tuple[float, float, Optional[float]]:
+    """Return (vev_used, vev_from_params, rho_p95)."""
+    vev_params = _vev_prog_from_params(params, f_star)
+    if rho_prog is None:
+        return vev_params, vev_params, None
+    p95 = float(np.percentile(rho_prog.astype(np.float64), 95))
+    # During PT the p95 of |Φ| tracks the broken-phase scale better than params.
+    if p95 > 1.5 * max(vev_params, 1e-12):
+        LOG.warning(
+            "vev_prog from params=%.4e but |Φ| p95=%.4e — using snapshot scale",
+            vev_params,
+            p95,
+        )
+        return p95, vev_params, p95
+    return vev_params, vev_params, p95
+
+
+def _field_stats(phi0: np.ndarray, phi1: Optional[np.ndarray]) -> Dict[str, float]:
+    p0 = phi0.astype(np.float64)
+    out = {
+        "phi0_mean": float(p0.mean()),
+        "phi0_std": float(p0.std()),
+        "phi0_min": float(p0.min()),
+        "phi0_max": float(p0.max()),
+    }
+    if phi1 is not None:
+        p1 = phi1.astype(np.float64)
+        rho = np.sqrt(p0 * p0 + p1 * p1)
+        out.update(
+            {
+                "phi1_mean": float(p1.mean()),
+                "phi1_std": float(p1.std()),
+                "rho_mean": float(rho.mean()),
+                "rho_p95": float(np.percentile(rho, 95)),
+                "rho_max": float(rho.max()),
+            }
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -258,11 +324,19 @@ def load_delta_from_h5(
     if n_scalars >= 2:
         phi1 = np.asarray(read_h5_field(h5_path, "phi_1", time_key, N=N), dtype=np.float32)
 
-    vev_prog = _vev_prog(params, f_star)
+    fstats = _field_stats(phi0, phi1)
+    rho_for_vev: Optional[np.ndarray] = None
+    if phi1 is not None:
+        rho_for_vev = np.sqrt(
+            phi0.astype(np.float64) ** 2 + phi1.astype(np.float64) ** 2
+        ).astype(np.float32)
+    vev_prog, vev_from_params, _ = _infer_vev_prog(params, f_star, rho_for_vev)
     delta, extra = build_delta_field(phi0, phi1, field=field, vev_prog=vev_prog, bulk_frac=bulk_frac)
     del phi0
     if phi1 is not None:
         del phi1
+    if rho_for_vev is not None:
+        del rho_for_vev
 
     ds = max(int(downsample), 1)
     if ds > 1:
@@ -278,7 +352,9 @@ def load_delta_from_h5(
         "temperature": float(row["T"]),
         "a": float(row["a"]),
         "fStar": f_star,
+        "vev_prog_params": vev_from_params,
         "var_delta": float(np.mean(delta.astype(np.float64) ** 2)),
+        **fstats,
         **extra,
     }
     return delta, meta
@@ -336,7 +412,7 @@ def analyze_correlators(
     power = (delta_k.real.astype(np.float64) ** 2 + delta_k.imag.astype(np.float64) ** 2) / n3
     power.flat[0] = 0.0
 
-    P = np.zeros(n_bins, dtype=np.float64)
+    P_raw = np.zeros(n_bins, dtype=np.float64)
     B = np.zeros(n_bins, dtype=np.float64)
     n_modes = np.zeros(n_bins, dtype=np.int64)
 
@@ -344,8 +420,8 @@ def analyze_correlators(
         mask = (kmag >= edges[i]) & (kmag < edges[i + 1])
         n_m = int(mask.sum())
         n_modes[i] = n_m
-        P[i] = _shell_mean_power(power, mask)
-        if not np.isfinite(P[i]):
+        P_raw[i] = _shell_mean_power(power, mask)
+        if not np.isfinite(P_raw[i]):
             B[i] = float("nan")
             continue
 
@@ -356,22 +432,30 @@ def analyze_correlators(
         B[i] = float(np.mean(real ** 3)) * n3
         del real
         if (i + 1) % max(n_bins // 8, 1) == 0 or i == n_bins - 1:
+            p_cl = P_raw[i] * n_m / n3 if n_m > 0 else float("nan")
             LOG.info(
-                "  bin %2d/%d  k=%.4f  P=%.3e  B=%.3e",
-                i + 1, n_bins, centers[i], P[i], B[i],
+                "  bin %2d/%d  k=%.4f  P=%.3e  P_raw=%.3e  n=%d  B=%.3e",
+                i + 1, n_bins, centers[i], p_cl, P_raw[i], n_m, B[i],
             )
 
+    # CL-style shell average: P(k) = P_raw * n_modes / N³
+    P = P_raw * n_modes.astype(np.float64) / n3
+    parseval_mean = float(np.mean(power[np.isfinite(power)]))
+
     with np.errstate(divide="ignore", invalid="ignore"):
-        Q = B / (P ** 3)
+        # Q uses P_raw so it stays consistent with the shell-filter B estimator.
+        Q = B / (P_raw ** 3)
 
     eq = {
         "k": centers,
         "k_lo": edges[:-1],
         "k_hi": edges[1:],
         "P": P,
+        "P_raw": P_raw,
         "B_eq": B,
         "Q_eq": Q,
         "n_modes": n_modes.astype(float),
+        "parseval_mean_power": np.asarray([parseval_mean]),
     }
 
     sq: Optional[Dict[str, np.ndarray]] = None
@@ -393,7 +477,8 @@ def analyze_correlators(
         for j in range(n_hard_bins):
             mask = (kmag >= h_edges[j]) & (kmag < h_edges[j + 1])
             nm_h[j] = int(mask.sum())
-            P_hard[j] = _shell_mean_power(power, mask)
+            p_raw = _shell_mean_power(power, mask)
+            P_hard[j] = p_raw * nm_h[j] / n3 if nm_h[j] > 0 else float("nan")
             if nm_h[j] < 8:
                 Bsq[j] = float("nan")
                 continue
@@ -420,10 +505,181 @@ def analyze_correlators(
 # CSV / plots / driver
 # ---------------------------------------------------------------------------
 CSV_FIELDS = (
-    "k", "k_lo", "k_hi", "P", "B_eq", "Q_eq", "n_modes",
+    "k", "k_lo", "k_hi", "P", "P_raw", "B_eq", "Q_eq", "n_modes",
     "P_cl", "P_over_Pcl",
     "k_hard", "B_squeezed_proxy", "P_hard",
 )
+
+DIAG_FIELDS = (
+    "time", "step", "field", "N", "var_delta", "vev_prog", "vev_prog_params",
+    "fStar", "phi0_mean", "phi0_std", "rho_p95",
+    "median_P_over_Pcl", "min_P_over_Pcl", "max_P_over_Pcl",
+    "P_at_lowest_k", "P_cl_at_lowest_k", "status",
+)
+
+
+def log_snapshot_summary(
+    meta: Dict[str, Any],
+    eq: Dict[str, np.ndarray],
+    xcheck: Dict[str, float],
+) -> None:
+    """Repeat key diagnostics at end of each snapshot (easy to find in long logs)."""
+    parseval = float(eq["parseval_mean_power"][0]) if "parseval_mean_power" in eq else float("nan")
+    var_d = float(meta.get("var_delta", float("nan")))
+    ok = np.isfinite(eq["P"]) & (eq["P"] > 0)
+    k_lo = float(eq["k"][ok][0]) if ok.any() else float("nan")
+    p_lo = float(eq["P"][ok][0]) if ok.any() else float("nan")
+    pr_lo = float(eq["P_raw"][ok][0]) if ok.any() else float("nan")
+
+    LOG.info("=" * 72)
+    LOG.info(
+        "SNAPSHOT SUMMARY  t=%.3f  step=%d  field=%s",
+        meta["time"],
+        meta["step"],
+        meta["field"],
+    )
+    LOG.info(
+        "  N=%d  var_delta=%.6e  parseval_mean=%.6e  (should match var_delta)",
+        meta["N"],
+        var_d,
+        parseval,
+    )
+    LOG.info(
+        "  phi0: mean=%.4e  std=%.4e  |  vev_prog=%.4e  fStar=%.4e",
+        meta.get("phi0_mean", float("nan")),
+        meta.get("phi0_std", float("nan")),
+        meta.get("vev_prog", float("nan")),
+        meta.get("fStar", float("nan")),
+    )
+    LOG.info(
+        "  lowest bin: k=%.4g  P=%.4e (CL-style)  P_raw=%.4e",
+        k_lo,
+        p_lo,
+        pr_lo,
+    )
+    if xcheck:
+        LOG.info(
+            "  CL cross-check: median P/P_cl=%.3f  low-k ratio=%.3f  "
+            "(k=%.4g  mine=%.4e  cl=%.4e)",
+            xcheck.get("median_ratio", float("nan")),
+            xcheck.get("P_low_ratio", float("nan")),
+            xcheck.get("k_low_cl", float("nan")),
+            xcheck.get("P_low_mine", float("nan")),
+            xcheck.get("P_low_cl", float("nan")),
+        )
+    LOG.info("=" * 72)
+
+
+def _diagnostic_status(meta: Dict[str, Any], xcheck: Dict[str, float]) -> str:
+    issues: List[str] = []
+    vd = float(meta.get("var_delta", 0.0))
+    if not np.isfinite(vd) or vd > 100.0:
+        issues.append("var_delta_high")
+    med = xcheck.get("median_ratio", float("nan"))
+    if meta.get("cl_scalar_index") is not None and np.isfinite(med):
+        if med > 5.0 or med < 0.2:
+            issues.append("P_cl_mismatch")
+    if not issues:
+        return "ok"
+    return "|".join(issues)
+
+
+def write_snapshot_sidecar(
+    path: str,
+    meta: Dict[str, Any],
+    xcheck: Dict[str, float],
+    eq: Dict[str, np.ndarray],
+) -> None:
+    """Human-readable diagnostics next to each bispectrum CSV."""
+    ok = np.isfinite(eq["P"]) & (eq["P"] > 0)
+    payload = {
+        **meta,
+        "cross_check": xcheck,
+        "status": _diagnostic_status(meta, xcheck),
+        "parseval_mean_power": float(eq["parseval_mean_power"][0]),
+        "P_at_lowest_k": float(eq["P"][ok][0]) if ok.any() else float("nan"),
+        "P_raw_at_lowest_k": float(eq["P_raw"][ok][0]) if ok.any() else float("nan"),
+        "k_at_lowest_k": float(eq["k"][ok][0]) if ok.any() else float("nan"),
+    }
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+
+
+def write_diagnostics_table(out_dir: str, results: List[Dict[str, Any]]) -> str:
+    """Summary CSV + text report with field, var(δ), CL cross-check."""
+    csv_path = os.path.join(out_dir, "diagnostics.csv")
+    rows: List[Dict[str, str]] = []
+    lines: List[str] = [
+        "Bispectrum diagnostics",
+        "=" * 60,
+    ]
+
+    for res in results:
+        meta = res["meta"]
+        xcheck = res.get("cross_check", {})
+        eq = res["eq"]
+        ok = np.isfinite(eq["P"]) & (eq["P"] > 0)
+        p_low = float(eq["P"][ok][0]) if ok.any() else float("nan")
+        k_low = float(eq["k"][ok][0]) if ok.any() else float("nan")
+        p_cl_low = float("nan")
+        if res.get("cl") is not None and ok.any():
+            ck, cP = res["cl"]
+            p_cl_low = float(np.interp(k_low, ck, cP, left=np.nan, right=np.nan))
+        status = _diagnostic_status(meta, xcheck)
+        row = {
+            "time": f"{meta['time']:.6f}",
+            "step": str(meta["step"]),
+            "field": meta["field"],
+            "N": str(meta["N"]),
+            "var_delta": f"{meta['var_delta']:.6e}",
+            "vev_prog": f"{meta.get('vev_prog', float('nan')):.6e}",
+            "vev_prog_params": f"{meta.get('vev_prog_params', float('nan')):.6e}",
+            "fStar": f"{meta['fStar']:.6e}",
+            "phi0_mean": f"{meta.get('phi0_mean', float('nan')):.6e}",
+            "phi0_std": f"{meta.get('phi0_std', float('nan')):.6e}",
+            "rho_p95": f"{meta.get('rho_p95', float('nan')):.6e}",
+            "median_P_over_Pcl": f"{xcheck.get('median_ratio', float('nan')):.6f}",
+            "min_P_over_Pcl": f"{xcheck.get('min_ratio', float('nan')):.6f}",
+            "max_P_over_Pcl": f"{xcheck.get('max_ratio', float('nan')):.6f}",
+            "P_at_lowest_k": f"{p_low:.6e}",
+            "P_cl_at_lowest_k": f"{p_cl_low:.6e}",
+            "status": status,
+        }
+        rows.append(row)
+        lines.extend(
+            [
+                "",
+                f"t={meta['time']:.3f}  step={meta['step']}  field={meta['field']}  status={status}",
+                f"  N={meta['N']}  var(δ)={meta['var_delta']:.4e}  vev_prog={meta.get('vev_prog', float('nan')):.4e}",
+                f"  φ₀ mean/std=[{meta.get('phi0_mean', float('nan')):.4e}, {meta.get('phi0_std', float('nan')):.4e}]"
+                + (
+                    f"  |Φ| p95={meta.get('rho_p95', float('nan')):.4e}"
+                    if "rho_p95" in meta
+                    else ""
+                ),
+                f"  P(k_min={k_low:.4g})={p_low:.4e}"
+                + (f"  P_cl={p_cl_low:.4e}" if np.isfinite(p_cl_low) else ""),
+                f"  CL ratio median/min/max="
+                f"{xcheck.get('median_ratio', float('nan')):.3f}/"
+                f"{xcheck.get('min_ratio', float('nan')):.3f}/"
+                f"{xcheck.get('max_ratio', float('nan')):.3f}",
+            ]
+        )
+        if status != "ok":
+            lines.append("  ** WARNING: check units/field before using B or Q **")
+
+    with open(csv_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(DIAG_FIELDS))
+        w.writeheader()
+        w.writerows(rows)
+
+    txt_path = os.path.join(out_dir, "diagnostics.txt")
+    with open(txt_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    LOG.info("wrote %s", csv_path)
+    LOG.info("wrote %s", txt_path)
+    return csv_path
 
 
 def write_csv(
@@ -432,6 +688,9 @@ def write_csv(
     sq: Optional[Dict[str, np.ndarray]],
     cl_k: Optional[np.ndarray] = None,
     cl_P: Optional[np.ndarray] = None,
+    *,
+    meta: Optional[Dict[str, Any]] = None,
+    xcheck: Optional[Dict[str, float]] = None,
 ) -> None:
     n = len(eq["k"])
     n2 = len(sq["k_hard"]) if sq is not None else 0
@@ -446,12 +705,22 @@ def write_csv(
             ratio_col[ok] = eq["P"][ok] / P_cl_col[ok]
 
     with open(path, "w", newline="") as f:
+        if meta is not None:
+            f.write(f"# field={meta.get('field', '')}\n")
+            f.write(f"# time={meta.get('time', '')} step={meta.get('step', '')}\n")
+            f.write(f"# var_delta={meta.get('var_delta', '')}\n")
+            f.write(f"# vev_prog={meta.get('vev_prog', '')} fStar={meta.get('fStar', '')}\n")
+            if xcheck:
+                f.write(
+                    "# median_P_over_Pcl="
+                    f"{xcheck.get('median_ratio', float('nan'))}\n"
+                )
         w = csv.DictWriter(f, fieldnames=list(CSV_FIELDS))
         w.writeheader()
         for i in range(n_out):
             row = {k: "" for k in CSV_FIELDS}
             if i < n:
-                for key in ("k", "k_lo", "k_hi", "P", "B_eq", "Q_eq", "n_modes"):
+                for key in ("k", "k_lo", "k_hi", "P", "P_raw", "B_eq", "Q_eq", "n_modes"):
                     v = eq[key][i]
                     row[key] = f"{v:.10e}" if np.isfinite(v) else "nan"
                 if np.isfinite(P_cl_col[i]):
@@ -647,10 +916,6 @@ def run(
             h5_path, row, tkey, params,
             field=field, downsample=downsample, bulk_frac=bulk_frac,
         )
-        LOG.info(
-            "  field=%s  N=%d  var(δ)=%.4e",
-            field, meta["N"], meta["var_delta"],
-        )
 
         eq, sq = analyze_correlators(delta, n_bins=n_bins, do_squeezed=do_squeezed)
         del delta
@@ -660,25 +925,26 @@ def run(
         if cl_idx is not None:
             cl_pair = load_cl_power_at_time(run_dir, t, scalar_index=int(cl_idx))
 
-        xcheck = {}
+        xcheck: Dict[str, float] = {}
         if cl_pair is not None:
             xcheck = cross_check_cl(eq["k"], eq["P"], cl_pair[0], cl_pair[1])
-            LOG.info(
-                "  CL cross-check (scalar_%d): median P/P_cl=%.3f  (n=%d)",
-                cl_idx,
-                xcheck.get("median_ratio", float("nan")),
-                xcheck.get("n_finite", 0),
-            )
             if xcheck.get("median_ratio", 1.0) > 5 or xcheck.get("median_ratio", 1.0) < 0.2:
                 LOG.warning("  P(k) disagrees with spectra_scalar_%d — check field/units", cl_idx)
 
+        log_snapshot_summary(meta, eq, xcheck)
+
         csv_path = os.path.join(out_dir, f"bispectrum_t{t:07.1f}_step{step:010d}.csv")
+        sidecar_path = csv_path.replace(".csv", ".json")
         write_csv(
             csv_path, eq, sq,
             cl_k=cl_pair[0] if cl_pair else None,
             cl_P=cl_pair[1] if cl_pair else None,
+            meta=meta,
+            xcheck=xcheck,
         )
+        write_snapshot_sidecar(sidecar_path, meta, xcheck, eq)
         LOG.info("  wrote %s", csv_path)
+        LOG.info("  wrote %s", sidecar_path)
         results.append({
             "meta": meta,
             "eq": eq,
@@ -694,6 +960,8 @@ def run(
     png = os.path.join(out_dir, "bispectrum_summary.png")
     plot_summary(results, png)
     LOG.info("wrote %s", png)
+
+    write_diagnostics_table(out_dir, results)
 
     meta_path = os.path.join(out_dir, "bispectrum_meta.json")
     with open(meta_path, "w") as f:
@@ -713,9 +981,10 @@ def run(
                 "snapshots": [r["meta"] for r in results],
                 "cross_checks": [r.get("cross_check", {}) for r in results],
                 "algorithm": {
-                    "P": "mean(|δ̃|²/N³) in k-shell; δ in program units",
+                    "P": "P_raw * n_modes/N^3 in k-shell (matches spectra_scalar col 1)",
+                    "P_raw": "mean(|delta_tilde|^2/N^3) per FFT mode in shell",
                     "B_eq": "⟨δ_k(x)³⟩·N³ shell-filter equilateral proxy",
-                    "Q_eq": "B_eq / P³",
+                    "Q_eq": "B_eq / P³  (P uses CL-style normalization)",
                 },
             },
             f,
@@ -738,10 +1007,11 @@ def _synthetic_selftest() -> None:
     q_n = float(np.nanmean(np.abs(eq_n["Q_eq"])))
     p_g = float(np.nanmax(eq_g["P"]))
     p_n = float(np.nanmax(eq_n["P"]))
-    print(f"selftest: P_max gauss={p_g:.3e} NG={p_n:.3e}")
-    print(f"selftest: ⟨|Q|⟩ gauss={q_g:.3e} NG={q_n:.3e}")
-    if not np.isfinite(p_g) or p_g > 1e6:
-        raise RuntimeError("P not O(1) for unit Gaussian — normalization broken")
+    parseval_g = float(eq_g["parseval_mean_power"][0])
+    print(f"selftest: P_max gauss={p_g:.3e} NG={p_n:.3e} parseval={parseval_g:.3e}")
+    print(f"selftest: <|Q|> gauss={q_g:.3e} NG={q_n:.3e}")
+    if not np.isfinite(parseval_g) or not (0.5 < parseval_g < 2.0):
+        raise RuntimeError("parseval mean should be O(1) for unit Gaussian")
     if not (q_n > 2 * q_g):
         raise RuntimeError("bispectrum selftest: NG should exceed Gaussian")
 
