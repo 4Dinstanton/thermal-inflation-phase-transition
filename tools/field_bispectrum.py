@@ -439,7 +439,7 @@ def _shell_mean_power(power: np.ndarray, mask: np.ndarray) -> float:
 def analyze_correlators(
     delta: np.ndarray,
     *,
-    n_bins: int = 32,
+    n_bins: int = 64,
     do_squeezed: bool = True,
     k_soft_max: float = 0.05,
     n_hard_bins: int = 16,
@@ -798,6 +798,7 @@ def plot_summary(
     out_png: str,
     *,
     max_overlay: int = 12,
+    min_modes_plot: int = 500,
 ) -> None:
     import matplotlib
 
@@ -807,11 +808,19 @@ def plot_summary(
     if not results:
         return
 
+    def _reliable_mask(eq: Dict[str, np.ndarray]) -> np.ndarray:
+        nm = eq.get("n_modes")
+        if nm is None:
+            return np.isfinite(eq["Q_eq"])
+        return np.isfinite(eq["Q_eq"]) & (nm >= min_modes_plot) & np.isfinite(eq["P"]) & (eq["P"] > 0)
+
     if len(results) > max_overlay:
         ks = results[0]["eq"]["k"]
         ts = np.array([r["meta"]["time"] for r in results], dtype=float)
         Q = np.vstack([r["eq"]["Q_eq"] for r in results])
         P = np.vstack([r["eq"]["P"] for r in results])
+        NM = np.vstack([r["eq"]["n_modes"] for r in results])
+        Q = np.where(NM >= min_modes_plot, Q, np.nan)
 
         fig, axes = plt.subplots(1, 3, figsize=(13.0, 4.2), constrained_layout=True)
         Pp = np.ma.masked_invalid(np.log10(np.clip(P, 1e-30, None)))
@@ -852,6 +861,7 @@ def plot_summary(
     cmap = plt.get_cmap("viridis")
     colors = [cmap(x) for x in np.linspace(0.15, 0.9, max(len(results), 1))]
 
+    q_abs_all: List[float] = []
     for res, c in zip(results, colors):
         eq = res["eq"]
         lab = f"t={res['meta']['time']:.0f}"
@@ -863,13 +873,20 @@ def plot_summary(
             axes[0].loglog(
                 ck[ok], cP[ok], "o", ms=2, color=c, alpha=0.35, linestyle="none"
             )
-        m2 = np.isfinite(eq["Q_eq"])
-        axes[1].semilogx(eq["k"][m2], eq["Q_eq"][m2], "-", color=c, lw=1.5, label=lab)
+        m2 = _reliable_mask(eq)
+        axes[1].semilogx(
+            eq["k"][m2], eq["Q_eq"][m2],
+            "o-", color=c, lw=1.3, ms=3.5, label=lab,
+        )
+        q_abs_all.extend(np.abs(eq["Q_eq"][m2]).tolist())
         if res.get("sq") is not None:
             sq = res["sq"]
             m3 = np.isfinite(sq["B_squeezed_proxy"])
+            if "n_modes_hard" in sq:
+                m3 = m3 & (sq["n_modes_hard"] >= min_modes_plot)
             axes[2].semilogx(
-                sq["k_hard"][m3], sq["B_squeezed_proxy"][m3], "-", color=c, lw=1.5, label=lab
+                sq["k_hard"][m3], sq["B_squeezed_proxy"][m3],
+                "o-", color=c, lw=1.3, ms=3.5, label=lab,
             )
 
     axes[0].set_xlabel(r"$k$ (program)")
@@ -881,9 +898,14 @@ def plot_summary(
     axes[1].axhline(0.0, color="k", lw=0.8, ls=":")
     axes[1].set_xlabel(r"$k$ (program)")
     axes[1].set_ylabel(r"$Q_{\rm eq}$")
-    axes[1].set_title("Reduced equilateral bispectrum")
+    axes[1].set_title(rf"Reduced equilateral $Q$ ($n_{{\rm modes}}\geq{min_modes_plot}$)")
     axes[1].grid(True, which="both", alpha=0.3)
     axes[1].legend(fontsize=7)
+    if q_abs_all:
+        # Cap y-range so a few noisy bins don't flatten the mid-k structure
+        ymax = float(np.nanpercentile(q_abs_all, 98))
+        ymax = max(ymax, 1.0)
+        axes[1].set_ylim(-ymax, ymax)
 
     axes[2].axhline(0.0, color="k", lw=0.8, ls=":")
     axes[2].set_xlabel(r"$k_{\rm hard}$")
@@ -965,7 +987,7 @@ def run(
     fields: Optional[Sequence[str]] = None,
     bulk_frac: float = 0.5,
     downsample: int = 1,
-    n_bins: int = 32,
+    n_bins: int = 64,
     do_squeezed: bool = True,
     out_dir: Optional[str] = None,
 ) -> str:
@@ -1201,7 +1223,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--bulk-frac", type=float, default=0.5,
                     help="theta_bulk: min |Φ|/φ₀ for bulk mask")
     ap.add_argument("--downsample", type=int, default=1)
-    ap.add_argument("--n-bins", type=int, default=32)
+    ap.add_argument(
+        "--n-bins",
+        type=int,
+        default=64,
+        help="number of log-spaced k shells (default 64; try 96–128 for smoother Q(k))",
+    )
     ap.add_argument("--no-squeezed", action="store_true")
     ap.add_argument("--out-dir", default=None)
     ap.add_argument("--selftest", action="store_true")
