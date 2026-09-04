@@ -13,19 +13,31 @@ Connected two-point (equal-time):
 
     C_F(r;t) = ⟨ δF(x) δF(x+r) ⟩_{|r|=r} ,   δF = F − ⟨F⟩
 
-First-conversion time:
+Conversion / first-crossing time (``--conversion``):
 
-    t_c(x) = first snapshot time with F(x,t)=0
-             (sites still false at the last scanned snapshot → filled, see
-              ``--fill-unconverted``)
+    escape   (default): false vac = ρ_prog ≤ φ_esc/fStar
+             (matches CL falseVacuumFraction / langevin-off threshold)
+    vev_frac: false vac = ρ_prog ≤ f·φ₀_prog  (φ₀_prog≃1 when fStar=tree VEV)
+             — better proxy for bubble / true-vacuum conversion
+
+    t_c(x) = linearly interpolated time when ρ crosses the threshold
+             between consecutive snapshots (``--tc-interp``, default on).
+             Without interp: first snapshot time with site converted.
+             Sites still false at end of scan → ``--fill-unconverted``.
 
 Then for δt = t_c − ⟨t_c⟩:
 
     C_2(r)      = ⟨ δt(x) δt(x+r) ⟩_{|r|=r}
-    P_δt(k)     = shell-averaged |δt̃|² / N³ · n_modes/N³   (CL-style)
+    P_raw(k)    = ⟨ |δt̃|² / N³ ⟩_shell          (per-mode; ≈ P_3d with dx=1)
+    P_δt(k)     = P_raw · n_modes / N³           (CL shell-bin; ∫≈Var)
+    𝒫_δt(k)     = k³/(2π²) P_raw                 (dimensionless; Jinno-style)
+    𝒫_ζ(k)      = H² 𝒫_δt = k³/(2π²) H² P_raw   (compare to CMB A_s ≃ 2×10⁻⁹)
     C_3^eq(r)   = ⟨ δt(x) δt(x+r₁) δt(x+r₂) ⟩_c
                   over random equilateral triangles of side r
                   (mean-zero → connected = raw third moment)
+
+Note: Jinno’s low-k ∝ ξ³ scaling is for the *dimensionless* 𝒫(k), not CL P_δt.
+ξ ≡ k/k_* with k_* the turnover / bubble-separation scale.
 
 Usage
 -----
@@ -33,12 +45,21 @@ Usage
     python tools/transition_time_correlators.py <run_dir> \\
         --cf-times 400 450 470 --build-tc --t-min 300 --t-max 520
 
+    # Preferred t_c for bubble/Jinno-style δt_c (VEV fraction + interp):
+    python tools/transition_time_correlators.py <run_dir> \\
+        --build-tc --tc-only --conversion vev_frac --vev-frac 0.1 \\
+        --t-min 300 --t-max 520
+
     # Reuse a saved t_c map
     python tools/transition_time_correlators.py <run_dir> \\
         --load-tc path/to/tc_map.npz --tc-only
 
     # Self-test (no HDF5)
     python tools/transition_time_correlators.py --selftest
+
+    # P_ζ(k) = H² P_δt from existing P_dtc.csv
+    python tools/transition_time_correlators.py <run_dir> \\
+        --apply-zeta-from-dtc <out_dir> [--t-ref-zeta 400]
 """
 from __future__ import annotations
 
@@ -156,9 +177,50 @@ def rho_prog_from_phi(
     return np.sqrt(p0 * p0 + p1 * p1, dtype=np.float32)
 
 
-def false_vac_mask(rho_prog: np.ndarray, esc_prog: float) -> np.ndarray:
-    """F=1 on false vacuum (|Φ|_prog <= esc_prog)."""
-    return (np.asarray(rho_prog) <= np.float32(esc_prog)).astype(np.float32)
+def false_vac_mask(rho_prog: np.ndarray, thr_prog: float) -> np.ndarray:
+    """F=1 on false vacuum (|Φ|_prog ≤ thr_prog)."""
+    return (np.asarray(rho_prog) <= np.float32(thr_prog)).astype(np.float32)
+
+
+def conversion_threshold_prog(
+    *,
+    mode: str,
+    esc_gev: float,
+    f_star: float,
+    vev_frac: float = 0.1,
+) -> float:
+    """Program-unit threshold: site converts when ρ_prog exceeds this value.
+
+    escape   — CL false-vacuum cut φ_esc/fStar (often ≪1; early roll-off from 0)
+    vev_frac — fraction of tree VEV in program units (φ₀_prog ≃ 1 if fStar=φ₀)
+    """
+    mode = str(mode).lower()
+    if mode == "escape":
+        return float(esc_gev) / max(float(f_star), 1e-30)
+    if mode == "vev_frac":
+        if not (0.0 < float(vev_frac) < 1.0):
+            raise ValueError(f"vev_frac must be in (0,1), got {vev_frac}")
+        return float(vev_frac)
+    raise ValueError(f"unknown conversion mode {mode!r} (use escape|vev_frac)")
+
+
+def interpolate_crossing_times(
+    t_prev: float,
+    t: float,
+    rho_prev: np.ndarray,
+    rho: np.ndarray,
+    thr: float,
+    newly: np.ndarray,
+) -> np.ndarray:
+    """Linear ρ-crossing times on ``newly`` sites: ρ(t_c)=thr between frames."""
+    rp = np.asarray(rho_prev, dtype=np.float64)
+    rn = np.asarray(rho, dtype=np.float64)
+    denom = rn[newly] - rp[newly]
+    good = np.abs(denom) > 1e-30
+    alpha = np.zeros(int(np.count_nonzero(newly)), dtype=np.float64)
+    alpha[good] = (float(thr) - rp[newly][good]) / denom[good]
+    alpha = np.clip(alpha, 0.0, 1.0)
+    return (float(t_prev) + alpha * (float(t) - float(t_prev))).astype(np.float32)
 
 
 def _load_phi(
@@ -391,12 +453,265 @@ def _write_radial_csv(path: str, table: Dict[str, np.ndarray], extra_cols: Optio
 
 def _write_pk_csv(path: str, pk: Dict[str, np.ndarray]) -> None:
     keys = ["k", "k_lo", "k_hi", "P", "P_raw", "n_modes"]
+    extra = [k for k in ("P_zeta", "H_used", "A_zeta") if k in pk]
+    keys = keys + extra
     n = len(pk["k"])
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(keys)
         for i in range(n):
-            w.writerow([pk[k][i] for k in keys])
+            row = []
+            for key in keys:
+                v = pk[key]
+                arr = np.atleast_1d(v)
+                if arr.size == 1:
+                    row.append(float(arr[0]))
+                else:
+                    row.append(arr[i])
+            w.writerow(row)
+
+
+def hubble_at_time(run_dir: str, time: float) -> Dict[str, float]:
+    """H from average_scale_factor.txt (cols: t, a, H, H_alt)."""
+    path = os.path.join(run_dir, "average_scale_factor.txt")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(path)
+    sf = np.loadtxt(path, ndmin=2)
+    i = int(np.argmin(np.abs(sf[:, 0] - float(time))))
+    t = float(sf[i, 0])
+    a = float(sf[i, 1])
+    H = float(sf[i, 2])
+    H_alt = float(sf[i, 3]) if sf.shape[1] > 3 else H
+    return {"t": t, "a": a, "H": H, "H_alt": H_alt, "aH": a * H}
+
+
+def write_zeta_from_p_dtc(
+    run_dir: str,
+    out_dir: str,
+    *,
+    t_ref: Optional[float] = None,
+    p_dtc_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Post-process P_dtc.csv → P_zeta_dtc.csv + plot.  ζ = −H δt_c."""
+    out_dir = os.path.abspath(out_dir)
+    p_path = p_dtc_path or os.path.join(out_dir, "P_dtc.csv")
+    if not os.path.isfile(p_path):
+        raise FileNotFoundError(p_path)
+
+    if t_ref is None:
+        c2_path = os.path.join(out_dir, "C2_dtc.csv")
+        if os.path.isfile(c2_path):
+            with open(c2_path) as f:
+                row0 = next(csv.DictReader(f))
+                t_ref = float(row0.get("tc_mean", "nan"))
+        if t_ref is None or not np.isfinite(t_ref):
+            meta_path = os.path.join(out_dir, "tc_correlators_meta.json")
+            if os.path.isfile(meta_path):
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                t_ref = 0.5 * (float(meta["t_first"]) + float(meta["t_last"]))
+            else:
+                t_ref = 400.0
+
+    hub = hubble_at_time(run_dir, float(t_ref))
+    H = float(hub["H"])
+    LOG.info(
+        "zeta from δt_c: t_ref=%.3f  H=%.6e  aH=%.6e  (sf t=%.3f)",
+        t_ref, H, hub["aH"], hub["t"],
+    )
+
+    with open(p_path) as f:
+        rows = list(csv.DictReader(f))
+    k = np.array([float(r["k"]) for r in rows], dtype=np.float64)
+    P = np.array([
+        float(r["P"]) if r["P"] not in ("", "nan") else np.nan for r in rows
+    ])
+    # Per-mode shell mean (needed for dimensionless 𝒫 ∝ k³ P_raw)
+    if rows and "P_raw" in rows[0]:
+        P_raw = np.array([
+            float(r["P_raw"]) if r["P_raw"] not in ("", "nan") else np.nan
+            for r in rows
+        ])
+    else:
+        P_raw = np.full_like(P, np.nan)
+    n_modes = np.array([float(r["n_modes"]) for r in rows], dtype=np.float64)
+    k_lo = np.array([float(r["k_lo"]) for r in rows])
+    k_hi = np.array([float(r["k_hi"]) for r in rows])
+    Pz_shell = (H * H) * P  # CL shell-bin (legacy / Parseval)
+    # Cosmology-style dimensionless spectrum (Jinno / CMB convention):
+    #   𝒫(k) = k³/(2π²) P_3d(k),  P_3d ≈ P_raw for dx_prog=1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Pdim_dtc = (k ** 3) / (2.0 * math.pi ** 2) * P_raw
+        Pdim_zeta = (H * H) * Pdim_dtc
+
+    # Physical comoving k [GeV] if dx_phys is known (k_phys = k_prog / dx_phys)
+    dx_phys = float("nan")
+    try:
+        from tools.export_cl_snapshots import load_run_params
+
+        params = load_run_params(run_dir) or {}
+        dx_phys = float(params.get("dx_phys", float("nan")))
+    except Exception:
+        pass
+    with np.errstate(divide="ignore", invalid="ignore"):
+        k_phys = k / dx_phys if np.isfinite(dx_phys) and dx_phys > 0 else np.full_like(k, np.nan)
+
+    out_csv = os.path.join(out_dir, "P_zeta_dtc.csv")
+    with open(out_csv, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([
+            "k", "k_lo", "k_hi", "k_phys_GeV",
+            "P_dtc", "P_raw", "P_zeta_shell",
+            "Pdim_dtc", "Pdim_zeta",
+            "n_modes", "H", "t_ref", "aH", "dx_phys",
+        ])
+        for i in range(len(k)):
+            def _fmt(v: float) -> object:
+                return v if np.isfinite(v) else "nan"
+
+            w.writerow([
+                k[i], k_lo[i], k_hi[i], _fmt(k_phys[i]),
+                _fmt(P[i]), _fmt(P_raw[i]), _fmt(Pz_shell[i]),
+                _fmt(Pdim_dtc[i]), _fmt(Pdim_zeta[i]),
+                int(n_modes[i]),
+                H, t_ref, hub["aH"],
+                dx_phys if np.isfinite(dx_phys) else "nan",
+            ])
+    LOG.info("wrote %s", out_csv)
+    Pz = Pdim_zeta  # plots below use dimensionless by default
+
+    c2_path = os.path.join(out_dir, "C2_dtc.csv")
+    c3_path = os.path.join(out_dir, "C3eq_dtc.csv")
+    if os.path.isfile(c2_path):
+        with open(c2_path) as f:
+            c2_rows = list(csv.DictReader(f))
+        with open(os.path.join(out_dir, "C2_zeta_dtc.csv"), "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow([
+                "r", "r_lo", "r_hi", "C2_dtc", "C2_zeta", "n_pairs", "H", "t_ref",
+            ])
+            for r in c2_rows:
+                C = float(r["C"]) if r["C"] not in ("", "nan") else float("nan")
+                w.writerow([
+                    r["r"], r["r_lo"], r["r_hi"], C,
+                    (H * H) * C if np.isfinite(C) else "nan",
+                    r.get("n_pairs", ""), H, t_ref,
+                ])
+    if os.path.isfile(c3_path):
+        with open(c3_path) as f:
+            c3_rows = list(csv.DictReader(f))
+        A = -H
+        with open(os.path.join(out_dir, "C3eq_zeta_dtc.csv"), "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["r", "r_lo", "r_hi", "C3_dtc", "C3_zeta", "H", "t_ref"])
+            for r in c3_rows:
+                C = float(r["C"]) if r["C"] not in ("", "nan") else float("nan")
+                w.writerow([
+                    r["r"], r["r_lo"], r["r_hi"], C,
+                    (A ** 3) * C if np.isfinite(C) else "nan",
+                    H, t_ref,
+                ])
+
+    meta = {
+        "channel": "delta_t_c",
+        "formula_shell": "P_zeta_shell = H^2 * P_dtc  (CL shell-bin; not CMB convention)",
+        "formula_dimless": (
+            "Pdim_zeta = k^3/(2 pi^2) * H^2 * P_raw   "
+            "(dimensionless; Jinno / CMB A_s convention)"
+        ),
+        "H": H,
+        "t_ref": float(t_ref),
+        "aH": hub["aH"],
+        "a": hub["a"],
+        "dx_phys": dx_phys if np.isfinite(dx_phys) else None,
+        "note": (
+            "delta-N time-delay channel. Lattice modes are subhorizon "
+            "(k_IR >> aH). Compare CMB A_s ≃ 2e-9 to Pdim_zeta, not P_zeta_shell. "
+            "Jinno xi^3 is for Pdim; this box only reaches xi_min ~ 0.5 so the "
+            "asymptote is barely resolved."
+        ),
+    }
+    with open(os.path.join(out_dir, "P_zeta_dtc_meta.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+
+    try:
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.2))
+        ok = np.isfinite(P_raw) & (P_raw > 0) & (n_modes >= 64)
+        okz = np.isfinite(Pdim_zeta) & (Pdim_zeta > 0) & (n_modes >= 64)
+
+        # Left: dimensionless 𝒫_δt and 𝒫_ζ vs k (program), with ξ top axis
+        if okz.any():
+            k_ok = k[okz]
+            pdim_ok = Pdim_zeta[okz]
+            i_pk = int(np.nanargmax(pdim_ok))
+            k_star = float(k_ok[i_pk])
+            axes[0].loglog(
+                k_ok, pdim_ok, color="C3", lw=1.8,
+                label=r"$\mathcal{P}_\zeta=\frac{k^3}{2\pi^2}H^2 P_{\rm raw}$",
+            )
+            axes[0].axhline(
+                2.1e-9, color="0.4", ls=":", lw=1.0,
+                label=r"CMB $A_s\simeq 2.1\times 10^{-9}$",
+            )
+            # ξ³ guide through mid-IR bins (if any ξ<1)
+            xi = k_ok / k_star
+            fit_m = (xi >= 0.5) & (xi <= 0.85)
+            if int(np.count_nonzero(fit_m)) >= 3:
+                amp = float(np.nanmedian(pdim_ok[fit_m] / np.clip(xi[fit_m] ** 3, 1e-30, None)))
+                axes[0].loglog(
+                    k_ok, amp * xi ** 3, color="C3", ls="--", lw=1.2,
+                    label=rf"$\propto\xi^3$ guide ($k_*={k_star:.3f}$)",
+                )
+            axes[0].set_xlim(left=float(np.min(k_ok)))
+            sec = axes[0].secondary_xaxis(
+                "top",
+                functions=(lambda kk, ks=k_star: kk / ks, lambda xx, ks=k_star: xx * ks),
+            )
+            sec.set_xscale("log")
+            sec.set_xlabel(r"$\xi\equiv k/k_*$")
+        axes[0].set_xlabel(r"$k$ (program, $dx=1$)")
+        axes[0].set_ylabel(r"$\mathcal{P}_\zeta(k)$")
+        axes[0].set_title(r"Dimensionless $\mathcal{P}_\zeta$ from $\delta t_c$")
+        axes[0].grid(True, which="both", alpha=0.3)
+        axes[0].legend(fontsize=7)
+
+        # Right: legacy CL shell P_ζ vs physical k
+        if okz.any() and np.isfinite(k_phys).any():
+            axes[1].loglog(
+                k_phys[okz], Pz_shell[okz], color="C2", lw=1.5,
+                label=r"$H^2 P_{\delta t}^{\rm shell}$ (CL bin)",
+            )
+            axes[1].loglog(
+                k_phys[okz], Pdim_zeta[okz], color="C3", lw=1.8,
+                label=r"$\mathcal{P}_\zeta$ (dimensionless)",
+            )
+            axes[1].axhline(2.1e-9, color="0.4", ls=":", lw=1.0)
+            axes[1].set_xlabel(r"$k_{\rm comoving}$ [GeV]  ($=k_{\rm prog}/dx_{\rm phys}$)")
+            axes[1].set_xlim(left=float(np.nanmin(k_phys[okz])))
+        else:
+            axes[1].loglog(k[ok], P[ok], color="C2", lw=1.5, label=r"$P_{\delta t}^{\rm shell}$")
+            axes[1].set_xlabel(r"$k$ (program)")
+        axes[1].set_ylabel(r"power")
+        axes[1].set_title(
+            rf"$\zeta=-H\delta t_c$ ($H={H:.3e}$, $t_{{\rm ref}}={t_ref:.0f}$)"
+        )
+        axes[1].grid(True, which="both", alpha=0.3)
+        axes[1].legend(fontsize=7)
+        fig.suptitle(
+            r"Curvature from $\delta t_c$: use $\mathcal{P}_\zeta$ (left) for CMB / Jinno",
+            fontsize=10,
+        )
+        fig.tight_layout()
+        png = os.path.join(out_dir, "P_zeta_dtc.png")
+        fig.savefig(png, dpi=160)
+        plt.close(fig)
+        LOG.info("wrote %s", png)
+    except ImportError:
+        pass
+
+    return meta
 
 
 def _try_plot_cf(out_dir: str, curves: List[Dict[str, Any]]) -> None:
@@ -509,8 +824,16 @@ def build_tc_map(
     time_index: Dict[float, str],
     esc_gev: float,
     downsample: int,
+    conversion: str = "escape",
+    vev_frac: float = 0.1,
+    interpolate: bool = True,
 ) -> Dict[str, Any]:
-    """First-crossing map: scan snapshots in time order."""
+    """First-crossing map: scan snapshots in time order.
+
+    Conversion = first time ρ_prog exceeds the mode threshold (see
+    ``conversion_threshold_prog``). With ``interpolate=True``, t_c is the
+    linear-in-ρ crossing between the last false and first true frames.
+    """
     rows = sorted(rows, key=lambda r: float(r["t"]))
     if not rows:
         raise ValueError("no rows to build t_c")
@@ -519,14 +842,43 @@ def build_tc_map(
     converted: Optional[np.ndarray] = None
     N = 0
     f_star0 = float(rows[0]["fStar"])
-    esc_prog = float(esc_gev) / max(f_star0, 1e-30)
+    thr0 = conversion_threshold_prog(
+        mode=conversion, esc_gev=esc_gev, f_star=f_star0, vev_frac=vev_frac,
+    )
     history: List[Dict[str, Any]] = []
+    rho_prev: Optional[np.ndarray] = None
+    t_prev: Optional[float] = None
+    thr_last = thr0
+
+    ts = [float(r["t"]) for r in rows]
+    if len(ts) >= 2:
+        med_dt = float(np.median(np.diff(ts)))
+        LOG.info(
+            "t_c scan: conversion=%s  thr_prog(first)=%.6e  interpolate=%s  "
+            "n_snap=%d  Δt_med=%.3g",
+            conversion, thr0, interpolate, len(rows), med_dt,
+        )
+        if med_dt > 5.0:
+            LOG.warning(
+                "snapshot spacing Δt_med=%.3g is coarse — t_c will be poorly "
+                "resolved even with interpolation; prefer denser HDF5 dumps "
+                "through the PT",
+                med_dt,
+            )
+    else:
+        LOG.info(
+            "t_c scan: conversion=%s  thr_prog(first)=%.6e  interpolate=%s  n_snap=%d",
+            conversion, thr0, interpolate, len(rows),
+        )
 
     t0 = time.time()
     for i, row in enumerate(rows):
         t = float(row["t"])
         f_star = float(row["fStar"])
-        esc_prog = float(esc_gev) / max(f_star, 1e-30)
+        thr = conversion_threshold_prog(
+            mode=conversion, esc_gev=esc_gev, f_star=f_star, vev_frac=vev_frac,
+        )
+        thr_last = thr
         h5_path, kind = resolve_snapshot_h5(run_dir, row, monolith_path=monolith)
         time_key = lookup_h5_key(t, time_index) if kind == "monolith" else None
         phi0, phi1 = _load_phi(h5_path, row, time_key)
@@ -535,16 +887,30 @@ def build_tc_map(
         if phi1 is not None:
             del phi1
         rho = _downsample3(rho, downsample)
-        F = false_vac_mask(rho, esc_prog)
+        F = false_vac_mask(rho, thr)
         if tc is None:
             N = int(F.shape[0])
             tc = np.full((N, N, N), np.nan, dtype=np.float32)
             converted = np.zeros((N, N, N), dtype=bool)
-        newly = (~converted) & (F < 0.5)
+
+        now_true = rho > np.float32(thr)
+        if rho_prev is None:
+            newly = (~converted) & now_true
+            if newly.any():
+                tc[newly] = np.float32(t)
+                converted[newly] = True
+        else:
+            newly = (~converted) & (rho_prev <= np.float32(thr)) & now_true
+            if newly.any():
+                if interpolate:
+                    tc[newly] = interpolate_crossing_times(
+                        float(t_prev), t, rho_prev, rho, thr, newly,
+                    )
+                else:
+                    tc[newly] = np.float32(t)
+                converted[newly] = True
+
         n_new = int(newly.sum())
-        if n_new:
-            tc[newly] = np.float32(t)
-            converted[newly] = True
         frac_F = float(F.mean())
         frac_conv = float(converted.mean())
         history.append(
@@ -555,6 +921,7 @@ def build_tc_map(
                 "F_mean": frac_F,
                 "converted_frac": frac_conv,
                 "n_new": n_new,
+                "thr_prog": float(thr),
             }
         )
         if (i + 1) % max(len(rows) // 10, 1) == 0 or i == len(rows) - 1:
@@ -562,6 +929,8 @@ def build_tc_map(
                 "  t_c scan %d/%d  t=%.1f  ⟨F⟩=%.4f  converted=%.4f  new=%d  (%.1fs)",
                 i + 1, len(rows), t, frac_F, frac_conv, n_new, time.time() - t0,
             )
+        rho_prev = rho
+        t_prev = t
         if frac_conv >= 1.0 - 1e-12:
             LOG.info("  all sites converted by t=%.1f — stopping early", t)
             break
@@ -573,13 +942,18 @@ def build_tc_map(
         "N": N,
         "downsample": int(downsample),
         "escape_phi_GeV": float(esc_gev),
-        "escape_phi_prog_last": float(esc_prog),
+        "escape_phi_prog_last": float(thr_last),
+        "threshold_prog_last": float(thr_last),
+        "conversion": str(conversion),
+        "vev_frac": float(vev_frac) if str(conversion) == "vev_frac" else float("nan"),
+        "interpolate": bool(interpolate),
         "fStar_first": f_star0,
         "t_first": float(rows[0]["t"]),
         "t_last": float(history[-1]["t"]),
         "converted_frac": float(converted.mean()),
         "history": history,
     }
+
 
 
 def fill_unconverted_tc(
@@ -617,6 +991,7 @@ def correlators_from_tc(
     n_triangles: int,
     r_max: Optional[float],
     seed: int,
+    do_k_bispectrum: bool = True,
 ) -> Dict[str, Any]:
     if not np.isfinite(tc).all():
         raise ValueError("t_c has NaNs — choose --fill-unconverted last|nanmean before correlators")
@@ -627,7 +1002,292 @@ def correlators_from_tc(
     t0 = time.time()
     c3 = c3_eq_monte_carlo(delta.astype(np.float64), c2["r"], n_samp=n_triangles, seed=seed)
     LOG.info("  C_3^eq done in %.1fs", time.time() - t0)
-    return {"C2": c2, "C3_eq": c3, "P": pk, "delta_var": float(np.mean(delta.astype(np.float64) ** 2))}
+
+    eq_k: Optional[Dict[str, np.ndarray]] = None
+    if do_k_bispectrum:
+        from tools.field_bispectrum import analyze_correlators
+
+        LOG.info("shell-filter B_eq / Q_eq of δt_c (n_bins=%d) ...", n_k_bins)
+        t1 = time.time()
+        eq_k, _ = analyze_correlators(
+            delta, n_bins=n_k_bins, do_squeezed=False, n_workers=None,
+        )
+        LOG.info("  k-bispectrum done in %.1fs", time.time() - t1)
+
+    return {
+        "C2": c2,
+        "C3_eq": c3,
+        "P": pk,
+        "eq_k": eq_k,
+        "delta_var": float(np.mean(delta.astype(np.float64) ** 2)),
+    }
+
+
+def write_bispectrum_dtc_csv(path: str, eq: Dict[str, np.ndarray]) -> None:
+    keys = ["k", "k_lo", "k_hi", "P", "P_filt", "P_raw", "B_eq", "Q_eq", "skew", "n_modes"]
+    n = len(eq["k"])
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(keys)
+        for i in range(n):
+            row = []
+            for key in keys:
+                v = eq[key][i]
+                row.append(f"{v:.10e}" if np.isfinite(v) else "nan")
+            w.writerow(row)
+
+
+def write_zeta_bispectrum_from_dtc(
+    out_dir: str,
+    *,
+    H: float,
+    t_ref: float,
+    bispec_path: Optional[str] = None,
+) -> Optional[str]:
+    """B_ζ = (−H)³ B_eq, Q_ζ = B_ζ/(3 P_ζ²) = Q_eq / (−H) for ζ=−H δt."""
+    path = bispec_path or os.path.join(out_dir, "bispectrum_dtc.csv")
+    if not os.path.isfile(path):
+        return None
+    A = -float(H)
+    with open(path) as f:
+        rows = list(csv.DictReader(f))
+    out = os.path.join(out_dir, "bispectrum_zeta_dtc.csv")
+    with open(out, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([
+            "k", "k_lo", "k_hi", "P_dtc", "P_zeta", "B_eq", "B_zeta",
+            "Q_eq", "Q_zeta", "skew", "n_modes", "H", "t_ref",
+        ])
+        for r in rows:
+            def _f(key: str) -> float:
+                v = r.get(key, "nan")
+                try:
+                    return float(v) if v not in ("", "nan", None) else float("nan")
+                except ValueError:
+                    return float("nan")
+
+            P = _f("P")
+            B = _f("B_eq")
+            Q = _f("Q_eq")
+            Pz = (A * A) * P if np.isfinite(P) else float("nan")
+            Bz = (A ** 3) * B if np.isfinite(B) else float("nan")
+            # Q_ζ = B_ζ / (3 P_ζ²) = Q / A
+            Qz = Q / A if np.isfinite(Q) and A != 0 else float("nan")
+            w.writerow([
+                r["k"], r["k_lo"], r["k_hi"],
+                P if np.isfinite(P) else "nan",
+                Pz if np.isfinite(Pz) else "nan",
+                B if np.isfinite(B) else "nan",
+                Bz if np.isfinite(Bz) else "nan",
+                Q if np.isfinite(Q) else "nan",
+                Qz if np.isfinite(Qz) else "nan",
+                r.get("skew", "nan"),
+                r.get("n_modes", ""),
+                H, t_ref,
+            ])
+    LOG.info("wrote %s", out)
+    return out
+
+
+def plot_Q_eq_dtc_vs_rho(
+    run_dir: str,
+    out_dir: str,
+    *,
+    rho_csv_dir: Optional[str] = None,
+    rho_time: float = 400.0,
+    min_modes: int = 500,
+) -> Optional[str]:
+    """Q_eq(k) of δt_c and rho_norm on one figure."""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return None
+    import re
+
+    dtc_path = os.path.join(out_dir, "bispectrum_dtc.csv")
+    if not os.path.isfile(dtc_path):
+        LOG.warning("no bispectrum_dtc.csv — skip Q_eq compare plot")
+        return None
+
+    if rho_csv_dir is None:
+        for cand in (
+            os.path.join(run_dir, "string_new", "strings", "bispectrum_time_series_pt", "rho_norm"),
+            os.path.join(run_dir, "strings", "bispectrum_time_series_pt", "rho_norm"),
+            os.path.join(os.path.dirname(out_dir), "bispectrum_time_series_pt", "rho_norm"),
+        ):
+            if os.path.isdir(cand):
+                rho_csv_dir = cand
+                break
+    if rho_csv_dir is None or not os.path.isdir(rho_csv_dir):
+        LOG.warning("no rho_norm CSV dir — skip Q_eq compare")
+        return None
+
+    def _load_q(path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        with open(path) as f:
+            rows = list(csv.DictReader(
+                [ln for ln in f if ln.strip() and not ln.startswith("#")]
+            ))
+        k, Q, nm = [], [], []
+        for r in rows:
+            try:
+                kk = float(r["k"])
+                qq = float(r["Q_eq"])
+                n = float(r.get("n_modes", 0))
+            except (KeyError, ValueError):
+                continue
+            k.append(kk)
+            Q.append(qq)
+            nm.append(n)
+        return np.asarray(k), np.asarray(Q), np.asarray(nm)
+
+    with open(dtc_path) as f:
+        # no comment header
+        pass
+    k_d, Q_d, nm_d = _load_q(dtc_path)
+
+    best = None
+    for name in sorted(os.listdir(rho_csv_dir)):
+        if not (name.startswith("bispectrum_t") and name.endswith(".csv")):
+            continue
+        m = re.search(r"bispectrum_t([0-9.+-]+)_step", name)
+        if not m:
+            continue
+        t = float(m.group(1))
+        if best is None or abs(t - rho_time) < abs(best[0] - rho_time):
+            best = (t, os.path.join(rho_csv_dir, name))
+    if best is None:
+        LOG.warning("no rho_norm bispectrum CSV")
+        return None
+    t_rho, rho_path = best
+    k_r, Q_r, nm_r = _load_q(rho_path)
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.5))
+    ok_d = np.isfinite(Q_d) & (nm_d >= min_modes)
+    ok_r = np.isfinite(Q_r) & (nm_r >= min_modes)
+    k_mins: List[float] = []
+    if ok_d.any():
+        ax.semilogx(k_d[ok_d], Q_d[ok_d], color="C3", lw=1.7,
+                    label=r"$Q_{\rm eq}(\delta t_c)$")
+        k_mins.append(float(np.min(k_d[ok_d])))
+    if ok_r.any():
+        ax.semilogx(k_r[ok_r], Q_r[ok_r], color="C0", lw=1.7,
+                    label=rf"$Q_{{\rm eq}}(\rho_{{\rm norm}}),\ t={t_rho:.0f}$")
+        k_mins.append(float(np.min(k_r[ok_r])))
+    if k_mins:
+        ax.set_xlim(left=min(k_mins))
+    ax.axhline(0.0, color="k", lw=0.7, ls=":")
+    ax.set_xlabel(r"$k$")
+    ax.set_ylabel(r"$Q_{\rm eq}(k)=B_{\rm eq}/(3P_{\rm filt}^2)$")
+    ax.set_title(r"Reduced equilateral bispectrum: $\delta t_c$ vs $\rho_{\rm norm}$")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(fontsize=8)
+    # clip extreme noisy Q
+    q_abs = []
+    if ok_d.any():
+        q_abs.append(np.nanpercentile(np.abs(Q_d[ok_d]), 98))
+    if ok_r.any():
+        q_abs.append(np.nanpercentile(np.abs(Q_r[ok_r]), 98))
+    if q_abs:
+        ymax = max(float(max(q_abs)), 1.0)
+        ax.set_ylim(-ymax, ymax)
+    fig.tight_layout()
+    png = os.path.join(out_dir, "Q_eq_dtc_vs_rho_norm.png")
+    fig.savefig(png, dpi=160)
+    plt.close(fig)
+    LOG.info("wrote %s", png)
+    return png
+
+
+def bispectrum_from_tc_map(
+    run_dir: str,
+    out_dir: str,
+    *,
+    tc_path: Optional[str] = None,
+    n_k_bins: int = 64,
+    t_ref_zeta: Optional[float] = None,
+    fill_unconverted: str = "last",
+    rho_csv_dir: Optional[str] = None,
+    downsample: int = 2,
+    n_workers: Optional[int] = None,
+) -> str:
+    """Load tc_map.npz → shell-filter B/Q of δt_c + ζ + Q compare plot.
+
+    ``downsample`` (default 2) keeps every ds-th site for the FFT bispectrum
+    so 1024³ fits in memory (512³).
+    """
+    out_dir = os.path.abspath(out_dir)
+    tc_path = tc_path or os.path.join(out_dir, "tc_map.npz")
+    z = np.load(tc_path, allow_pickle=True)
+    tc = z["tc"]
+    converted = z["converted"].astype(bool)
+    t_last = float(z["t_last"])
+    tc_filled, _ = fill_unconverted_tc(
+        tc, converted, mode=fill_unconverted, t_last=t_last,
+    )
+    ds = max(int(downsample), 1)
+    if ds > 1:
+        tc_filled = np.ascontiguousarray(tc_filled[::ds, ::ds, ::ds])
+        LOG.info("downsample=%d → N=%d for k-bispectrum", ds, tc_filled.shape[0])
+    tc_mean = float(tc_filled.mean())
+    delta = (tc_filled.astype(np.float64) - tc_mean).astype(np.float32)
+    del tc_filled
+    from tools.field_bispectrum import analyze_correlators
+
+    LOG.info("computing B_eq/Q_eq of δt_c from %s (N=%d, n_bins=%d)",
+             tc_path, delta.shape[0], n_k_bins)
+    eq, _ = analyze_correlators(
+        delta, n_bins=n_k_bins, do_squeezed=False, n_workers=n_workers,
+    )
+    del delta
+    bsp = os.path.join(out_dir, "bispectrum_dtc.csv")
+    write_bispectrum_dtc_csv(bsp, eq)
+    LOG.info("wrote %s", bsp)
+
+    if t_ref_zeta is None:
+        t_ref_zeta = tc_mean
+    hub = hubble_at_time(run_dir, float(t_ref_zeta))
+    H = float(hub["H"])
+    write_zeta_bispectrum_from_dtc(out_dir, H=H, t_ref=float(t_ref_zeta))
+
+    # B_zeta plot (no aH)
+    try:
+        import matplotlib.pyplot as plt
+
+        k = eq["k"]
+        B = eq["B_eq"]
+        nm = eq["n_modes"]
+        A = -H
+        Bz = (A ** 3) * B
+        ok = np.isfinite(B) & (nm >= 64)
+        fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0))
+        if ok.any():
+            axes[0].semilogx(k[ok], B[ok], color="C2", lw=1.5)
+            axes[0].set_xlim(left=float(np.min(k[ok])))
+            axes[1].semilogx(k[ok], Bz[ok], color="C3", lw=1.5)
+            axes[1].set_xlim(left=float(np.min(k[ok])))
+        axes[0].axhline(0.0, color="k", lw=0.7, ls=":")
+        axes[1].axhline(0.0, color="k", lw=0.7, ls=":")
+        axes[0].set_xlabel(r"$k$")
+        axes[0].set_ylabel(r"$B_{\rm eq}(\delta t_c)$")
+        axes[0].set_title(r"Equilateral $B$ of $\delta t_c$")
+        axes[0].grid(True, which="both", alpha=0.3)
+        axes[1].set_xlabel(r"$k$")
+        axes[1].set_ylabel(r"$B_\zeta=(-H)^3 B_{\rm eq}$")
+        axes[1].set_title(rf"$H={H:.3e}$, $t_{{\rm ref}}={t_ref_zeta:.0f}$")
+        axes[1].grid(True, which="both", alpha=0.3)
+        fig.suptitle(r"Bispectrum: $\delta t_c\to\zeta$", fontsize=10)
+        fig.tight_layout()
+        png = os.path.join(out_dir, "B_zeta_dtc.png")
+        fig.savefig(png, dpi=160)
+        plt.close(fig)
+        LOG.info("wrote %s", png)
+    except ImportError:
+        pass
+
+    plot_Q_eq_dtc_vs_rho(
+        run_dir, out_dir, rho_csv_dir=rho_csv_dir, rho_time=400.0,
+    )
+    return bsp
 
 
 # ---------------------------------------------------------------------------
@@ -644,6 +1304,9 @@ def run(
     t_min: Optional[float] = None,
     t_max: Optional[float] = None,
     escape_phi_gev: Optional[float] = None,
+    conversion: str = "escape",
+    vev_frac: float = 0.1,
+    tc_interp: bool = True,
     downsample: int = 1,
     n_r_bins: int = 64,
     n_k_bins: int = 64,
@@ -653,6 +1316,8 @@ def run(
     save_tc: Optional[str] = None,
     load_tc: Optional[str] = None,
     seed: int = 0,
+    write_zeta: bool = True,
+    t_ref_zeta: Optional[float] = None,
     out_dir: Optional[str] = None,
 ) -> str:
     run_dir = os.path.abspath(run_dir)
@@ -661,7 +1326,10 @@ def run(
 
     params = load_run_params(run_dir) or {}
     esc_gev = resolve_escape_gev(params, escape_phi_gev)
-    LOG.info("escape_phi = %.6g GeV", esc_gev)
+    LOG.info(
+        "escape_phi = %.6g GeV  conversion=%s  vev_frac=%s  tc_interp=%s",
+        esc_gev, conversion, vev_frac, tc_interp,
+    )
 
     do_cf = not tc_only
     do_tc = not cf_only
@@ -742,6 +1410,9 @@ def run(
             time_index=time_index,
             esc_gev=esc_gev,
             downsample=downsample,
+            conversion=conversion,
+            vev_frac=vev_frac,
+            interpolate=tc_interp,
         )
 
     if do_tc and tc_payload is not None:
@@ -753,6 +1424,12 @@ def run(
             N=tc_payload["N"],
             downsample=tc_payload["downsample"],
             escape_phi_GeV=tc_payload["escape_phi_GeV"],
+            threshold_prog_last=tc_payload.get(
+                "threshold_prog_last", tc_payload.get("escape_phi_prog_last", float("nan"))
+            ),
+            conversion=str(tc_payload.get("conversion", "escape")),
+            vev_frac=tc_payload.get("vev_frac", float("nan")),
+            interpolate=bool(tc_payload.get("interpolate", False)),
             t_first=tc_payload["t_first"],
             t_last=tc_payload["t_last"],
             converted_frac=tc_payload["converted_frac"],
@@ -764,7 +1441,7 @@ def run(
         )
         with open(os.path.join(out_dir, "tc_scan_history.csv"), "w", newline="") as f:
             w = csv.DictWriter(
-                f, fieldnames=["t", "step", "T", "F_mean", "converted_frac", "n_new"]
+                f, fieldnames=["t", "step", "T", "F_mean", "converted_frac", "n_new", "thr_prog"]
             )
             w.writeheader()
             for h in tc_payload.get("history", []):
@@ -805,6 +1482,25 @@ def run(
         )
         _write_pk_csv(os.path.join(out_dir, "P_dtc.csv"), corr["P"])
         _try_plot_tc(out_dir, corr["C2"], corr["C3_eq"], corr["P"])
+        if corr.get("eq_k") is not None:
+            write_bispectrum_dtc_csv(
+                os.path.join(out_dir, "bispectrum_dtc.csv"), corr["eq_k"]
+            )
+
+        if write_zeta:
+            t_zeta = t_ref_zeta
+            if t_zeta is None:
+                t_zeta = float(corr["C2"]["mean"][0])
+            try:
+                zmeta = write_zeta_from_p_dtc(
+                    run_dir, out_dir, t_ref=t_zeta,
+                )
+                write_zeta_bispectrum_from_dtc(
+                    out_dir, H=float(zmeta["H"]), t_ref=float(t_zeta),
+                )
+                plot_Q_eq_dtc_vs_rho(run_dir, out_dir, rho_time=400.0)
+            except FileNotFoundError as exc:
+                LOG.warning("P_zeta from δt_c skipped: %s", exc)
 
         tc_meta = {
             "run_dir": run_dir,
@@ -824,10 +1520,11 @@ def run(
             "algorithm": {
                 "F": "1[|Φ|_GeV <= φ_esc] = 1[ρ_prog <= φ_esc/fStar]",
                 "C_F": "radial ⟨δF δF⟩ via FFT autocorrelation",
-                "t_c": "first snapshot with F=0",
+                "t_c": "interpolated ρ crossing of conversion threshold (or first true snapshot)",
                 "C_2": "radial ⟨δt δt⟩ via FFT autocorrelation",
                 "C_3^eq": "MC equilateral ⟨δt δt δt⟩ (mean-zero ⇒ connected)",
                 "P_δt": "CL-style shell P = P_raw · n_modes / N³",
+                "P_ζ": "H^2 P_δt with ζ = -H δt_c (time-delay / δN channel)",
             },
         }
         with open(os.path.join(out_dir, "tc_correlators_meta.json"), "w") as f:
@@ -878,9 +1575,25 @@ def _synthetic_selftest() -> None:
     expect0 = p * (1 - p)
     if abs(cf["C"][0] - expect0) / expect0 > 0.05:
         raise RuntimeError(f"CF(0)={cf['C'][0]} vs p(1-p)={expect0}")
+    # Interpolated crossing: ρ goes 0→1 between t=10 and t=20, thr=0.4 → t_c=14
+    rho_a = np.zeros((4, 4, 4), dtype=np.float32)
+    rho_b = np.ones((4, 4, 4), dtype=np.float32)
+    newly = np.ones((4, 4, 4), dtype=bool)
+    tc_x = interpolate_crossing_times(10.0, 20.0, rho_a, rho_b, 0.4, newly)
+    if abs(float(tc_x.mean()) - 14.0) > 1e-5:
+        raise RuntimeError(f"interp crossing expected 14, got {tc_x.mean()}")
+    thr_e = conversion_threshold_prog(
+        mode="escape", esc_gev=5e4, f_star=1e15, vev_frac=0.1,
+    )
+    thr_v = conversion_threshold_prog(
+        mode="vev_frac", esc_gev=5e4, f_star=1e15, vev_frac=0.1,
+    )
+    if not (thr_e < 1e-9 and abs(thr_v - 0.1) < 1e-12):
+        raise RuntimeError(f"threshold sanity failed: escape={thr_e} vev={thr_v}")
     print(
         f"selftest OK: C2(0)/var={c2['C'][0]/var:.4f}  "
-        f"⟨|C3|⟩/σ³={skew_scale:.3e}  CF(0)/[p(1-p)]={cf['C'][0]/expect0:.4f}"
+        f"⟨|C3|⟩/σ³={skew_scale:.3e}  CF(0)/[p(1-p)]={cf['C'][0]/expect0:.4f}  "
+        f"interp_tc={float(tc_x.mean()):.1f}"
     )
 
 
@@ -900,11 +1613,42 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--t-min", type=float, default=None)
     ap.add_argument("--t-max", type=float, default=None)
     ap.add_argument("--escape-phi-gev", type=float, default=None,
-                    help="φ_esc in GeV (default: run params expansion/langevin phi_esc)")
+                    help="φ_esc in GeV for conversion=escape "
+                         "(default: run params expansion/langevin phi_esc)")
+    ap.add_argument(
+        "--conversion",
+        choices=("escape", "vev_frac"),
+        default="escape",
+        help="false→true criterion for t_c: escape=CL φ_esc cut; "
+             "vev_frac=ρ_prog > f·φ₀_prog (better bubble/true-vac proxy)",
+    )
+    ap.add_argument(
+        "--vev-frac",
+        type=float,
+        default=0.1,
+        help="fraction of program VEV for --conversion vev_frac (default 0.1)",
+    )
+    ap.add_argument(
+        "--tc-interp",
+        action="store_true",
+        default=True,
+        help="linearly interpolate t_c between snapshots (default on)",
+    )
+    ap.add_argument(
+        "--no-tc-interp",
+        action="store_true",
+        help="disable interpolation: t_c = first true snapshot time",
+    )
     ap.add_argument("--downsample", type=int, default=1,
                     help="keep every ds-th site (2 → 512³ from 1024³)")
     ap.add_argument("--n-r-bins", type=int, default=64)
     ap.add_argument("--n-k-bins", type=int, default=64)
+    ap.add_argument(
+        "--n-workers",
+        type=int,
+        default=None,
+        help="parallel shell-filter workers for B_eq (default: auto; 1=serial)",
+    )
     ap.add_argument("--n-triangles", type=int, default=200_000,
                     help="MC samples per r-bin for C_3^eq")
     ap.add_argument("--r-max", type=float, default=None,
@@ -918,6 +1662,38 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--save-tc", default=None, help="path for tc_map.npz")
     ap.add_argument("--load-tc", default=None, help="reuse existing tc_map.npz")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--zeta-from-dtc",
+        action="store_true",
+        default=True,
+        help="after P_dtc, write P_zeta = H^2 P_dtc (default on)",
+    )
+    ap.add_argument("--no-zeta-from-dtc", action="store_true")
+    ap.add_argument(
+        "--t-ref-zeta",
+        type=float,
+        default=None,
+        help="time for H(t) in ζ=-H δt_c (default: ⟨t_c⟩)",
+    )
+    ap.add_argument(
+        "--apply-zeta-from-dtc",
+        default=None,
+        metavar="OUT_DIR",
+        help="only convert existing OUT_DIR/P_dtc.csv → P_zeta (no HDF5 scan)",
+    )
+    ap.add_argument(
+        "--apply-bispectrum-from-tc",
+        default=None,
+        metavar="OUT_DIR",
+        help="from OUT_DIR/tc_map.npz compute B_eq/Q_eq of δt_c, B_zeta, "
+             "and Q_eq vs rho_norm plot",
+    )
+    ap.add_argument(
+        "--rho-csv-dir",
+        default=None,
+        help="rho_norm bispectrum dir for Q_eq compare "
+             "(default: …/bispectrum_time_series_pt/rho_norm)",
+    )
     ap.add_argument("--out-dir", default=None)
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args(argv)
@@ -932,6 +1708,32 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     if not args.run_dir:
         ap.error("run_dir required unless --selftest")
+
+    if args.apply_zeta_from_dtc:
+        zmeta = write_zeta_from_p_dtc(
+            args.run_dir,
+            args.apply_zeta_from_dtc,
+            t_ref=args.t_ref_zeta,
+        )
+        write_zeta_bispectrum_from_dtc(
+            args.apply_zeta_from_dtc,
+            H=float(zmeta["H"]),
+            t_ref=float(zmeta["t_ref"]),
+        )
+        return 0
+
+    if args.apply_bispectrum_from_tc:
+        bispectrum_from_tc_map(
+            args.run_dir,
+            args.apply_bispectrum_from_tc,
+            n_k_bins=args.n_k_bins,
+            t_ref_zeta=args.t_ref_zeta,
+            rho_csv_dir=args.rho_csv_dir,
+            downsample=args.downsample if args.downsample != 1 else 2,
+            n_workers=args.n_workers,
+        )
+        return 0
+
     if args.tc_only and args.cf_only:
         ap.error("cannot set both --tc-only and --cf-only")
 
@@ -945,6 +1747,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         t_min=args.t_min,
         t_max=args.t_max,
         escape_phi_gev=args.escape_phi_gev,
+        conversion=args.conversion,
+        vev_frac=args.vev_frac,
+        tc_interp=bool(args.tc_interp) and not bool(args.no_tc_interp),
         downsample=args.downsample,
         n_r_bins=args.n_r_bins,
         n_k_bins=args.n_k_bins,
@@ -954,6 +1759,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         save_tc=args.save_tc,
         load_tc=args.load_tc,
         seed=args.seed,
+        write_zeta=bool(args.zeta_from_dtc) and not args.no_zeta_from_dtc,
+        t_ref_zeta=args.t_ref_zeta,
         out_dir=args.out_dir,
     )
     return 0
