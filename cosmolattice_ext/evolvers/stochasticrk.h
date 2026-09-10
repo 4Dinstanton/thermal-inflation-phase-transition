@@ -117,6 +117,17 @@ namespace TempLat {
             // Before kernels: possibly drop Langevin η+noise for collision/GW stage.
             model.maybeDisableLangevin();
 
+            if (model.langevinOffPerSite()
+                && scheme_ != Scheme::NumbaRK2
+                && scheme_ != Scheme::NonfusedRK2) {
+                if (model.getToolBox()->amIRoot()) {
+                    std::cerr << "ERROR: langevin_off_mode=per_site requires "
+                                 "stochastic_scheme=numba (or nonfused_rk2); "
+                                 "got fused/legacy scheme.\n";
+                }
+                std::abort();
+            }
+
             switch (scheme_) {
                 case Scheme::NumbaRK2:
                 default:
@@ -291,22 +302,27 @@ namespace TempLat {
 
             T inv_a2 = 1.0;
             T inv_a3 = 1.0;
-            T eta_eff = etaThermal(model);
+            // Split Langevin η from Hubble 3H so per-site shutoff can drop only Langevin.
+            const T eta_th = etaThermal(model);
+            T eta_hub = 0.0;
             T T_mid = T_now;
             T a1 = a0;
 
             if (expansion) {
                 inv_a2 = 1.0 / (a0 * a0);
                 inv_a3 = 1.0 / (a0 * a0 * a0);
-                eta_eff = etaEffNoise(model);
+                eta_hub = 3.0 * hubbleRate(model) / model.muScale();
                 const T H = hubbleRate(model);
                 a1 = a0 * (1.0 + H * model.dt / mu);
                 T_mid = static_cast<T>(model.temperatureAtScaleFactor(a1));
             }
+            const T eta_eff = eta_th + eta_hub;  // full-box default (global / no mask)
+            const bool perSite = model.langevinOffPerSite();
 
             const T invMu2 = 1.0 / (mu * mu);
             // Fused: two kicks of 0.5*sigma (fdt: each *sqrt(2)).
             // Nonfused: one kick of sigma_full (Numba rk2_nonfused; fdt does not apply).
+            // Noise amplitude uses full eta_eff; per-site mask multiplies the kick.
             T kickNoise = 0.0;
             if (model.thermalNoise) {
                 kickNoise = numbaNoiseScale(model, T_now, inv_a3, eta_eff) / fStar;
@@ -328,6 +344,13 @@ namespace TempLat {
                 return std::pair<T, T>(p1, p2);
             };
 
+            auto siteWeight = [&](const auto& f0, const auto& f1, ptrdiff_t i) -> T {
+                if (!perSite) return static_cast<T>(1.0);
+                const T p0 = f0.get(i);
+                const T p1 = (nScalars > 1) ? f1.get(i) : static_cast<T>(0);
+                return static_cast<T>(model.langevinSiteWeightProg(p0, p1));
+            };
+
             auto rkPass1 = [&](double T_step) {
                 model.setCurrentTemperature(T_step);
                 model.tmpPiS(0_c) = LatLapl<Model::NDim>(model.fldS(0_c));
@@ -337,11 +360,13 @@ namespace TempLat {
                 for (it.begin(); it.end(); ++it) {
                     const ptrdiff_t i = it();
                     const auto phiGeV = phiGeVAt(model.fldS(0_c), model.fldS(1_c), i);
+                    const T w = siteWeight(model.fldS(0_c), model.fldS(1_c), i);
+                    const T eta_site = w * eta_th + eta_hub;
                     const T lap0 = inv_a2 * fStar * model.tmpPiS(0_c).get(i);
                     const T pi0 = piScale * model.piS(0_c).get(i);
                     T dV0 = 0.0;
                     model.vPrimeComponentGeV(phiGeV.first, phiGeV.second, 0, dV0);
-                    const T kpi0 = lap0 - eta_eff * pi0 - dV0 * invMu2;
+                    const T kpi0 = lap0 - eta_site * pi0 - dV0 * invMu2;
                     model.tmpFldS(0_c).getSet(i) = model.fldS(0_c).get(i) + halfdt * model.piS(0_c).get(i);
                     model.tmpPiS(0_c).getSet(i) = model.piS(0_c).get(i) + halfdt * kpi0 * invPiScale;
                     if (nScalars > 1) {
@@ -349,7 +374,7 @@ namespace TempLat {
                         const T pi1 = piScale * model.piS(1_c).get(i);
                         T dV1 = 0.0;
                         model.vPrimeComponentGeV(phiGeV.first, phiGeV.second, 1, dV1);
-                        const T kpi1 = lap1 - eta_eff * pi1 - dV1 * invMu2;
+                        const T kpi1 = lap1 - eta_site * pi1 - dV1 * invMu2;
                         model.tmpFldS(1_c).getSet(i) = model.fldS(1_c).get(i) + halfdt * model.piS(1_c).get(i);
                         model.tmpPiS(1_c).getSet(i) = model.piS(1_c).get(i) + halfdt * kpi1 * invPiScale;
                     }
@@ -365,18 +390,21 @@ namespace TempLat {
                 for (it.begin(); it.end(); ++it) {
                     const ptrdiff_t i = it();
                     const auto phiGeV = phiGeVAt(model.tmpFldS(0_c), model.tmpFldS(1_c), i);
+                    const T w = siteWeight(model.tmpFldS(0_c), model.tmpFldS(1_c), i);
+                    const T eta_site = w * eta_th + eta_hub;
+                    const T noise_site = w * kickNoise;
                     const T lap0 = inv_a2 * fStar * lapProgAt(model, model.tmpFldS(0_c), i);
                     const T pi0 = piScale * model.tmpPiS(0_c).get(i);
                     T dV0 = 0.0;
                     model.vPrimeComponentGeV(phiGeV.first, phiGeV.second, 0, dV0);
-                    const T kpi0 = lap0 - eta_eff * pi0 - dV0 * invMu2;
+                    const T kpi0 = lap0 - eta_site * pi0 - dV0 * invMu2;
                     model.fldS(0_c).getSet(i) += dCorrector * model.tmpPiS(0_c).get(i);
                     T piVal0 = model.piS(0_c).get(i) + dCorrector * kpi0 * invPiScale;
                     // Box-Muller pair: independent z0,z1 (matches latticeSimComplex_numba).
                     // Previously both components reused the same seed → identical kicks
                     // along (1,1), inflating radial noise by ~sqrt(2) vs real scalar.
                     T z0 = 0, z1 = 0;
-                    if (kickNoise > 0) {
+                    if (noise_site > 0) {
                         const uint64_t site = globalSiteIndex(model, it);
                         const uint64_t seed = site * noiseMul ^ stepSeed;
                         T u1, u2;
@@ -385,7 +413,7 @@ namespace TempLat {
                         const T th = static_cast<T>(6.28318530717958647692) * u2;
                         z0 = r * std::cos(th);
                         z1 = r * std::sin(th);
-                        piVal0 += kickNoise * z0;
+                        piVal0 += noise_site * z0;
                     }
                     model.piS(0_c).getSet(i) = piVal0;
                     if (nScalars > 1) {
@@ -393,11 +421,11 @@ namespace TempLat {
                         const T pi1 = piScale * model.tmpPiS(1_c).get(i);
                         T dV1 = 0.0;
                         model.vPrimeComponentGeV(phiGeV.first, phiGeV.second, 1, dV1);
-                        const T kpi1 = lap1 - eta_eff * pi1 - dV1 * invMu2;
+                        const T kpi1 = lap1 - eta_site * pi1 - dV1 * invMu2;
                         model.fldS(1_c).getSet(i) += dCorrector * model.tmpPiS(1_c).get(i);
                         T piVal1 = model.piS(1_c).get(i) + dCorrector * kpi1 * invPiScale;
-                        if (kickNoise > 0) {
-                            piVal1 += kickNoise * z1;
+                        if (noise_site > 0) {
+                            piVal1 += noise_site * z1;
                         }
                         model.piS(1_c).getSet(i) = piVal1;
                     }

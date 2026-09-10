@@ -34,6 +34,7 @@
 #include "field_snapshot.hpp"
 #include <cmath>
 #include <cstdint>
+#include <cctype>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -93,15 +94,20 @@ namespace TempLat {
         double znStrength_ = 0.0;                   // delta_V for cos(N theta) term
         double znTurnOnT_ = 0.0;                    // activate Z_N below this T (GeV)
 
-        // Optional: zero Langevin η + FDT noise once false-vac fraction drops.
-        // Hubble 3H in eta_eff is unchanged. phi_threshold is snapshots only.
-        bool   langevinOffAfterNucleation_ = false;
-        double langevinOffFSwitch_ = 0.99;  // trigger when false-vac frac <= this
+        // Optional Langevin η + FDT noise shutoff (Hubble 3H kept).
+        //   global   — zero η+noise on whole box once false-vac frac <= f_switch
+        //   per_site — zero η+noise only where |Φ| > phi_esc (pixel-level)
+        // phi_threshold is snapshots only.
+        enum class LangevinOffMode { None = 0, Global = 1, PerSite = 2 };
+        bool   langevinOffAfterNucleation_ = false;  // legacy enable (→ Global)
+        LangevinOffMode langevinOffMode_ = LangevinOffMode::None;
+        double langevinOffFSwitch_ = 0.99;  // global: trigger when false-vac frac <= this
         double langevinOffPhiEsc_ = -1.0;   // <0 → use expansionPhiEsc_ (or 1e4)
         double phiThresholdGeV_ = -1.0;     // CLI phi_threshold (dense snapshots)
-        bool   langevinDisabled_ = false;
+        bool   langevinDisabled_ = false;   // global latch
         double etaPhysSaved_ = 0.0;
         bool   thermalNoiseSaved_ = true;
+        mutable uint64_t langevinDiagCounter_ = 0;
 
         // Post-PT expansion staging: ti (thermal inflation) → md → rd.
         // legacy mode keeps H(T,delV) and T=T0/a forever.
@@ -375,13 +381,54 @@ namespace TempLat {
             return localFalse / localTotal;
         }
 
-        // Zero Langevin friction + FDT noise once false-vac fraction drops.
-        // Safe every step. Hubble 3H remains.
+        double langevinEscapeGeV() const {
+            if (langevinOffPhiEsc_ > 0.0) return langevinOffPhiEsc_;
+            if (expansionPhiEsc_ > 0.0) return expansionPhiEsc_;
+            return 1e4;
+        }
+
+        bool langevinOffPerSite() const {
+            return langevinOffMode_ == LangevinOffMode::PerSite;
+        }
+
+        bool langevinOffGlobalEnabled() const {
+            return langevinOffMode_ == LangevinOffMode::Global
+                || (langevinOffAfterNucleation_
+                    && langevinOffMode_ == LangevinOffMode::None);
+        }
+
+        // Program-unit |Φ|² escape cut for per-site mask.
+        double langevinEscapeProg2() const {
+            const double escProg = langevinEscapeGeV() / fStar;
+            return escProg * escProg;
+        }
+
+        // 1 = keep Langevin η+noise at this site; 0 = friction/noise off (Hubble kept).
+        // Uses program-unit field components at the site.
+        double langevinSiteWeightProg(double phi0Prog, double phi1Prog) const {
+            if (langevinDisabled_) return 0.0;
+            if (!langevinOffPerSite()) return 1.0;
+            const double amp2 = phi0Prog * phi0Prog + phi1Prog * phi1Prog;
+            return (amp2 <= langevinEscapeProg2()) ? 1.0 : 0.0;
+        }
+
+        // Zero Langevin friction + FDT noise once false-vac fraction drops (global mode).
+        // Safe every step. Hubble 3H remains. No-op for per_site mode.
         void maybeDisableLangevin() {
-            if (!langevinOffAfterNucleation_ || langevinDisabled_) return;
-            const double esc = (langevinOffPhiEsc_ > 0.0)
-                                   ? langevinOffPhiEsc_
-                                   : (expansionPhiEsc_ > 0.0 ? expansionPhiEsc_ : 1e4);
+            if (langevinOffPerSite()) {
+                // Occasional diagnostics: fraction of sites still Langevin-on.
+                if ((++langevinDiagCounter_ % 500) == 1) {
+                    const double fFalse = falseVacuumFraction(langevinEscapeGeV());
+                    if (getToolBox()->amIRoot()) {
+                        std::cout << "[langevin_off=per_site] t-step diag: "
+                                  << "false-vac/Langevin-on frac=" << fFalse
+                                  << " (esc=" << langevinEscapeGeV() << " GeV)\n";
+                    }
+                }
+                return;
+            }
+            if (!langevinOffGlobalEnabled() || langevinDisabled_) return;
+            const double esc = langevinEscapeGeV();
             const double fFalse = falseVacuumFraction(esc);
             if (fFalse > langevinOffFSwitch_) return;
 
@@ -391,7 +438,7 @@ namespace TempLat {
             etaPhys = 0.0;
             thermalNoise = false;
             if (getToolBox()->amIRoot()) {
-                std::cout << "\n*** Langevin OFF (eta=0, FDT off; Hubble 3H kept): "
+                std::cout << "\n*** Langevin OFF global (eta=0, FDT off; Hubble 3H kept): "
                           << "false-vac frac=" << fFalse
                           << " <= " << langevinOffFSwitch_
                           << " (was eta_phys=" << etaPhysSaved_
@@ -529,9 +576,37 @@ namespace TempLat {
                 parser.get<double>("langevin_off_f_switch", 0.99);
             langevinOffPhiEsc_ =
                 parser.get<double>("langevin_off_phi_esc", -1.0);
+            {
+                std::string modeStr =
+                    parser.get<std::string>("langevin_off_mode", "none");
+                for (auto& c : modeStr) c = static_cast<char>(std::tolower(c));
+                if (modeStr == "per_site" || modeStr == "persite"
+                    || modeStr == "per-site" || modeStr == "pixel") {
+                    langevinOffMode_ = LangevinOffMode::PerSite;
+                } else if (modeStr == "global") {
+                    langevinOffMode_ = LangevinOffMode::Global;
+                } else if (modeStr == "none" || modeStr == "off" || modeStr.empty()) {
+                    // Legacy: --langevin_off_after_nucleation alone ⇒ global
+                    langevinOffMode_ = langevinOffAfterNucleation_
+                        ? LangevinOffMode::Global
+                        : LangevinOffMode::None;
+                } else {
+                    langevinOffMode_ = LangevinOffMode::None;
+                    if (getToolBox()->amIRoot()) {
+                        std::cout << "WARNING: unknown langevin_off_mode='"
+                                  << modeStr << "' — treating as none\n";
+                    }
+                }
+                // Explicit mode enables the feature even without the legacy flag.
+                if (langevinOffMode_ == LangevinOffMode::Global
+                    || langevinOffMode_ == LangevinOffMode::PerSite) {
+                    langevinOffAfterNucleation_ = true;
+                }
+            }
             langevinDisabled_ = false;
             etaPhysSaved_ = etaPhys;
             thermalNoiseSaved_ = thermalNoise;
+            langevinDiagCounter_ = 0;
             icNumba = parser.get<int>("ic_numba", 0) != 0;
             uniformPhiGeV = parser.get<double>("uniform_phi", 0.0);
             bubbleSeedPhiGeV = parser.get<double>("bubble_seed_phi", 0.0);
@@ -559,6 +634,19 @@ namespace TempLat {
                 rhoMSwitch_ = 0.0;
                 aRh_ = 1.0;
                 TRhAnchor_ = TRh_;
+            }
+
+            if (getToolBox()->amIRoot()) {
+                if (langevinOffMode_ == LangevinOffMode::PerSite) {
+                    std::cout << "langevin_off_mode=per_site: η+FDT off where |Φ|>"
+                              << langevinEscapeGeV()
+                              << " GeV (Hubble 3H kept); wall boundaries keep "
+                                 "a discontinuous mask\n";
+                } else if (langevinOffGlobalEnabled()) {
+                    std::cout << "langevin_off_mode=global: η+FDT off on whole box "
+                              << "when false-vac frac <= " << langevinOffFSwitch_
+                              << "\n";
+                }
             }
 
             std::string tablePath = parser.get<std::string>("thermal_table",

@@ -140,13 +140,21 @@ def parse_args():
                         "(default off: eta frozen at T0). With default eta_phys=T0 this is eta~T.")
     p.add_argument("--thermal_noise", type=int, default=1, help="1=FDT noise on, 0=deterministic")
     p.add_argument("--langevin_off_after_nucleation", action="store_true",
-                   help="Zero Langevin η and FDT noise (Hubble 3H kept) when "
-                        "false-vac fraction <= --langevin_off_f_switch")
+                   help="Enable Langevin shutoff (default mode=global unless "
+                        "--langevin_off_mode is set). Zeros Langevin η + FDT; "
+                        "Hubble 3H kept.")
+    p.add_argument("--langevin_off_mode", choices=["none", "global", "per_site"],
+                   default=None,
+                   help="Langevin shutoff mode: "
+                        "global = whole box when false-vac frac <= f_switch; "
+                        "per_site = η+noise off only where |Φ| > phi_esc "
+                        "(tests wall-boundary mask). Default: global if "
+                        "--langevin_off_after_nucleation else none.")
     p.add_argument("--langevin_off_f_switch", type=float, default=0.99,
-                   help="Langevin-off when false-vac fraction <= this "
+                   help="Global mode: Langevin-off when false-vac fraction <= this "
                         "(0.99 = early bubbles; ~0.1 = bulk converted)")
     p.add_argument("--langevin_off_phi_esc", type=float, default=None,
-                   help="Escape |phi| (GeV) for Langevin-off fraction; "
+                   help="Escape |phi| (GeV) for false-vac / per-site cut; "
                         "default = --expansion_phi_esc")
     p.add_argument("--noise_seed", type=int, default=1)
     p.add_argument("--no_hubble", action="store_true", help="Fixed T=T0, no expansion")
@@ -224,6 +232,19 @@ def parse_args():
     p.add_argument("--install", action="store_true", help="Install headers + register evolver in submodule")
     p.add_argument("--build", action="store_true", help="cmake + make the model")
     p.add_argument("--dry_run", action="store_true", help="Generate .in and print command; do not execute")
+    p.add_argument(
+        "--out",
+        dest="out_dir",
+        default=None,
+        help="Run output directory (absolute or relative). "
+             "Default: data/lattice/<param_set>/<auto_dirname>/",
+    )
+    p.add_argument(
+        "--run_name",
+        default=None,
+        help="Optional suffix / override leaf name under data/lattice/<param_set>/. "
+             "Ignored if --out is set. Example: --run_name langoff_persite_test",
+    )
     return p.parse_args()
 
 
@@ -883,6 +904,16 @@ def _cl_rel(path):
     return rel.replace("\\", "/")
 
 
+def _langevin_off_mode(args) -> str:
+    """Resolve effective Langevin shutoff mode for input.in / tags."""
+    mode = getattr(args, "langevin_off_mode", None)
+    if mode is not None and mode != "none":
+        return mode
+    if getattr(args, "langevin_off_after_nucleation", False):
+        return "global" if mode in (None, "none") else mode
+    return "none"
+
+
 def make_input(args, out_dir):
     N = args.Nx
     mu = args.mphi
@@ -1001,7 +1032,8 @@ def make_input(args, out_dir):
         f"dt_phys = {args.dt_phys:g}",
         f"include_cw = {args.include_cw}",
         f"thermal_noise = {args.thermal_noise}",
-        f"langevin_off_after_nucleation = {1 if args.langevin_off_after_nucleation else 0}",
+        f"langevin_off_after_nucleation = {1 if _langevin_off_mode(args) != 'none' else 0}",
+        f"langevin_off_mode = {_langevin_off_mode(args)}",
         f"langevin_off_f_switch = {args.langevin_off_f_switch:g}",
         f"langevin_off_phi_esc = "
         f"{(args.langevin_off_phi_esc if args.langevin_off_phi_esc is not None else args.expansion_phi_esc):g}",
@@ -1064,7 +1096,8 @@ def write_run_params(args, out_dir):
         "eta_phys": args.eta_phys if args.eta_phys is not None else args.T0,
         "eta_follows_T": bool(getattr(args, "eta_follows_T", False)),
         "thermal_noise": args.thermal_noise,
-        "langevin_off_after_nucleation": bool(args.langevin_off_after_nucleation),
+        "langevin_off_after_nucleation": _langevin_off_mode(args) != "none",
+        "langevin_off_mode": _langevin_off_mode(args),
         "langevin_off_f_switch": args.langevin_off_f_switch,
         "langevin_off_phi_esc": (
             args.langevin_off_phi_esc
@@ -1137,7 +1170,15 @@ def output_dirname(args):
     eta_tag = f"_eta_{eta:g}"
     if getattr(args, "eta_follows_T", False):
         eta_tag += "_etaT"
-    if args.langevin_off_after_nucleation:
+    lang_mode = _langevin_off_mode(args)
+    if lang_mode == "per_site":
+        esc = (
+            args.langevin_off_phi_esc
+            if args.langevin_off_phi_esc is not None
+            else args.expansion_phi_esc
+        )
+        eta_tag += f"_langoff_persite_esc{esc:g}"
+    elif lang_mode == "global":
         eta_tag += f"_langoff_f{args.langevin_off_f_switch:g}"
     nb = 0 if args.potential_type == "fermion_only" else args.nb
     coupling_tag = (
@@ -1229,8 +1270,23 @@ def main():
             _check_mpirun()
 
     out_root = os.path.join(REPO, "data", "lattice", args.param_set)
-    out_dir = os.path.join(out_root, output_dirname(args))
+    if getattr(args, "out_dir", None):
+        out_dir = os.path.abspath(args.out_dir)
+    elif getattr(args, "run_name", None):
+        leaf = args.run_name.strip("/").replace(" ", "_")
+        out_dir = os.path.join(out_root, leaf)
+    else:
+        out_dir = os.path.join(out_root, output_dirname(args))
     os.makedirs(out_dir, exist_ok=True)
+
+    # per_site is implemented in numbaRK2; legacy fused/euler schemes abort in C++.
+    if _langevin_off_mode(args) == "per_site":
+        scheme = getattr(args, "stochastic_scheme", "numba")
+        if scheme == "fused":
+            sys.exit(
+                "ERROR: --langevin_off_mode per_site requires stochastic_scheme "
+                "numba (or nonfused_rk2 / fused_rk2 / fdt), not legacy fused"
+            )
 
     in_text = make_input(args, out_dir)
     in_path = os.path.join(out_dir, "input.in")
