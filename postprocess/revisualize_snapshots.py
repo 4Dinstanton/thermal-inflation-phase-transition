@@ -45,10 +45,14 @@ STRING_RHO_CMAP_COLORS = (
     (None, "#FFD700"),   # yellow at φ₀
     (1.00, "#E53935"),   # red at vmax
 )
-# Bulk-only oscillation panel: ±OSC_FRAC around φ₀, masked outside [BULK_LO, BULK_HI]×φ₀
-STRING_RHO_OSC_FRAC = 0.01
-STRING_RHO_BULK_LO = 0.85
-STRING_RHO_BULK_HI = 1.15
+# Bulk-only oscillation panel: (ρ−φ₀)/φ₀, masked outside [BULK_LO, BULK_HI]×φ₀.
+# Asymmetric TwoSlopeNorm: narrower under-VEV span ⇒ more color per % below φ₀;
+# wider overshoot span ⇒ less sensitive above φ₀ (tails do not dominate).
+STRING_RHO_OSC_FRAC = 0.10          # legacy symmetric half-width (API compat)
+STRING_RHO_OSC_LO = 0.10            # δ ≥ −10% → full blue (more sensitive under VEV)
+STRING_RHO_OSC_HI = 0.25            # δ ≤ +25% → full red (less sensitive overshoot)
+STRING_RHO_BULK_LO = 0.80
+STRING_RHO_BULK_HI = 1.25
 
 
 def _meta_float(metadata, *keys, default=None):
@@ -167,10 +171,11 @@ def _imshow_rho_fixed_gev(
     vmax: Optional[float] = None,
     post_percolation: Optional[bool] = None,
 ):
-    """ρ = |Φ| [GeV] with anchored colors (navy / blue / yellow).
+    """ρ = |Φ| [GeV] with anchored colors (navy / blue / yellow / red).
 
     **Post-percolation** (step >= percolation_step, default 3500):
-      fixed [0, φ₀]; yellow at φ₀ (≈1×10¹⁵ GeV).
+      vmax = 1.25 φ₀ so overshoot is visible (compressed reds above φ₀);
+      yellow still at φ₀; under-VEV keeps the full navy→blue→yellow ramp.
 
     **Pre-percolation**:
       vmax = 1.1 × max(ρ) on the slice — colors track the current field
@@ -185,6 +190,9 @@ def _imshow_rho_fixed_gev(
             vmax = vmax_auto
         if post_percolation is None:
             post_percolation = post
+    if post_percolation:
+        # Extend above φ₀ so oscillation about VEV is not clipped to yellow.
+        vmax = 1.25 * vev
     vmax = float(vmax) if vmax > vmin else STRING_RHO_VMAX_GEV
     wall = STRING_RHO_WALL_FRAC * vev
     cmap = _rho_expansion_cmap(vev, vmax)
@@ -207,8 +215,8 @@ def _imshow_rho_fixed_gev(
     if title is None:
         if post_percolation:
             title = (
-                rf"$|\Phi|$  post-perc: fixed $0$–$\phi_0$ "
-                rf"(${vmax:.1e}$ GeV; yellow at VEV)"
+                rf"$|\Phi|$  post-perc: $0$–$1.25\phi_0$ "
+                rf"(yellow@$\phi_0$; red=overshoot)"
             )
         else:
             title = (
@@ -246,35 +254,56 @@ def _imshow_grad_rho(ax, rho_2d, vev, fig, *, title=None):
     return im
 
 
-def _imshow_bulk_oscillation(ax, rho_2d, vev, fig, *, title=None,
-                             osc_frac: float = STRING_RHO_OSC_FRAC,
-                             bulk_lo: float = STRING_RHO_BULK_LO,
-                             bulk_hi: float = STRING_RHO_BULK_HI):
-    """(ρ−φ₀)/φ₀ with ±osc_frac, only where bulk_lo·φ₀ < ρ < bulk_hi·φ₀.
+def _imshow_bulk_oscillation(
+    ax,
+    rho_2d,
+    vev,
+    fig,
+    *,
+    title=None,
+    osc_frac: float = STRING_RHO_OSC_FRAC,
+    osc_lo: Optional[float] = None,
+    osc_hi: Optional[float] = None,
+    bulk_lo: float = STRING_RHO_BULK_LO,
+    bulk_hi: float = STRING_RHO_BULK_HI,
+):
+    """(ρ−φ₀)/φ₀ in broken bulk, asymmetric about φ₀.
 
-    Gray = false vacuum or far from φ₀. Use to inspect post-langoff ringing
-    in the broken-phase bulk without false-vac interference fringes.
+    Default color limits: δ ∈ [−OSC_LO, +OSC_HI] with TwoSlopeNorm centered at 0
+    so under-VEV (blue) gets a wider dynamic range than overshoot (red).
+    Gray = false vacuum / outside bulk mask.
     """
     import numpy.ma as ma
+    from matplotlib.colors import TwoSlopeNorm
 
     vev = float(vev) if vev and vev > 0 else DEFAULT_PHI0_GEV
-    frac = float(osc_frac) if osc_frac > 0 else STRING_RHO_OSC_FRAC
+    lo = float(osc_lo) if osc_lo is not None else float(STRING_RHO_OSC_LO)
+    hi = float(osc_hi) if osc_hi is not None else float(STRING_RHO_OSC_HI)
+    # Legacy: if caller only passes osc_frac (old symmetric API), use ±osc_frac.
+    if osc_lo is None and osc_hi is None and osc_frac != STRING_RHO_OSC_FRAC:
+        lo = hi = float(osc_frac) if osc_frac > 0 else float(STRING_RHO_OSC_FRAC)
+    lo = max(lo, 1e-6)
+    hi = max(hi, 1e-6)
+
     r = np.asarray(rho_2d, dtype=np.float64)
     delta = (r - vev) / vev
     bulk = (r >= bulk_lo * vev) & (r <= bulk_hi * vev)
     plot = ma.masked_where(~bulk, delta)
     cmap = plt.cm.RdBu_r.copy()
     cmap.set_bad(color="0.82")
+    norm = TwoSlopeNorm(vcenter=0.0, vmin=-lo, vmax=hi)
     im = ax.imshow(
         plot,
         origin="lower",
         cmap=cmap,
-        vmin=-frac,
-        vmax=frac,
+        norm=norm,
         interpolation="nearest",
     )
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
-    cbar.set_label(rf"$(\rho-\phi_0)/\phi_0$  (bulk only, $\pm{100*frac:.1f}\%$)")
+    cbar.set_label(
+        rf"$(\rho-\phi_0)/\phi_0$  "
+        rf"(asym: $[{-100*lo:.0f}\%,+{100*hi:.0f}\%]$; under-VEV more sensitive)"
+    )
     if title is None:
         title = (
             rf"bulk $(\rho-\phi_0)/\phi_0$  "
@@ -289,6 +318,7 @@ def _imshow_rho_vev_centered(ax, rho_2d, vev, fig, *, title=None,
     """Legacy full-slice deviation map (kept for API compatibility)."""
     return _imshow_bulk_oscillation(
         ax, rho_2d, vev, fig, title=title, osc_frac=delta_frac,
+        osc_lo=delta_frac, osc_hi=delta_frac,
         bulk_lo=0.0, bulk_hi=1e30 / max(float(vev or DEFAULT_PHI0_GEV), 1.0),
     )
 
@@ -701,8 +731,8 @@ def _plot_strings_2d_dense(state, metadata, output_file, n_string_vox):
     plt.close(fig)
 
 
-STRING_RHO_BULK_LO = 0.85
-STRING_RHO_BULK_HI = 1.15
+STRING_RHO_BULK_LO = 0.80
+STRING_RHO_BULK_HI = 1.25
 # Trinary PT map (paper): ρ/φ₀ below FALSE → navy; mid → wall cyan; above BROKEN → gold
 STRING_RHO_FALSE_FRAC = 0.25
 STRING_RHO_BROKEN_FRAC = 0.85

@@ -6,6 +6,9 @@
 > `cosmolattice_ext_v2/README.md` §1 before comparing v1 and v2 numbers — the
 > two sample different effective temperatures with their default settings.
 
+**How to run (Langevin CLI, HDF5 dumps, changing \(V\)):** see
+[`RUNNING_AND_POTENTIAL.md`](RUNNING_AND_POTENTIAL.md).
+
 Project-specific extension to [CosmoLattice](https://github.com/cosmolattice/cosmolattice)
 (added as the submodule `external/cosmolattice`) implementing:
 
