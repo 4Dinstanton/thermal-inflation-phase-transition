@@ -4,7 +4,8 @@ Short guide for running CosmoLattice (`thermal_inflation`) with the Langevin
 scheme, full CLI reference for `simulation/run_cosmolattice.py`, and which files
 to edit for a different potential.
 
-See also: [`README.md`](README.md) (architecture, install details, GW notes).
+See also: [`README.md`](README.md) (architecture, install details, GW notes),
+[`../docs/HPC_RUN_MANUAL.md`](../docs/HPC_RUN_MANUAL.md) (other HPC centers: standard 1024³ job, Korean).
 
 ---
 
