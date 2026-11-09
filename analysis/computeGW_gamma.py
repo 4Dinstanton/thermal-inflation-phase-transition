@@ -32,11 +32,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from gwSpectrum import GEV_TO_HZ, G_S0, M_PL, T_CMB_GEV
-from published_plisc import (
-    DETECTORS,
-    load_all as load_published_plisc,
-    place_detector_label,
-)
+from published_plisc import load_all as load_published_plisc
 
 # ═══════════════════════════════════════════════════════════════════
 #  Paper defaults (TIPT_4, Eq. 86–87, Section V)
@@ -298,11 +294,9 @@ def _gamma_label(gamma: float) -> str:
 
 def _add_detectors(ax, plisc: dict | None = None) -> None:
     """Overlay Schmitz (2020) published PLISC curves (Zenodo 3689582)."""
-    curves = plisc or load_published_plisc()
-    for name, (_, color, f_target) in DETECTORS.items():
-        fv, sv = curves[name]
-        ax.loglog(fv, sv, color=color, ls="-.", lw=1.5, alpha=0.85, zorder=2)
-        place_detector_label(ax, name, fv, sv, f_target)
+    from analysis.published_plisc import add_detector_curves
+
+    add_detector_curves(ax, plisc)
 
 
 def _annotate_gamma_on_curve(

@@ -242,6 +242,39 @@ API (`etaPhys`, `maybeDisableLangevin()`, `langevinSiteWeightProg()`, …) from
 Python reference for a \(\phi^6\) tree: `potential/flatonPotential.py`
 (analysis / formulas only; the running lattice reads C++).
 
+### C. Two-step potential (`--potential_type two_step`)
+
+Sextic tree with \(V(0)=V_0\), \(V(a)=V_0-\Delta V_1\), \(V(v)=0\)
+(`potential/twoStepPotential.py`, paper `paper/twoStepTIPT`):
+
+\[
+V = V_0\big[1 + k_2 x^2 + k_3 |x|^3 + k_4 x^4 + k_6 x^6\big],\quad x=\phi/v,
+\qquad V_T = \tfrac{T^4}{2\pi^2}\, n_b\, J_B(g|\phi|/T).
+\]
+
+The runner solves for \(k_i\) and writes `two_step_*` lines; C++ uses
+`ThermalTables::Params::TreeType::TwoStep`. In this mode \(u=g|\phi|/T\) exactly:
+no Debye or `boson_mass_squared` term inside \(J\), no fermions, no CW.
+
+```bash
+python simulation/run_cosmolattice.py --potential_type two_step --nb 10 \
+  --ts_V0 1e28 --ts_a 3e6 --ts_v 3e7 --ts_delV1_frac 1.6e-4 --ts_g 30 \
+  --Nx 64 --dx_phys 3e-8 --dt_phys 3e-9 --T0 4.5e5 --no_hubble \
+  --steps 40 --snapshot_format raw --run_name ts_test
+python postprocess/detect_nested_bubbles.py data/lattice/two_step/ts_test
+```
+
+`--mphi` defaults to \(\sqrt{V''_{\rm tree}(v)}\) (program unit), `fStar = v`,
+output goes to `data/lattice/two_step/`. Checks:
+`cosmolattice_ext/tests/test_two_step.cpp` + `check_two_step_cpp.py` (C++ vs exact J),
+`postprocess/detect_nested_bubbles.py --self_test`.
+
+Caveat: for the physical nested benchmark \(g=30\) gives
+\(m_T(0)/T = g\sqrt{n_b/12}\approx 27\): the false vacuum is far outside the
+classical-statistical regime, and lattice Rayleigh–Jeans noise
+\(\sqrt{T/4dx}\sim 10^6\) GeV exceeds both barriers (\(b_1\sim10^5\) GeV,
+\(b_2-a\sim10^5\) GeV), so Langevin nucleation is not quantitative there.
+
 ---
 
 ## 6. Post-processing
@@ -258,6 +291,9 @@ python tools/cl_hdf5_string_pipeline.py analyze <run_dir> --workers 8
 
 # Revisualize
 python postprocess/revisualize_snapshots.py <run_dir> --strings
+
+# two_step: phase labelling (0 / a / v) and nested-bubble detection
+python postprocess/detect_nested_bubbles.py <run_dir>
 ```
 
 ---

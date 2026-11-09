@@ -1,0 +1,536 @@
+"""Two-field (phi, S) portal potential for a two-step exit from thermal inflation.
+
+Tree level (real radial fields phi, S >= 0):
+
+    V_tree = V0 - m_phi^2 phi^2 - m_S^2 S^2 + lam_phi phi^4 + lam_S S^4 + lam_phiS phi^2 S^2
+
+Thermal:
+  paper (default): m = g * field  (paper Eq. 4)
+  set8: V_correct-style Debye + mb2_0 + CW on phi only (matches
+        cosmolattice_ext/models/thermal_tables.hpp; S stays paper-style).
+
+Parametrisation (s0 = intermediate S VEV, v = flaton VEV, eps = Delta V_S / V0):
+
+    S-direction:   lam_S s0^4 = eps V0,      m_S^2 = 2 lam_S s0^2
+    cross term:    lam_phiS = kappa * m_phi^2 / s0^2
+                   global vacuum (v, 0), V = 0  ->  lam_phi v^4 = V0
+    no cross term: lam_phiS = 0; global vacuum (v, s0), V = 0
+                   ->  lam_phi v^4 = (1 - eps) V0
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import List, Optional, Sequence, Tuple
+
+import numpy as np
+from cosmoTransitions import finiteT as CTFT
+from scipy.optimize import brentq
+
+from potential.twoStepPotential import M_PL, Species, TwoStepPotential
+
+# set8 defaults (run_cosmolattice / getTunneling)
+SET8_NB = 20.0
+SET8_NF = 20.0
+SET8_GB = 1.09
+SET8_GF = 1.09
+SET8_GAUGE = 1.05
+SET8_MB2_0 = 1.0e6
+
+
+@dataclass
+class AxisSlice(TwoStepPotential):
+    """1D quartic slice V0 + k2 x^2 + k4 x^4 + paper-style thermal(species)."""
+
+    k2: float = 0.0
+    k4: float = 0.0
+
+    def __post_init__(self):
+        self.c2, self.c3, self.c4, self.c6 = self.k2, 0.0, self.k4, 0.0
+
+    def validate_tree(self) -> dict:
+        return {"ok": True, "b": float("nan")}
+
+
+@dataclass
+class Set8PhiBath:
+    """set8 / V_correct thermal on phi (Debye, mb2_0, CW).
+
+    Matches cosmolattice_ext/models/thermal_tables.hpp (correct dJ/dphi chain rule):
+      u_b = sqrt(mb2_0 + 1/2 gB^2 phi^2 + (1/4 gB^2 + 2/3 g_g^2) T^2) / T
+      u_f = sqrt(1/2 gF^2 phi^2 + 1/6 g_g^2 T^2) / T
+      V_th = T^4/(2 pi^2) [ nb Jb(u_b) + nf Jf(u_f) ]
+      V_cw = (m2)^2/(64 pi^2) (log(|m2|/T) - 3/2),  m2 = 3 lam_set8 phi^2
+    with lam_set8 = 4 lam_phi  (Potential.py convention).
+    """
+
+    nb: float = SET8_NB
+    nf: float = SET8_NF
+    gB: float = SET8_GB
+    gF: float = SET8_GF
+    g_gauge: float = SET8_GAUGE
+    mb2_0: float = SET8_MB2_0
+    include_cw: bool = True
+    lam_set8: float = 1.0e-24  # 4 * lam_phi for set8 tree
+    # Shared-bath coupling: the phi-bath states also get mass from S,
+    #   m^2 ⊃ 1/2 gS^2 S^2   (W ⊃ (g phi + gS S) psi psibar for equal U(1) charges).
+    # gS = 0 reproduces the separate-sector model exactly.
+    gS: float = 0.0
+
+    def m2_B(self, phi, T: float, S=0.0):
+        phi = np.asarray(phi, float)
+        S = np.asarray(S, float)
+        return (self.mb2_0 + 0.5 * self.gB**2 * phi**2 + 0.5 * self.gS**2 * S**2
+                + (0.25 * self.gB**2 + 2.0 / 3.0 * self.g_gauge**2) * T**2)
+
+    def m2_F(self, phi, T: float, S=0.0):
+        phi = np.asarray(phi, float)
+        S = np.asarray(S, float)
+        return 0.5 * self.gF**2 * phi**2 + 0.5 * self.gS**2 * S**2 + (1.0 / 6.0) * self.g_gauge**2 * T**2
+
+    def u_B(self, phi, T: float, S=0.0):
+        return np.sqrt(np.maximum(self.m2_B(phi, T, S), 0.0)) / T
+
+    def u_F(self, phi, T: float, S=0.0):
+        return np.sqrt(np.maximum(self.m2_F(phi, T, S), 0.0)) / T
+
+    @staticmethod
+    def _Jb(u):
+        # Jb_spline takes (m/T)^2; dJ/du = 2u J'(θ)
+        return CTFT.Jb_spline(np.asarray(u, float) ** 2)
+
+    @staticmethod
+    def _Jf(u):
+        return CTFT.Jf_spline(np.asarray(u, float) ** 2)
+
+    @staticmethod
+    def _dJb_du(u):
+        u = np.asarray(u, float)
+        return 2.0 * u * CTFT.Jb_spline(u**2, n=1)
+
+    @staticmethod
+    def _dJf_du(u):
+        u = np.asarray(u, float)
+        return 2.0 * u * CTFT.Jf_spline(u**2, n=1)
+
+    def V_th(self, phi, T: float, S=0.0):
+        """Absolute thermal free energy (not shifted)."""
+        phi = np.asarray(phi, float)
+        if T <= 0:
+            return np.zeros_like(phi)
+        pref = T**4 / (2 * np.pi**2)
+        return pref * (self.nb * self._Jb(self.u_B(phi, T, S))
+                       + self.nf * self._Jf(self.u_F(phi, T, S)))
+
+    def V_th_rel(self, phi, T: float, S=0.0):
+        # reference point is the origin (0,0): the S-dependence of the phi-bath free
+        # energy (the cost of the A phase when the bath decouples) is kept.
+        return self.V_th(phi, T, S) - self.V_th(0.0, T, 0.0)
+
+    def dV_th(self, phi, T: float, S=0.0):
+        """dV_th/dphi with correct chain rule du/dphi = ½ g² phi / (T² u)."""
+        phi = np.asarray(phi, float)
+        out = np.zeros_like(phi, dtype=float)
+        if T <= 0:
+            return out
+        pref = T**4 / (2 * np.pi**2)
+        ub = np.maximum(self.u_B(phi, T, S), 1e-30)
+        uf = np.maximum(self.u_F(phi, T, S), 1e-30)
+        dub = 0.5 * self.gB**2 * phi / (T**2 * ub)
+        duf = 0.5 * self.gF**2 * phi / (T**2 * uf)
+        out = pref * (self.nb * self._dJb_du(ub) * dub
+                      + self.nf * self._dJf_du(uf) * duf)
+        return out
+
+    def dV_th_dS(self, phi, T: float, S=0.0):
+        """dV_th/dS from the shared-bath coupling gS (zero when gS = 0)."""
+        S = np.asarray(S, float)
+        out = np.zeros_like(S, dtype=float)
+        if T <= 0 or self.gS == 0.0:
+            return out
+        pref = T**4 / (2 * np.pi**2)
+        ub = np.maximum(self.u_B(phi, T, S), 1e-30)
+        uf = np.maximum(self.u_F(phi, T, S), 1e-30)
+        dub = 0.5 * self.gS**2 * S / (T**2 * ub)
+        duf = 0.5 * self.gS**2 * S / (T**2 * uf)
+        return pref * (self.nb * self._dJb_du(ub) * dub + self.nf * self._dJf_du(uf) * duf)
+
+    def d2V_th0(self, T: float, S=0.0) -> float:
+        """V_th''(phi=0, S, T) along phi (at S = 0: the T0 estimate)."""
+        if T <= 0:
+            return 0.0
+        pref = T**4 / (2 * np.pi**2)
+        ub = max(float(self.u_B(0.0, T, S)), 1e-30)
+        uf = max(float(self.u_F(0.0, T, S)), 1e-30)
+        Bb, Bf = 0.5 * self.gB**2, 0.5 * self.gF**2
+        d2ub = Bb / (T**2 * ub)
+        d2uf = Bf / (T**2 * uf)
+        # at phi=0: du=0, V'' = pref * n * (dJ/du * d²u)
+        return float(pref * (self.nb * float(self._dJb_du(ub)) * d2ub
+                             + self.nf * float(self._dJf_du(uf)) * d2uf))
+
+    def V_cw(self, phi, T: float):
+        phi = np.asarray(phi, float)
+        if T <= 0 or not self.include_cw:
+            return np.zeros_like(phi)
+        m2 = 3.0 * self.lam_set8 * phi**2
+        m2abs = np.abs(m2)
+        raw = m2**2 / (64 * np.pi**2) * (np.log(np.maximum(m2abs / T, 1e-300)) - 1.5)
+        return np.where(m2abs > 0, raw, 0.0)
+
+    def V_cw_rel(self, phi, T: float):
+        return self.V_cw(phi, T) - self.V_cw(0.0, T)
+
+    def dV_cw(self, phi, T: float):
+        phi = np.asarray(phi, float)
+        if T <= 0 or not self.include_cw:
+            return np.zeros_like(phi)
+        m2 = 3.0 * self.lam_set8 * phi**2
+        dm2 = 6.0 * self.lam_set8 * phi
+        m2abs = np.abs(m2)
+        raw = dm2 * m2 / (64 * np.pi**2) * 2.0 * (np.log(np.maximum(m2abs / T, 1e-300)) - 1.0)
+        return np.where(m2abs > 0, raw, 0.0)
+
+    def d2V_cw0(self, T: float) -> float:
+        # CW ~ phi^4 log → V''(0) = 0
+        return 0.0
+
+
+@dataclass
+class PhiAxisSlice(AxisSlice):
+    """1D phi slice; uses set8 thermal when portal.phi_thermal == 'set8'."""
+
+    portal: Optional["PortalPotential"] = None
+    S_fixed: float = 0.0
+
+    def V_rel(self, phi, T: float):
+        if self.portal is None or self.portal.phi_thermal != "set8":
+            return super().V_rel(phi, T)
+        phi = np.asarray(phi, float)
+        # V(phi,S,T) - V(0,S,T)
+        return (self.portal.V_rel(phi, self.S_fixed, T)
+                - self.portal.V_rel(0.0, self.S_fixed, T))
+
+    def dV(self, phi, T: float):
+        if self.portal is None or self.portal.phi_thermal != "set8":
+            return super().dV(phi, T)
+        gp, _ = self.portal.grad(phi, self.S_fixed, T)
+        return gp
+
+    def d2V(self, phi, T: float):
+        if self.portal is None or self.portal.phi_thermal != "set8":
+            return super().d2V(phi, T)
+        # numerical second derivative (used only for vacua classification)
+        phi = np.asarray(phi, float)
+        h = 1e-6 * np.maximum(np.abs(phi), 1.0)
+        return (self.dV(phi + h, T) - self.dV(phi - h, T)) / (2 * h)
+
+
+@dataclass
+class SAxisSlice(AxisSlice):
+    """1D S slice at phi = 0 using the full portal potential (needed when the
+    phi-bath states depend on S through gS)."""
+
+    portal: Optional["PortalPotential"] = None
+
+    def V_rel(self, S, T: float):
+        if self.portal is None:
+            return super().V_rel(S, T)
+        S = np.asarray(S, float)
+        return self.portal.V_rel(0.0, S, T) - self.portal.V_rel(0.0, 0.0, T)
+
+    def dV(self, S, T: float):
+        if self.portal is None:
+            return super().dV(S, T)
+        _, gs = self.portal.grad(0.0, S, T)
+        return gs
+
+    def d2V(self, S, T: float):
+        if self.portal is None:
+            return super().d2V(S, T)
+        S = np.asarray(S, float)
+        h = 1e-6 * np.maximum(np.abs(S), 1.0)
+        return (self.dV(S + h, T) - self.dV(S - h, T)) / (2 * h)
+
+
+@dataclass
+class PortalPotential:
+    V0: float
+    v: float
+    s0: float
+    eps: float
+    kappa: Optional[float] = None  # None -> no cross term
+    species_phi: List[Species] = field(default_factory=lambda: [Species(20.0, 1.09)])
+    species_S: List[Species] = field(default_factory=lambda: [Species(6.0, 1.0)])
+    g_star: float = 100.0
+    # "paper" = m = g * field. "set8" = V_correct Debye+CW on phi.
+    phi_thermal: str = "paper"
+    set8: Set8PhiBath = field(default_factory=Set8PhiBath)
+    # shared-bath coupling gS (phi-bath masses ⊃ 1/2 gS^2 S^2); 0 = separate sectors
+    gS_bath: float = 0.0
+
+    def __post_init__(self):
+        if not (0.0 < self.eps < 1.0):
+            raise ValueError(f"need 0 < eps < 1, got {self.eps}")
+        if self.phi_thermal not in ("paper", "set8"):
+            raise ValueError("phi_thermal must be 'paper' or 'set8'")
+        self.lam_S = self.eps * self.V0 / self.s0**4
+        self.m_S2 = 2.0 * self.lam_S * self.s0**2
+        if self.cross:
+            self.lam_phi = self.V0 / self.v**4
+        else:
+            self.lam_phi = (1.0 - self.eps) * self.V0 / self.v**4
+        self.m_phi2 = 2.0 * self.lam_phi * self.v**2
+        self.lam_phiS = self.kappa * self.m_phi2 / self.s0**2 if self.cross else 0.0
+        self.m_set8 = math.sqrt(2.0 * self.m_phi2)  # |V''_0|^{1/2} in set8 convention
+        self.delV1 = self.eps * self.V0
+        self.delV2 = (1.0 - self.eps) * self.V0
+        # keep set8 tree coupling consistent with portal lam_phi
+        self.set8.lam_set8 = 4.0 * self.lam_phi
+        self.set8.gS = float(self.gS_bath or 0.0)
+        # if species_phi given, sync multiplicities / Yukawas into set8 bath
+        if self.phi_thermal == "set8" and self.species_phi:
+            bos = [s for s in self.species_phi if not s.fermion]
+            fer = [s for s in self.species_phi if s.fermion]
+            if bos:
+                self.set8.nb = sum(s.n for s in bos)
+                self.set8.gB = bos[0].g
+            if fer:
+                self.set8.nf = sum(s.n for s in fer)
+                self.set8.gF = fer[0].g
+
+    @property
+    def cross(self) -> bool:
+        return self.kappa is not None and self.kappa != 0.0
+
+    # ------------------------------------------------------------- tree
+    def V_tree_rel(self, phi, S):
+        p2, s2 = np.asarray(phi, float) ** 2, np.asarray(S, float) ** 2
+        return (-self.m_phi2 * p2 - self.m_S2 * s2 + self.lam_phi * p2 * p2
+                + self.lam_S * s2 * s2 + self.lam_phiS * p2 * s2)
+
+    def grad_tree(self, phi, S):
+        phi, S = np.asarray(phi, float), np.asarray(S, float)
+        dphi = phi * (-2 * self.m_phi2 + 4 * self.lam_phi * phi**2 + 2 * self.lam_phiS * S**2)
+        dS = S * (-2 * self.m_S2 + 4 * self.lam_S * S**2 + 2 * self.lam_phiS * phi**2)
+        return dphi, dS
+
+    # ---------------------------------------------------------- thermal (paper)
+    @staticmethod
+    def _dVT(species, x, T):
+        x = np.asarray(x, float)
+        out = np.zeros_like(x)
+        if T <= 0:
+            return out
+        pref = T**4 / (2 * np.pi**2)
+        for s in species:
+            J = CTFT.Jf_spline if s.fermion else CTFT.Jb_spline
+            out = out + pref * s.n * (J((s.g * x / T) ** 2) - J(0.0))
+        return out
+
+    @staticmethod
+    def _ddVT(species, x, T):
+        x = np.asarray(x, float)
+        out = np.zeros_like(x)
+        if T <= 0:
+            return out
+        for s in species:
+            J = CTFT.Jf_spline if s.fermion else CTFT.Jb_spline
+            out = out + s.n * s.g**2 * T**2 * x * J((s.g * x / T) ** 2, n=1) / np.pi**2
+        return out
+
+    @staticmethod
+    def thermal_c(species) -> float:
+        return sum(s.n * s.g**2 / (24.0 if s.fermion else 12.0) for s in species)
+
+    # ------------------------------------------------------------ total
+    def V_rel(self, phi, S, T: float):
+        tree = self.V_tree_rel(phi, S)
+        dS = self._dVT(self.species_S, S, T)
+        if self.phi_thermal == "set8":
+            dphi = self.set8.V_th_rel(phi, T, S) + self.set8.V_cw_rel(phi, T)
+        else:
+            dphi = self._dVT(self.species_phi, phi, T)
+        return tree + dphi + dS
+
+    def V_delta(self, phi, S, T: float, S_A: float, phi_A: float = 0.0):
+        """V(φ,S,T) − V(φ_A,S_A,T) without subtracting two huge absolutes.
+
+        For large ε, |V_A| ∼ ε V0 can be 10^34 GeV⁴ while the A→B thermal
+        barrier is only ∼T⁴.  ``V_rel(φ,S)−V_rel(0,S_A)`` then underflows to 0
+        and CosmoTransitions/path bounce falsely sees no barrier.
+
+        ``phi_A`` defaults to 0 (unmixed A); mixed potentials pass φ_off.
+        """
+        p = np.asarray(phi, float)
+        s = np.asarray(S, float)
+        pA, sA = float(phi_A), float(S_A)
+        p2, s2 = p ** 2, s ** 2
+        pA2, sA2 = pA ** 2, sA ** 2
+        tree = (-self.m_phi2 * (p2 - pA2) - self.m_S2 * (s2 - sA2)
+                + self.lam_phi * (p2 * p2 - pA2 * pA2)
+                + self.lam_S * (s2 * s2 - sA2 * sA2)
+                + self.lam_phiS * (p2 * s2 - pA2 * sA2))
+        dS = self._dVT(self.species_S, s, T) - self._dVT(self.species_S, sA, T)
+        if self.phi_thermal == "set8":
+            dphi = (self.set8.V_th_rel(p, T, s) + self.set8.V_cw_rel(p, T)
+                    - self.set8.V_th_rel(pA, T, sA) - self.set8.V_cw_rel(pA, T))
+        else:
+            dphi = (self._dVT(self.species_phi, p, T)
+                    - self._dVT(self.species_phi, pA, T))
+        return tree + dphi + dS
+
+    def grad(self, phi, S, T: float):
+        gp, gs = self.grad_tree(phi, S)
+        gs = gs + self._ddVT(self.species_S, S, T)
+        if self.phi_thermal == "set8":
+            gp = gp + self.set8.dV_th(phi, T, S) + self.set8.dV_cw(phi, T)
+            if self.set8.gS != 0.0:
+                gs = gs + self.set8.dV_th_dS(phi, T, S)
+        else:
+            gp = gp + self._ddVT(self.species_phi, phi, T)
+        return gp, gs
+
+    def mass2_phi(self, phi, S, T):
+        """Approximate curvature along phi (exact at phi=0 for set8)."""
+        tree = -2 * self.m_phi2 + 2 * self.lam_phiS * S**2
+        if self.phi_thermal == "set8":
+            if abs(float(np.asarray(phi).reshape(-1)[0])) < 1e-30:
+                return tree + self.set8.d2V_th0(T, float(np.asarray(S).reshape(-1)[0])) + self.set8.d2V_cw0(T)
+            h = 1e-4 * max(abs(float(phi)), 1.0)
+            gp_p, _ = self.grad(float(phi) + h, S, T)
+            gp_m, _ = self.grad(float(phi) - h, S, T)
+            return float((gp_p - gp_m) / (2 * h))
+        return tree + self.thermal_c(self.species_phi) * T**2
+
+    def mass2_S(self, phi, S, T):
+        """Curvature along S at (phi, S).
+
+        At S = 0 this is the origin thermal mass (high-T form).  Away from the
+        origin the tree quartic 12 λ_S S² and the exact (Boltzmann-suppressed)
+        thermal curvature are needed: at A = (0, s0) the curvature is +4 m_S²,
+        not −2 m_S².  The old form returned the S = 0 value everywhere, which
+        made the mixed-potential A′ check (_is_local_min) reject every A′.
+        """
+        S = float(np.asarray(S).reshape(-1)[0])
+        phi = float(np.asarray(phi).reshape(-1)[0])
+        tree = -2 * self.m_S2 + 12 * self.lam_S * S**2 + 2 * self.lam_phiS * phi**2
+        if abs(S) < 1e-30:
+            cS = self.thermal_c(self.species_S)
+            if self.phi_thermal == "set8" and self.set8.gS != 0.0:
+                cS += self.set8.nb * self.set8.gS**2 / 12.0 + self.set8.nf * self.set8.gS**2 / 24.0
+            return tree + cS * T**2
+        h = 1e-4 * max(abs(S), 1.0)
+        d2 = (self._ddVT(self.species_S, S + h, T) - self._ddVT(self.species_S, S - h, T)) / (2 * h)
+        if self.phi_thermal == "set8" and self.set8.gS != 0.0:
+            d2 = d2 + (self.set8.dV_th_dS(phi, T, S + h) - self.set8.dV_th_dS(phi, T, S - h)) / (2 * h)
+        return tree + float(d2)
+
+    # ------------------------------------------------------------ slices
+    def slice_S(self) -> AxisSlice:
+        if self.phi_thermal == "set8" and self.set8.gS != 0.0:
+            # the phi-bath states also depend on S: use the full V(0, S, T)
+            return SAxisSlice(V0=self.V0, a=self.s0, v=self.s0, delV1=0.0, species=list(self.species_S),
+                              g_star=self.g_star, k2=-self.m_S2, k4=self.lam_S, portal=self)
+        return AxisSlice(V0=self.V0, a=self.s0, v=self.s0, delV1=0.0, species=list(self.species_S),
+                         g_star=self.g_star, k2=-self.m_S2, k4=self.lam_S)
+
+    def slice_phi(self, S: float = 0.0) -> AxisSlice:
+        k2 = -self.m_phi2 + self.lam_phiS * S**2
+        vev = math.sqrt(max(-k2, 0.0) / (2 * self.lam_phi)) or self.v
+        if self.phi_thermal == "set8":
+            return PhiAxisSlice(
+                V0=self.V0, a=vev, v=vev, delV1=0.0, species=list(self.species_phi),
+                g_star=self.g_star, k2=k2, k4=self.lam_phi, portal=self, S_fixed=S,
+            )
+        return AxisSlice(V0=self.V0, a=vev, v=vev, delV1=0.0, species=list(self.species_phi),
+                         g_star=self.g_star, k2=k2, k4=self.lam_phi)
+
+    # ------------------------------------------------------------ vacua
+    def vacua(self, T: float) -> dict:
+        out = {"O": None, "A": None, "B": None}
+        mO_p, mO_s = self.mass2_phi(0.0, 0.0, T), self.mass2_S(0.0, 0.0, T)
+        if mO_p > 0 and mO_s > 0:
+            out["O"] = (0.0, 0.0, 0.0)
+        sv = self.slice_S().vacua(T)["true"]
+        pv = self.slice_phi(0.0).vacua(T)["true"]
+        if sv is not None and self.mass2_phi(0.0, sv.phi, T) > 0:
+            out["A"] = (0.0, sv.phi, float(self.V_rel(0.0, sv.phi, T)))
+        elif sv is not None:
+            # S condensate exists but phi is unstable there (e.g. shared bath switched
+            # off the thermal trapping): the intermediate phase rolls to B at once.
+            out["A_rolled"] = True
+        if pv is not None:
+            if self.cross:
+                if self.mass2_S(pv.phi, 0.0, T) > 0:
+                    out["B"] = (pv.phi, 0.0, float(self.V_rel(pv.phi, 0.0, T)))
+            elif sv is not None:
+                out["B"] = (pv.phi, sv.phi, float(self.V_rel(pv.phi, sv.phi, T)))
+        out["s_T"] = sv.phi if sv is not None else float("nan")
+        out["v_T"] = pv.phi if pv is not None else float("nan")
+        return out
+
+    # --------------------------------------------------------- cosmology
+    def rho_rad(self, T):
+        return np.pi**2 / 30.0 * self.g_star * np.asarray(T, dtype=float) ** 4
+
+    def hubble(self, T, V_false: float):
+        return np.sqrt((self.rho_rad(T) + V_false) / (3.0 * M_PL**2))
+
+    def T0_phi(self) -> float:
+        if self.phi_thermal != "set8":
+            return math.sqrt(2 * self.m_phi2 / self.thermal_c(self.species_phi))
+        # find T where mass2_phi(0,0,T) = 0
+        def f(T):
+            return self.mass2_phi(0.0, 0.0, T)
+
+        # bracket: at low T tree dominates (negative); at high T thermal > 0
+        lo, hi = 1.0, 1.0e6
+        if f(hi) <= 0:
+            return float("nan")
+        if f(lo) >= 0:
+            return lo
+        return float(brentq(f, lo, hi))
+
+    def T0_S(self) -> float:
+        cS = self.thermal_c(self.species_S)
+        if self.phi_thermal == "set8" and getattr(self.set8, "gS", 0.0):
+            cS += self.set8.nb * self.set8.gS**2 / 12.0 + self.set8.nf * self.set8.gS**2 / 24.0
+        return math.sqrt(2 * self.m_S2 / cS)
+
+    def summary(self) -> str:
+        lines = [
+            f"PortalPotential ({'with' if self.cross else 'no'} cross term; "
+            f"phi thermal={self.phi_thermal})",
+            f"  V0 = {self.V0:.4e} GeV^4 (V0^1/4 = {self.V0**0.25:.4e}),  v = {self.v:.4e},  "
+            f"s0 = {self.s0:.4e} GeV,  eps = dV_S/V0 = {self.eps:.3e}",
+            f"  m_phi = {math.sqrt(self.m_phi2):.4e} GeV (|V''_0|^{1/2} = {self.m_set8:.4e}), "
+            f"lam_phi = {self.lam_phi:.4e}",
+            f"  m_S   = {math.sqrt(self.m_S2):.4e} GeV, lam_S   = {self.lam_S:.4e}",
+            f"  lam_phiS = {self.lam_phiS:.4e}" + (f"  (kappa = {self.kappa:g}; (0,s0) is a T=0 "
+                                                   f"{'minimum' if self.kappa > 1 else 'saddle'})"
+                                                   if self.cross else ""),
+            f"  T0_phi = {self.T0_phi():.4e} GeV,  T0_S = {self.T0_S():.4e} GeV  "
+            f"(S destabilises first: {self.T0_S() > self.T0_phi()})",
+        ]
+        if self.cross:
+            lam_eff = self.lam_phiS**2 / (4 * self.lam_S) - self.lam_phi
+            lines.append(f"  valley quartic near (0,s0): -(lam_phiS^2/4lam_S - lam_phi) = {-lam_eff:.4e}"
+                         f"  -> T=0 barrier ~ {(self.kappa - 1) ** 2 / self.kappa**2 * self.eps:.3e} V0")
+        if self.phi_thermal == "set8":
+            b = self.set8
+            lines.append(f"  set8 phi bath: nb={b.nb:g}, nf={b.nf:g}, gB={b.gB:g}, gF={b.gF:g}, "
+                         f"g_gauge={b.g_gauge:g}, mb2_0={b.mb2_0:.3e}, CW={b.include_cw}")
+        else:
+            for tag, sp in (("phi", self.species_phi), ("S", self.species_S)):
+                for s in sp:
+                    lines.append(f"  bath ({tag}): n={s.n:g}, g={s.g:g}{' (F)' if s.fermion else ''}"
+                                 f"  [m = g * {tag}]")
+            lines.append("  note: paper thermal; pass phi_thermal='set8' for V_correct")
+        for s in self.species_S:
+            lines.append(f"  bath (S): n={s.n:g}, g={s.g:g}{' (F)' if s.fermion else ''}  [m = g * S]")
+        return "\n".join(lines)
+
+
+def make_species(items: Sequence[Tuple[float, float]], fermion=False) -> List[Species]:
+    return [Species(float(n), float(g), fermion) for n, g in items]

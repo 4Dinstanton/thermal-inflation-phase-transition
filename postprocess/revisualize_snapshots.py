@@ -909,7 +909,7 @@ def plot_strings_2d(state, metadata, output_file):
     n_total_vox = int(np.sum(np.abs(winding) > 0.5))
     n_loops = len(strings)
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
+    fig, axes = plt.subplots(2, 3, figsize=(22, 11))
     vev = resolve_phi0_vev(metadata)
     rho_sl = rho[:, :, zmid].T
 

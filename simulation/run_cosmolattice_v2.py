@@ -601,6 +601,9 @@ def parse_args():
     known, rest = v2p.parse_known_args()
     sys.argv = [sys.argv[0]] + rest
     args = v1.parse_args()
+    if args.potential_type == "two_step":
+        sys.exit("ERROR: --potential_type two_step is only wired into simulation/run_cosmolattice.py")
+    v1._resolve_potential(args)
     for k, v in vars(known).items():
         setattr(args, k, v)
     args.evolver = EVOLVER_NAME

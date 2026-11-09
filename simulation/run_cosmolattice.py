@@ -124,9 +124,18 @@ def parse_args():
     p.add_argument("--run_dir", default=None, help="Explicit run directory for --export_only")
     # physics
     p.add_argument("--T0", type=float, default=7350.0, help="Initial temperature (GeV)")
-    p.add_argument("--mphi", type=float, default=1000.0, help="Scalar mass / mu (GeV)")
+    p.add_argument("--mphi", type=float, default=None,
+                   help="Scalar mass / mu (GeV); program unit omega_*. "
+                        "Default 1000 (V_correct) or sqrt(V''_tree(v)) (two_step)")
     p.add_argument("--gamma", type=float, default=4.1667e-4, help="phi0 = gamma*M_Pl; sets lambda and delV")
-    p.add_argument("--potential_type", choices=["V_correct", "fermion_only"], default="V_correct")
+    p.add_argument("--potential_type", choices=["V_correct", "fermion_only", "two_step"], default="V_correct",
+                   help="two_step: sextic 0 -> a -> v tree of potential/twoStepPotential.py (--ts_* flags)")
+    # two-step potential (paper/twoStepTIPT); bath = --nb bosons with m = ts_g |phi|
+    p.add_argument("--ts_V0", type=float, default=1e28, help="two_step: V(0) (GeV^4)")
+    p.add_argument("--ts_a", type=float, default=3e6, help="two_step: intermediate minimum a (GeV)")
+    p.add_argument("--ts_v", type=float, default=3e7, help="two_step: global minimum v (GeV)")
+    p.add_argument("--ts_delV1_frac", type=float, default=2e-4, help="two_step: (V0 - V(a)) / V0")
+    p.add_argument("--ts_g", type=float, default=30.0, help="two_step: bath coupling g (m_B = g|phi|)")
     p.add_argument("--nb", type=float, default=20.0, help="Boson multiplicity")
     p.add_argument("--nf", type=float, default=20.0, help="Fermion multiplicity")
     p.add_argument("--boson_coupling", type=float, default=1.09)
@@ -914,6 +923,72 @@ def _langevin_off_mode(args) -> str:
     return "none"
 
 
+def two_step_potential(args):
+    """TwoStepPotential for the --ts_* flags (bath: args.nb bosons, m = ts_g |phi|)."""
+    sys.path.insert(0, REPO)
+    from potential.twoStepPotential import TwoStepPotential
+
+    return TwoStepPotential.from_vacua(
+        V0=args.ts_V0, a=args.ts_a, v=args.ts_v, delV1_frac=args.ts_delV1_frac,
+        bosons=((args.nb, args.ts_g),),
+    )
+
+
+def two_step_coefficients(pot):
+    """Dimensionless (k2, k3, k4, k6): V_tree/V0 = 1 + sum_i k_i (phi/v)^i."""
+    from potential.twoStepPotential import solve_coefficients
+
+    c = solve_coefficients(pot.V0, pot.a, pot.v, pot.delV1)
+    return tuple(ci * pot.v**i / pot.V0 for ci, i in zip(c, (2, 3, 4, 6)))
+
+
+def _resolve_potential(args):
+    """Fill --mphi default and force the bath settings two_step assumes."""
+    if args.potential_type != "two_step":
+        if args.mphi is None:
+            args.mphi = 1000.0
+        return
+    pot = two_step_potential(args)
+    tree = pot.validate_tree()
+    if not tree["ok"]:
+        sys.exit(f"ERROR: two_step tree is not 0 -> a -> v ordered: {tree}")
+    if args.mphi is None:
+        args.mphi = math.sqrt(float(pot.d2V_tree(pot.v)))
+    args.boson_coupling = math.sqrt(2.0) * args.ts_g
+    args.fermion_coupling = 0.0
+    args.gauge = 0.0
+    args.nf = 0.0
+    args.include_cw = 0
+    args.two_step_k = two_step_coefficients(pot)
+
+
+def _potential_input_lines(args):
+    if args.potential_type == "two_step":
+        k2, k3, k4, k6 = args.two_step_k
+        return [
+            f"two_step_V0 = {args.ts_V0:.17g}",
+            f"two_step_a = {args.ts_a:.17g}",
+            f"two_step_v = {args.ts_v:.17g}",
+            f"two_step_k2 = {k2:.17g}",
+            f"two_step_k3 = {k3:.17g}",
+            f"two_step_k4 = {k4:.17g}",
+            f"two_step_k6 = {k6:.17g}",
+            f"boson_coupling = {args.boson_coupling:.17g}",
+            "boson_gauge_coupling = 0",
+            "fermion_coupling = 0",
+            "fermion_gauge_coupling = 0",
+            "boson_mass_squared = 0",
+        ]
+    return [
+        f"gamma = {args.gamma:g}",
+        f"boson_coupling = {args.boson_coupling:g}",
+        f"boson_gauge_coupling = {args.gauge:g}",
+        f"fermion_coupling = {args.fermion_coupling:g}",
+        f"fermion_gauge_coupling = {args.gauge:g}",
+        "boson_mass_squared = 1.0e6",
+    ]
+
+
 def make_input(args, out_dir):
     N = args.Nx
     mu = args.mphi
@@ -1012,13 +1087,8 @@ def make_input(args, out_dir):
         "",
         "#Thermal-inflation model",
         f"potential_type = {args.potential_type}",
-        f"mphi = {args.mphi:g}",
-        f"gamma = {args.gamma:g}",
-        f"boson_coupling = {args.boson_coupling:g}",
-        f"boson_gauge_coupling = {args.gauge:g}",
-        f"fermion_coupling = {args.fermion_coupling:g}",
-        f"fermion_gauge_coupling = {args.gauge:g}",
-        "boson_mass_squared = 1.0e6",
+        f"mphi = {args.mphi:.10g}",
+        *_potential_input_lines(args),
         f"nb = {0 if args.potential_type == 'fermion_only' else args.nb:g}",
         f"nf = {args.nf:g}",
         "g_star_pot = 100.0",
@@ -1084,7 +1154,10 @@ def write_run_params(args, out_dir):
     import json
     mu = args.mphi
     M_PL = 2.4e18
-    phi0 = args.gamma * M_PL
+    if args.potential_type == "two_step":
+        phi0 = args.ts_v
+    else:
+        phi0 = args.gamma * M_PL
     lam = mu * mu / (phi0 * phi0)
     steps = args.steps if args.steps is not None else 100_000
     params = {
@@ -1131,6 +1204,12 @@ def write_run_params(args, out_dir):
         "mpi": bool(args.mpi),
         "mpi_np": args.mpi_np if args.mpi else 1,
     }
+    if args.potential_type == "two_step":
+        params.update({
+            "ts_V0": args.ts_V0, "ts_a": args.ts_a, "ts_v": args.ts_v,
+            "ts_delV1_frac": args.ts_delV1_frac, "ts_g": args.ts_g,
+            "ts_k": list(args.two_step_k),
+        })
     path = os.path.join(out_dir, "cl_run_params.json")
     with open(path, "w") as f:
         json.dump(params, f, indent=2)
@@ -1195,7 +1274,12 @@ def output_dirname(args):
     # Tag γ in the run dirname when it is not the historical set8 value, so
     # different γ never collide even if forced into the same param_set folder.
     gamma = float(getattr(args, "gamma", SET8_GAMMA))
-    if gammas_close(gamma, SET8_GAMMA):
+    if args.potential_type == "two_step":
+        gamma_tag = (f"_V0_{args.ts_V0:g}_a_{args.ts_a:g}_v_{args.ts_v:g}"
+                     f"_dV1_{args.ts_delV1_frac:g}_gB_{args.ts_g:g}")
+        coupling_tag = f"_nb_{args.nb:g}"
+        pot_type_tag = "_two_step"
+    elif gammas_close(gamma, SET8_GAMMA):
         gamma_tag = ""
     else:
         gamma_tag = f"_g_{format_gamma_tag(gamma)}"
@@ -1210,6 +1294,12 @@ def output_dirname(args):
 def _apply_param_set(args):
     """Resolve data/lattice/<set>/ from --gamma / --param_set / --force_param_set."""
     requested = args.param_set
+    if args.potential_type == "two_step":
+        args.param_set = "two_step" if requested in (None, "", "auto") else requested
+        print(f"param_set={args.param_set}  two_step V0={args.ts_V0:.4e} GeV^4  "
+              f"a={args.ts_a:g}  v={args.ts_v:g}  delV1/V0={args.ts_delV1_frac:g}  "
+              f"mphi={args.mphi:.4e}  → data/lattice/{args.param_set}/")
+        return args.param_set
     if getattr(args, "force_param_set", False):
         if requested in (None, "", "auto"):
             args.param_set = set_name_for_gamma(args.gamma)
@@ -1235,6 +1325,7 @@ def _apply_param_set(args):
 
 def main():
     args = parse_args()
+    _resolve_potential(args)
     _apply_param_set(args)
 
     if args.export_only:

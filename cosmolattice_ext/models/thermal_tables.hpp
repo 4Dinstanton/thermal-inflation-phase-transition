@@ -31,6 +31,15 @@
  *
  * NOTE: Potential.dV_p_correct in the Python repo uses a different (incorrect)
  * chain rule; we deliberately match the *correct* derivative (= derivative of V).
+ *
+ * Two-step tree (treeType = TwoStep, potential/twoStepPotential.py), x = |phi|/v:
+ *   V_tree/V0 = 1 + k2 x^2 + k3 x^3 + k4 x^4 + k6 x^6
+ *             = (x - 1)^2 (q0 + q1 x + q2 x^2 + q3 x^3 + q4 x^4)
+ * The factorised form is used for V so V(v) = 0 holds without a V0 cancellation.
+ * The odd term is c3 |phi|^3: with an analytic phi^3 a real field would have a
+ * deeper vacuum at phi < 0. In TwoStep mode u_b,f drop the mb2_0 and T^2 terms,
+ * so with yb = sqrt(2) g_B, yf = sqrt(2) g_F one has u = g |phi| / T (paper Eq. 4).
+ * Use includeCW = false.
  */
 
 #include <cmath>
@@ -57,17 +66,71 @@ public:
         double nf = 20.0;       // fermion multiplicity
         double gStarPot = 100.0; // radiation free-energy multiplicity
         bool includeCW = true;   // include Coleman-Weinberg force/energy
+        // Tree shape: LambdaPhi4 = (lam/4)(phi^2 - phi0^2)^2; TwoStep = sextic above.
+        enum class TreeType { LambdaPhi4 = 0, TwoStep = 1 };
+        TreeType treeType = TreeType::LambdaPhi4;
+        double V0 = 0.0;                        // TwoStep: V_tree(0) (GeV^4)
+        double vVac = 1.0;                      // TwoStep: global minimum v (GeV)
+        double k2 = 0.0, k3 = 0.0, k4 = 0.0, k6 = 0.0;  // TwoStep: dimensionless
     };
 
     ThermalTables() = default;
 
     explicit ThermalTables(const std::string& binPath) { load(binPath); }
 
-    ThermalTables(const std::string& binPath, const Params& p) : params_(p) {
+    ThermalTables(const std::string& binPath, const Params& p) {
         load(binPath);
+        setParams(p);
     }
 
-    void setParams(const Params& p) { params_ = p; }
+    void setParams(const Params& p) {
+        params_ = p;
+        // (x-1)^2 Q(x) = 1 + k2 x^2 + k3 x^3 + k4 x^4 + k6 x^6, matched from x^6 down.
+        q_[4] = p.k6;
+        q_[3] = 2.0 * q_[4];
+        q_[2] = p.k4 + 2.0 * q_[3] - q_[4];
+        q_[1] = p.k3 + 2.0 * q_[2] - q_[3];
+        q_[0] = p.k2 + 2.0 * q_[1] - q_[2];
+    }
+
+    bool twoStep() const { return params_.treeType == Params::TreeType::TwoStep; }
+
+    // Tree-level pieces (no thermal / radiation / CW).
+    double Vtree(double phi) const {
+        const Params& p = params_;
+        if (twoStep()) {
+            const double x = std::fabs(phi) / p.vVac;
+            const double Q = q_[0] + x * (q_[1] + x * (q_[2] + x * (q_[3] + x * q_[4])));
+            return p.V0 * (x - 1.0) * (x - 1.0) * Q;
+        }
+        if (p.lam > 0.0) {
+            const double phi0_sq = p.mphi * p.mphi / p.lam;
+            const double dphi2 = phi * phi - phi0_sq;
+            return 0.25 * p.lam * dphi2 * dphi2;
+        }
+        return 0.25 * p.lam * std::pow(phi, 4) - 0.5 * p.mphi * p.mphi * phi * phi;
+    }
+    double VtreePrime(double phi) const {
+        const Params& p = params_;
+        if (twoStep()) {
+            const double x = std::fabs(phi) / p.vVac;
+            const double x2 = x * x;
+            const double sgn = phi >= 0.0 ? 1.0 : -1.0;
+            return sgn * p.V0 / p.vVac
+                 * x * (2.0 * p.k2 + x * (3.0 * p.k3 + x * (4.0 * p.k4 + 6.0 * p.k6 * x2)));
+        }
+        return p.lam * std::pow(phi, 3) - p.mphi * p.mphi * phi;
+    }
+    double VtreeSecond(double phi) const {
+        const Params& p = params_;
+        if (twoStep()) {
+            const double x = std::fabs(phi) / p.vVac;
+            const double x2 = x * x;
+            return p.V0 / (p.vVac * p.vVac)
+                 * (2.0 * p.k2 + x * (6.0 * p.k3 + x * (12.0 * p.k4 + 30.0 * p.k6 * x2)));
+        }
+        return 3.0 * p.lam * phi * phi - p.mphi * p.mphi;
+    }
     const Params& params() const { return params_; }
 
     // Load the little-endian binary table (see export_thermal_splines.py).
@@ -108,14 +171,7 @@ public:
         // (lam/4)phi^4 - (mphi^2/2)phi^2 + DeltaV, but stable near phi=phi0
         // (expanded form suffers O(1e19) GeV^4 cancellation → spurious potAvI < 0
         // and negative P_GW via /rho).
-        double v = 0.0;
-        if (p.lam > 0.0) {
-            const double phi0_sq = p.mphi * p.mphi / p.lam;
-            const double dphi2 = phi * phi - phi0_sq;
-            v += 0.25 * p.lam * dphi2 * dphi2;
-        } else {
-            v += 0.25 * p.lam * std::pow(phi, 4) - 0.5 * p.mphi * p.mphi * phi * phi;
-        }
+        double v = Vtree(phi);
         // J interpolated with cubic Hermite using dJ as the nodal derivative.
         v += pref * (p.nb * hermite(Jb_, dJb_, ub) + p.nf * hermite(Jf_, dJf_, uf));
         v += M_PI * M_PI / 30.0 * p.gStarPot * std::pow(T, 4);
@@ -132,7 +188,7 @@ public:
         const double ufs = uf > 1e-20 ? uf : 1e-20;
         const double dub = 0.5 * p.yb * p.yb * phi / (T * T * ubs);
         const double duf = 0.5 * p.yf * p.yf * phi / (T * T * ufs);
-        double vp = p.lam * std::pow(phi, 3) - p.mphi * p.mphi * phi;
+        double vp = VtreePrime(phi);
         // dJ interpolated with cubic Hermite using d2J as the nodal derivative.
         vp += pref * (p.nb * hermite(dJb_, d2Jb_, ub) * dub
                     + p.nf * hermite(dJf_, d2Jf_, uf) * duf);
@@ -151,11 +207,21 @@ public:
         //                              d2u/dphi2 = B/(T^2 u) - (B phi)^2/(T^4 u^3)
         const double Bb = 0.5 * p.yb * p.yb;
         const double Bf = 0.5 * p.yf * p.yf;
-        const double dub = Bb * phi / (T * T * ubs);
-        const double duf = Bf * phi / (T * T * ufs);
-        const double d2ub = Bb / (T * T * ubs) - (Bb * phi) * (Bb * phi) / (std::pow(T, 4) * std::pow(ubs, 3));
-        const double d2uf = Bf / (T * T * ufs) - (Bf * phi) * (Bf * phi) / (std::pow(T, 4) * std::pow(ufs, 3));
-        double vpp = 3.0 * p.lam * phi * phi - p.mphi * p.mphi;
+        double dub, duf, d2ub, d2uf;
+        if (twoStep()) {
+            // A = 0: u = sqrt(B)|phi|/T is piecewise linear (avoids 0 * 1/u at phi = 0).
+            const double sgn = phi >= 0.0 ? 1.0 : -1.0;
+            dub = sgn * std::sqrt(Bb) / T;
+            duf = sgn * std::sqrt(Bf) / T;
+            d2ub = 0.0;
+            d2uf = 0.0;
+        } else {
+            dub = Bb * phi / (T * T * ubs);
+            duf = Bf * phi / (T * T * ufs);
+            d2ub = Bb / (T * T * ubs) - (Bb * phi) * (Bb * phi) / (std::pow(T, 4) * std::pow(ubs, 3));
+            d2uf = Bf / (T * T * ufs) - (Bf * phi) * (Bf * phi) / (std::pow(T, 4) * std::pow(ufs, 3));
+        }
+        double vpp = VtreeSecond(phi);
         vpp += pref * (p.nb * (interp(d2Jb_, ub) * dub * dub + hermite(dJb_, d2Jb_, ub) * d2ub)
                      + p.nf * (interp(d2Jf_, uf) * duf * duf + hermite(dJf_, d2Jf_, uf) * d2uf));
         if (p.includeCW) vpp += d2cw(phi, T);
@@ -165,13 +231,16 @@ public:
     // Dimensionless argument helpers (exposed for testing).
     double uBoson(double phi, double T) const {
         const Params& p = params_;
-        const double m2 = p.mb2_0 + 0.5 * p.yb * p.yb * phi * phi
-                          + (0.25 * p.yb * p.yb + 2.0 / 3.0 * p.gb * p.gb) * T * T;
+        // TwoStep follows the paper's m = g|phi| (no Debye/vacuum mass in J).
+        const double th = twoStep() ? 0.0 : 1.0;
+        const double m2 = th * p.mb2_0 + 0.5 * p.yb * p.yb * phi * phi
+                          + th * (0.25 * p.yb * p.yb + 2.0 / 3.0 * p.gb * p.gb) * T * T;
         return std::sqrt(m2 > 0 ? m2 : 0.0) / T;
     }
     double uFermion(double phi, double T) const {
         const Params& p = params_;
-        const double m2 = 0.5 * p.yf * p.yf * phi * phi + (1.0 / 6.0) * p.gf * p.gf * T * T;
+        const double th = twoStep() ? 0.0 : 1.0;
+        const double m2 = 0.5 * p.yf * p.yf * phi * phi + th * (1.0 / 6.0) * p.gf * p.gf * T * T;
         return std::sqrt(m2 > 0 ? m2 : 0.0) / T;
     }
 
@@ -256,6 +325,7 @@ private:
     }
 
     Params params_;
+    double q_[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
     size_t n_ = 0;
     double umin_ = 0.0, umax_ = 0.0, du_ = 0.0, invdu_ = 0.0;
     std::vector<double> Jb_, Jf_, dJb_, dJf_, d2Jb_, d2Jf_;

@@ -89,10 +89,22 @@ def build_tables(umax=150.0, npts=4096):
     Jf = np.array([float(np.real(CTFT.Jf_exact(x))) for x in u])
     dJb = np.array([float(np.real(CTFT.dJb_exact(x))) for x in u])
     dJf = np.array([float(np.real(CTFT.dJf_exact(x))) for x in u])
-    # Second derivatives from the (accurate) first-derivative grid.
-    d2Jb = np.gradient(dJb, u)
-    d2Jf = np.gradient(dJf, u)
+    # Second derivatives by a fine-step difference of the exact dJ (np.gradient on
+    # the table grid is first order at u=0, where the two_step false vacuum sits).
+    d2Jb = _d2J(CTFT.dJb_exact, u)
+    d2Jf = _d2J(CTFT.dJf_exact, u)
     return u, Jb, Jf, dJb, dJf, d2Jb, d2Jf
+
+
+def _d2J(dJ, u, h=1e-4):
+    f = lambda x: float(np.real(dJ(x)))  # noqa: E731
+    out = np.empty_like(u)
+    for i, x in enumerate(u):
+        if x < 2 * h:
+            out[i] = (-3.0 * f(x) + 4.0 * f(x + h) - f(x + 2 * h)) / (2 * h)
+        else:
+            out[i] = (f(x + h) - f(x - h)) / (2 * h)
+    return out
 
 
 def write_npz(path, u, Jb, Jf, dJb, dJf, d2Jb, d2Jf):

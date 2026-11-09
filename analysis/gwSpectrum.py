@@ -799,19 +799,19 @@ def _compute_plisc(noise_func, f_min, f_max, n_freq=2000,
     T_obs = T_obs_years * 365.25 * 24.0 * 3600.0
 
     n_t_arr = np.linspace(-8, 8, n_slopes)
-    plisc = np.full_like(f_grid, np.inf)
+    plisc = np.zeros_like(f_grid)
 
     for n_t in n_t_arr:
         template = (f_grid / f_ref) ** n_t
         integrand = (template / omega_n) ** 2
         integral = np.trapz(integrand, f_grid)
-        if integral <= 0:
+        if not np.isfinite(integral) or integral <= 0:
             continue
         A_min = snr_thr / np.sqrt(2.0 * T_obs * integral)
         curve = A_min * template
-        plisc = np.minimum(plisc, curve)
+        plisc = np.maximum(plisc, curve)
 
-    plisc = np.where(np.isfinite(plisc), plisc, 1e10)
+    plisc = np.where((plisc > 0) & np.isfinite(plisc), plisc, 1e10)
     _PLISC_CACHE[cache_key] = (f_grid, plisc)
     return f_grid, plisc
 

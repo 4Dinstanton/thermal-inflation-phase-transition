@@ -104,3 +104,16 @@ def load_plisc(filename: str) -> tuple[np.ndarray, np.ndarray]:
 
 def load_all() -> dict[str, tuple[np.ndarray, np.ndarray]]:
     return {name: load_plisc(fname) for name, (fname, _, _) in DETECTORS.items()}
+
+
+def add_detector_curves(ax, plisc: dict | None = None, *, alpha: float = 0.85) -> None:
+    """Overlay Schmitz (2020) PLISC curves with experiment names on the axes.
+
+    Matches the TIPT-style GW figures: LISA / DECIGO / BBO / ET / aLIGO
+    drawn as coloured dash-dot curves with bold name labels (not a legend).
+    """
+    curves = plisc or load_all()
+    for name, (_, color, f_target) in DETECTORS.items():
+        fv, sv = curves[name]
+        ax.loglog(fv, sv, color=color, ls="-.", lw=1.5, alpha=alpha, zorder=2)
+        place_detector_label(ax, name, fv, sv, f_target)

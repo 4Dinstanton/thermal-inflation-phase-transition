@@ -66,6 +66,9 @@ namespace TempLat {
         double nb, nf;                // multiplicities
         double gStarPot;             // radiation free-energy multiplicity (Potential.py: 100)
         double T0_;                   // initial temperature (GeV)
+        bool   twoStep_ = false;      // potential_type = two_step (0 -> a -> v sextic tree)
+        double tsV0_ = 0.0, tsA_ = 0.0, tsV_ = 1.0;
+        double tsK_[4] = {0.0, 0.0, 0.0, 0.0};  // k2, k3, k4, k6 (V/V0 in x = phi/v)
 
         ThermalInflation::ThermalTables thermalTables;  // loaded once
         ThermalContext thermalCtx;                      // shared with the operators
@@ -539,15 +542,31 @@ namespace TempLat {
             // Independent parameters
             /////////
             mphi = parser.get<double>("mphi", 1000.0);
-            // lambda may be given directly or via gamma (phi0 = gamma*M_Pl, lambda = mphi^2/phi0^2)
-            double gamma = parser.get<double>("gamma", -1.0);
-            const double M_PL = 2.4e18;
-            if (gamma > 0) {
-                const double phi0 = gamma * M_PL;
-                lambda = mphi * mphi / (phi0 * phi0);
-                delV = 0.25 * lambda * phi0 * phi0 * phi0 * phi0;  // V0 = lam/4 phi0^4
+            std::string potType = parser.get<std::string>("potential_type", "V_correct");
+            twoStep_ = (potType == "two_step");
+            if (twoStep_) {
+                // Sextic two-step tree (thermal_tables.hpp); coefficients come from
+                // potential/twoStepPotential.py via simulation/run_cosmolattice.py.
+                tsV0_ = parser.get<double>("two_step_V0");
+                tsA_ = parser.get<double>("two_step_a");
+                tsV_ = parser.get<double>("two_step_v");
+                tsK_[0] = parser.get<double>("two_step_k2");
+                tsK_[1] = parser.get<double>("two_step_k3");
+                tsK_[2] = parser.get<double>("two_step_k4");
+                tsK_[3] = parser.get<double>("two_step_k6");
+                lambda = 0.0;
+                delV = tsV0_;
             } else {
-                lambda = parser.get<double>("lambda");
+                // lambda may be given directly or via gamma (phi0 = gamma*M_Pl, lambda = mphi^2/phi0^2)
+                double gamma = parser.get<double>("gamma", -1.0);
+                const double M_PL = 2.4e18;
+                if (gamma > 0) {
+                    const double phi0 = gamma * M_PL;
+                    lambda = mphi * mphi / (phi0 * phi0);
+                    delV = 0.25 * lambda * phi0 * phi0 * phi0 * phi0;  // V0 = lam/4 phi0^4
+                } else {
+                    lambda = parser.get<double>("lambda");
+                }
             }
             delV = parser.get<double>("delV", delV);
 
@@ -561,7 +580,6 @@ namespace TempLat {
             gStarPot = parser.get<double>("g_star_pot", 100.0);
             gStarHubble = parser.get<double>("g_star_hubble", 106.75);
 
-            std::string potType = parser.get<std::string>("potential_type", "V_correct");
             if (potType == "fermion_only") nb = 0.0;
 
             T0_ = parser.get<double>("T0", 7350.0);
@@ -662,10 +680,9 @@ namespace TempLat {
             // Rescaling for program variables
             /////////
             alpha = 1;
-            // fStar: use phi0 (tree VEV) if the homogeneous amplitude is ~0.
-            const double phi0_scale = (std::abs(fldS0[0]) > 0 ? std::abs(fldS0[0])
-                                                              : mphi / std::sqrt(lambda));
-            fStar = phi0_scale;
+            // fStar: use the tree VEV (phi0, or v for two_step) if the homogeneous amplitude is ~0.
+            const double vev = twoStep_ ? tsV_ : mphi / std::sqrt(lambda);
+            fStar = std::abs(fldS0[0]) > 0 ? std::abs(fldS0[0]) : vev;
             omegaStar = mphi;
 
             /////////
@@ -675,8 +692,23 @@ namespace TempLat {
             tp.lam = lambda; tp.mphi = mphi; tp.mb2_0 = mb2_0;
             tp.yb = yb; tp.gb = gb; tp.yf = yf; tp.gf = gf;
             tp.nb = nb; tp.nf = nf; tp.gStarPot = gStarPot; tp.includeCW = includeCW;
+            if (twoStep_) {
+                tp.treeType = ThermalInflation::ThermalTables::Params::TreeType::TwoStep;
+                tp.V0 = tsV0_; tp.vVac = tsV_;
+                tp.k2 = tsK_[0]; tp.k3 = tsK_[1]; tp.k4 = tsK_[2]; tp.k6 = tsK_[3];
+                tp.includeCW = false;
+                includeCW = false;
+            }
             thermalTables.load(tablePath);
             thermalTables.setParams(tp);
+            if (twoStep_ && getToolBox()->amIRoot()) {
+                std::cout << "two_step potential: V0=" << tsV0_ << " GeV^4, a=" << tsA_
+                          << " GeV, v=" << tsV_ << " GeV, k=(" << tsK_[0] << ", " << tsK_[1]
+                          << ", " << tsK_[2] << ", " << tsK_[3] << ")"
+                          << "  V_tree(a)-V0=" << thermalTables.Vtree(tsA_) - tsV0_
+                          << "  V_tree(v)=" << thermalTables.Vtree(tsV_)
+                          << "  fStar=" << fStar << " omegaStar=" << omegaStar << "\n";
+            }
 
             thermalCtx.tables = &thermalTables;
             thermalCtx.fStar = fStar;
